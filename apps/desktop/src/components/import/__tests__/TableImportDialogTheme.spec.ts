@@ -16,7 +16,7 @@ describe("TableImportDialog theme and select color consistency (#10142)", () => 
   });
 
   it("declares select color-scheme and option background in globals.css", () => {
-    expect(globalsCssSource).toMatch(/select\s*\{[^}]*color-scheme:\s*light dark;/);
+    expect(globalsCssSource).toMatch(/select\s*\{[^}]*color-scheme:\s*light;/);
     expect(globalsCssSource).toMatch(/\.dark select[^}]*color-scheme:\s*dark;/);
     expect(globalsCssSource).toMatch(/select option\s*\{[^}]*background-color:\s*var\(--popover\);[^}]*color:\s*var\(--popover-foreground\);/);
   });

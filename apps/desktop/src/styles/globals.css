@@ -1580,7 +1580,7 @@ html.dbx-data-grid-native-selection-blocked [role="textbox"] * {
     user-select: none;
   }
   select {
-    color-scheme: light dark;
+    color-scheme: light;
   }
   .dark select,
   html.dark select {
