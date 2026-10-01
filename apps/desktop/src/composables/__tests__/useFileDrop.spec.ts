@@ -80,6 +80,14 @@ describe("useFileDrop SQL target", () => {
 
     await vi.waitFor(() => expect(mocks.queryStore.createTab).toHaveBeenCalledTimes(2));
     expect(mocks.queryStore.createTab).toHaveBeenNthCalledWith(2, "", "", "non-sql.sql", "query", undefined, undefined, undefined);
+
+    mocks.queryStore.tabs = [{ id: "mongo-tab", connectionId: "mongo-1", database: "admin", schema: undefined }];
+    mocks.queryStore.activeTabId = "mongo-tab";
+    mocks.connectionStore.getConfig.mockImplementation((connectionId: string) => (connectionId === "mongo-1" ? { id: connectionId, db_type: "mongodb" } : undefined));
+    dispatchSqlDrop("script.js");
+
+    await vi.waitFor(() => expect(mocks.queryStore.createTab).toHaveBeenCalledTimes(3));
+    expect(mocks.queryStore.createTab).toHaveBeenNthCalledWith(3, "mongo-1", "admin", "script.js", "query", undefined, undefined, undefined);
   });
 });
 

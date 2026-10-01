@@ -9,12 +9,8 @@ import { useLargeSqlFileStreamingFallback } from "@/composables/useLargeSqlFileF
 import * as api from "@/lib/backend/api";
 import type { ConnectionConfig, ExternalSqlFileVersion } from "@/types/database";
 import { detectDatabaseFileType } from "@/lib/database/databaseFileDetection";
-import { externalSqlEditorMaxBytes, externalSqlFileOpenErrorMessage, readBrowserSqlFile } from "@/lib/sql/sqlFileOpen";
+import { externalSqlEditorMaxBytes, externalSqlFileOpenErrorMessage, isScriptFilePath, readBrowserSqlFile } from "@/lib/sql/sqlFileOpen";
 import { activeTabExternalSqlFileTarget, resolveExternalSqlFileTargetForActiveTab } from "@/lib/sql/externalSqlFileTarget";
-
-function isSqlFilePath(path: string): boolean {
-  return /\.sql$/i.test(path);
-}
 
 function getDataFileQuery(path: string): Promise<string | undefined> {
   return api.buildDroppedFilePreviewSql({ path });
@@ -85,7 +81,7 @@ export function useFileDrop() {
             continue;
           }
 
-          if (isSqlFilePath(path)) {
+          if (isScriptFilePath(path)) {
             try {
               const snapshot = await api.readExternalSqlFileSnapshot(path, externalSqlEditorMaxBytes(settingsStore.editorSettings.externalSqlEditorMaxMb));
               await openDroppedSqlFile(name, snapshot.content, path, snapshot.version);
@@ -127,7 +123,7 @@ export function useFileDrop() {
         event.preventDefault();
         for (let i = 0; i < files.length; i++) {
           const file = files[i];
-          if (!isSqlFilePath(file.name)) continue;
+          if (!isScriptFilePath(file.name)) continue;
           void readBrowserSqlFile(file, externalSqlEditorMaxBytes(settingsStore.editorSettings.externalSqlEditorMaxMb))
             .then((content) => openDroppedSqlFile(file.name, content))
             .catch((e: any) => {
@@ -139,7 +135,7 @@ export function useFileDrop() {
         const files = event.dataTransfer?.files;
         if (!files || files.length === 0) return;
         for (let i = 0; i < files.length; i++) {
-          if (isSqlFilePath(files[i].name)) {
+          if (isScriptFilePath(files[i].name)) {
             event.preventDefault();
             return;
           }

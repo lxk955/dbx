@@ -56,6 +56,17 @@ describe("external SQL file targets", () => {
     });
   });
 
+  it("reuses the active MongoDB tab context for a script file", () => {
+    const tabs = [{ id: "mongo-tab", connectionId: "mongo-connection", database: "app_db", mode: "query" as const }];
+
+    expect(resolveExternalSqlFileTargetForActiveTab("/work/query.js", tabs, "mongo-tab", () => ({ db_type: "mongodb" }))).toEqual({
+      connectionId: "mongo-connection",
+      database: "app_db",
+      catalog: undefined,
+      schema: undefined,
+    });
+  });
+
   it("keeps the fallback unassociated without an active tab", () => {
     const tabs = [{ id: "inactive-tab", connectionId: "sql-connection", database: "analytics", mode: "query" as const }];
 

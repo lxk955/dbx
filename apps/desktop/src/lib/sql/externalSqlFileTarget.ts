@@ -23,7 +23,7 @@ export function unassociatedExternalSqlFileTarget(): ExternalSqlFileTarget {
 export function activeTabExternalSqlFileTarget(tabs: readonly ExternalSqlFileTargetTab[], activeTabId: string | null | undefined, getConnection: ExternalSqlFileConnectionLookup): ExternalSqlFileTarget {
   const activeTab = activeTabId ? tabs.find((tab) => tab.id === activeTabId) : undefined;
   const connection = activeTab?.connectionId ? getConnection(activeTab.connectionId) : undefined;
-  if (!activeTab || activeTab.mode === "plugin-workbench" || activeTab.mode === "plugin-filesystem" || !connection || !supportsSqlFileExecution(connection.db_type)) return unassociatedExternalSqlFileTarget();
+  if (!activeTab || activeTab.mode === "plugin-workbench" || activeTab.mode === "plugin-filesystem" || !connection || (!supportsSqlFileExecution(connection.db_type) && connection.db_type !== "mongodb")) return unassociatedExternalSqlFileTarget();
   return {
     connectionId: activeTab.connectionId,
     database: activeTab.database,
