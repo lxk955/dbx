@@ -57,12 +57,9 @@ describe("query editor script file filters and names", () => {
     expect(queryEditorOpenFileAccept("mongodb")).toBe(".js,.sql");
   });
 
-  it("provides default SQL filters for relational and standard database types", () => {
-    const filters = queryEditorOpenFileFilters("postgres");
-    expect(filters).toEqual([
-      { name: "SQL", extensions: ["sql"] },
-      { name: "All Files", extensions: ["*"] },
-    ]);
+  it("keeps non-MongoDB pickers SQL-only", () => {
+    expect(queryEditorOpenFileFilters("postgres")).toEqual([{ name: "SQL", extensions: ["sql"] }]);
+    expect(queryEditorOpenFileFilters(undefined)).toEqual([{ name: "SQL", extensions: ["sql"] }]);
     expect(queryEditorOpenFileAccept("postgres")).toBe(".sql");
     expect(queryEditorOpenFileAccept(undefined)).toBe(".sql");
   });

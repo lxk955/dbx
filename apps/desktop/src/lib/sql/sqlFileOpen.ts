@@ -19,10 +19,7 @@ export function queryEditorOpenFileFilters(databaseType?: string): QueryEditorFi
       { name: "All Files", extensions: ["*"] },
     ];
   }
-  return [
-    { name: "SQL", extensions: ["sql"] },
-    { name: "All Files", extensions: ["*"] },
-  ];
+  return [{ name: "SQL", extensions: ["sql"] }];
 }
 
 export function queryEditorOpenFileAccept(databaseType?: string): string {

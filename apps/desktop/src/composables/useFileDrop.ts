@@ -9,7 +9,7 @@ import { useLargeSqlFileStreamingFallback } from "@/composables/useLargeSqlFileF
 import * as api from "@/lib/backend/api";
 import type { ConnectionConfig, ExternalSqlFileVersion } from "@/types/database";
 import { detectDatabaseFileType } from "@/lib/database/databaseFileDetection";
-import { externalSqlEditorMaxBytes, externalSqlFileOpenErrorMessage, isScriptFilePath, readBrowserSqlFile } from "@/lib/sql/sqlFileOpen";
+import { externalSqlEditorMaxBytes, externalSqlFileOpenErrorMessage, isScriptFilePath, isSqlFilePath, readBrowserSqlFile } from "@/lib/sql/sqlFileOpen";
 import { activeTabExternalSqlFileTarget, resolveExternalSqlFileTargetForActiveTab } from "@/lib/sql/externalSqlFileTarget";
 
 function getDataFileQuery(path: string): Promise<string | undefined> {
@@ -25,11 +25,16 @@ export function useFileDrop() {
   const { openInStreamingExecutorOnTooLarge } = useLargeSqlFileStreamingFallback();
 
   async function openDroppedSqlFile(name: string, content: string, path?: string, version?: ExternalSqlFileVersion) {
+    const options = { allowMongoScripts: !isSqlFilePath(name) };
+    const target = path
+      ? resolveExternalSqlFileTargetForActiveTab(path, queryStore.tabs, queryStore.activeTabId, (connectionId) => connectionStore.getConfig(connectionId), options)
+      : activeTabExternalSqlFileTarget(queryStore.tabs, queryStore.activeTabId, (connectionId) => connectionStore.getConfig(connectionId), options);
+    // Dropped .js files only open when they resolve to a MongoDB target so they
+    // never bind to a relational SQL tab.
+    if (!isSqlFilePath(name) && connectionStore.getConfig(target.connectionId)?.db_type !== "mongodb") return;
     if (path) {
-      const target = resolveExternalSqlFileTargetForActiveTab(path, queryStore.tabs, queryStore.activeTabId, (connectionId) => connectionStore.getConfig(connectionId));
       queryStore.openExternalSqlFile(target.connectionId, target.database, path, content, version, target.catalog, target.schema);
     } else {
-      const target = activeTabExternalSqlFileTarget(queryStore.tabs, queryStore.activeTabId, (connectionId) => connectionStore.getConfig(connectionId));
       const tabId = queryStore.createTab(target.connectionId, target.database, name, "query", target.schema, undefined, target.catalog);
       queryStore.updateSql(tabId, content);
     }

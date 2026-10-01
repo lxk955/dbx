@@ -2501,7 +2501,7 @@ function applyExternalSqlTarget(tab: QueryTab, target: ExternalSqlFileTarget) {
 function applyExternalSqlFileTarget(tab: QueryTab, path: string) {
   applyExternalSqlTarget(
     tab,
-    resolveExternalSqlFileTargetForActiveTab(path, queryStore.tabs, tab.id, (connectionId) => connectionStore.getConfig(connectionId)),
+    resolveExternalSqlFileTargetForActiveTab(path, queryStore.tabs, tab.id, (connectionId) => connectionStore.getConfig(connectionId), { allowMongoScripts: true }),
   );
 }
 
@@ -2537,7 +2537,7 @@ async function openSqlFile() {
           queryStore.updateSql(tab.id, await readBrowserSqlFile(file, externalSqlEditorMaxBytes(settingsStore.editorSettings.externalSqlEditorMaxMb)));
           applyExternalSqlTarget(
             tab,
-            activeTabExternalSqlFileTarget(queryStore.tabs, tab.id, (connectionId) => connectionStore.getConfig(connectionId)),
+            activeTabExternalSqlFileTarget(queryStore.tabs, tab.id, (connectionId) => connectionStore.getConfig(connectionId), { allowMongoScripts: true }),
           );
         } catch (e: any) {
           toast(t("toolbar.sqlOpenFailed", { message: externalSqlFileOpenErrorMessage(e, (key, params) => t(key, params)) }), 5000);

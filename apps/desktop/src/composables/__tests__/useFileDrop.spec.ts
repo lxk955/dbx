@@ -53,17 +53,7 @@ afterEach(() => {
 
 describe("useFileDrop SQL target", () => {
   it("uses only an active SQL tab for browser-dropped files", async () => {
-    let setupFileDrop!: ReturnType<typeof useFileDrop>["setupFileDrop"];
-    app = createApp(
-      defineComponent({
-        setup() {
-          ({ setupFileDrop } = useFileDrop());
-          return () => h("div");
-        },
-      }),
-    );
-    app.mount(document.createElement("div"));
-    await setupFileDrop();
+    await mountFileDrop();
 
     mocks.queryStore.tabs = [{ id: "sql-tab", connectionId: "postgres-1", database: "analytics", catalog: "hive", schema: "reporting" }];
     mocks.queryStore.activeTabId = "sql-tab";
@@ -89,7 +79,36 @@ describe("useFileDrop SQL target", () => {
     await vi.waitFor(() => expect(mocks.queryStore.createTab).toHaveBeenCalledTimes(3));
     expect(mocks.queryStore.createTab).toHaveBeenNthCalledWith(3, "mongo-1", "admin", "script.js", "query", undefined, undefined, undefined);
   });
+
+  it("ignores dropped .js files that do not resolve to a MongoDB target", async () => {
+    await mountFileDrop();
+
+    mocks.queryStore.tabs = [{ id: "sql-tab", connectionId: "postgres-1", database: "analytics" }];
+    mocks.queryStore.activeTabId = "sql-tab";
+    mocks.connectionStore.getConfig.mockImplementation((connectionId: string) => (connectionId === "postgres-1" ? { id: connectionId, db_type: "postgres" } : undefined));
+    dispatchSqlDrop("script.js");
+
+    await vi.waitFor(() => expect(mocks.readBrowserSqlFile).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(mocks.queryStore.createTab).not.toHaveBeenCalled();
+    expect(mocks.queryStore.openExternalSqlFile).not.toHaveBeenCalled();
+    expect(mocks.toast).not.toHaveBeenCalled();
+  });
 });
+
+async function mountFileDrop() {
+  let setupFileDrop!: ReturnType<typeof useFileDrop>["setupFileDrop"];
+  app = createApp(
+    defineComponent({
+      setup() {
+        ({ setupFileDrop } = useFileDrop());
+        return () => h("div");
+      },
+    }),
+  );
+  app.mount(document.createElement("div"));
+  await setupFileDrop();
+}
 
 function dispatchSqlDrop(name: string) {
   const event = new Event("drop", { bubbles: true, cancelable: true });
