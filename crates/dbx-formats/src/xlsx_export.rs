@@ -249,20 +249,8 @@ fn push_data_row_xml(
             Some(Value::String(s)) => s.contains('\n') || s.contains('\r'),
             _ => false,
         };
-        let style = if is_sql_col || is_multiline {
-            Some(XLSX_WRAP_TEXT_STYLE)
-        } else {
-            align_style
-        };
-        push_typed_cell_xml(
-            output,
-            val,
-            col_type,
-            row_number - 1,
-            col_index,
-            style,
-            date_time_format,
-        );
+        let style = if is_sql_col || is_multiline { Some(XLSX_WRAP_TEXT_STYLE) } else { align_style };
+        push_typed_cell_xml(output, val, col_type, row_number - 1, col_index, style, date_time_format);
     }
     output.push_str("</row>");
 }
@@ -664,7 +652,10 @@ fn cell_xml(value: Option<&Value>, row_index: usize, col_index: usize, style: Op
         }
         Some(Value::String(s)) => {
             let space_attr = if needs_xml_space_preserve(s) { " xml:space=\"preserve\"" } else { "" };
-            format!("<c r=\"{reference}\" t=\"inlineStr\"{style_attr}><is><t{space_attr}>{}</t></is></c>", escape_xml(s))
+            format!(
+                "<c r=\"{reference}\" t=\"inlineStr\"{style_attr}><is><t{space_attr}>{}</t></is></c>",
+                escape_xml(s)
+            )
         }
         Some(other) => {
             let text = other.to_string();
@@ -2491,10 +2482,7 @@ mod tests {
         assert!(sheet2.contains("s=\"36\""), "sql sheet cell must have wrapText style s=36: {sheet2}");
 
         // Column width for SQL column should be expanded beyond the default 10/60
-        assert!(
-            sheet2.contains("<col min=\"1\" max=\"1\" width=\""),
-            "sql sheet has custom column width: {sheet2}"
-        );
+        assert!(sheet2.contains("<col min=\"1\" max=\"1\" width=\""), "sql sheet has custom column width: {sheet2}");
     }
 
     #[test]

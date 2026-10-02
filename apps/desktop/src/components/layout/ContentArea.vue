@@ -2934,7 +2934,6 @@ defineExpose({
           :sort-mode="activeTab.resultSortMode"
           :initial-order-by-input="activeTab.orderByInput"
           :sql="activeTab.sql"
-          :export-sql="activeTab.resultPageSql || activeTab.sql"
           :page-sql="activeTab.resultPageSql || activeTab.sql"
           :loading="activeTab.isExecuting"
           :editable="!activeTab.tableMetaPending && (isTableDataEditable(activeEffectiveDatabaseType, activeTableMeta?.primaryKeys ?? [], activeTableMeta?.tableType) || !!influxDbV1DeleteSaveHandler)"
