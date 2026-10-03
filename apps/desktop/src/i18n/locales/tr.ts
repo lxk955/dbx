@@ -1502,6 +1502,7 @@ export default withEnglishFallback({
       pasteRestoringSourceSql: "Yapıştır ve kaynak SQL'i geri yükle",
       pasteClipboardReadFailed: "Pano okunamadı: {message}",
       sendToAi: "Yapay Zekâya Gönder",
+      toggleCaseSelection: "Büyük/küçük harf değiştir",
       uppercaseSelection: "Büyük harfe dönüştür",
       lowercaseSelection: "Küçük harfe dönüştür",
       delimitedList: "Ayırıcılı listeye dönüştür",
@@ -8079,6 +8080,7 @@ export default withEnglishFallback({
     changelogSectionRemoved: "Kaldırıldı",
     shortcutUppercaseSelection: "Seçimi büyük harfe dönüştür",
     shortcutLowercaseSelection: "Seçimi küçük harfe dönüştür",
+    shortcutToggleCaseSelection: "Seçimin büyük/küçük harf durumunu değiştir",
     shortcutExPasteSqlInCondition: "ExPaste: IN koşulu olarak yapıştır",
   },
   driverStore: {

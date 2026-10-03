@@ -2119,6 +2119,7 @@ const formatterEditorShortcutIds: ShortcutActionId[] = [
   "selectAll",
   "uppercaseSelection",
   "lowercaseSelection",
+  "toggleCaseSelection",
   "toggleFold",
   "foldAll",
   "unfoldAll",
