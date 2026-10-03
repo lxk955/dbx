@@ -3,7 +3,7 @@ import { blockingDesktopAiRunsForUpdate } from "@/lib/ai/desktopAiRunRegistry";
 import { setupUpdatePreparation, prepareUpdateWithDraftRecovery, isUpdatePreparationActive } from "@/lib/app/updatePreparation";
 import { ref, computed, watch, onMounted, onUnmounted, nextTick, defineAsyncComponent, provide } from "vue";
 import "vue-virtual-scroller/dist/vue-virtual-scroller.css";
-import { checkStartupAuthentication, type StartupAuthentication } from "@/lib/startup/startupAuthentication";
+import { checkStartupAuthentication, logoutWeb, type StartupAuthentication } from "@/lib/startup/startupAuthentication";
 import { markStartupPhase } from "@/lib/startup/startupTiming";
 import { clearStartupPreloadRetry } from "@/lib/startup/startupPreloadRecovery";
 import { useI18n } from "vue-i18n";
@@ -106,6 +106,7 @@ import { activeDesktopAiRuns, blockingDesktopAiRunsForQuit } from "@/lib/ai/desk
 
 import {
   isBrowserReloadShortcut,
+  isBrowserTaskManagerShortcut,
   isCloseOtherTabsShortcut,
   isCloseTabShortcut,
   isExecuteSqlInNewResultTabShortcut,
@@ -1014,6 +1015,12 @@ const specialPageTabs = computed(() => ({
 }));
 provide(GROUP_TAB_BAR_PORTAL, createGroupTabBarPortal(computed(() => !isDetachedWindowContext && (driverStoreActive.value || pluginCenterActive.value || settingsStore.settingsPageActive))));
 provide(EDITOR_TOOLBAR_ACTIONS, {
+  canNewQuery: canCreateNewQuery,
+  newQuery: (groupId: string) => {
+    queryStore.focusGroup(groupId);
+    newQueryContextSource.value = "tab";
+    void newQuery();
+  },
   explainMode,
   blockDangerousRedisCommands,
   databaseRequiredSignalFor: (tabId: string) => (databaseRequiredTabId.value === tabId ? databaseRequiredSignal.value : 0),
@@ -1443,6 +1450,7 @@ async function updateAllAvailable() {
   }
 }
 const hasSqlFileConnections = computed(() => connectionStore.connections.some((c) => supportsSqlFileExecution(c.db_type)));
+const welcomePageMode = computed(() => (settingsStore.isEditorSettingsLoaded ? settingsStore.editorSettings.welcomePageMode : "intro"));
 const queryEditorDdlDatabaseType = computed(() => {
   if (!queryEditorDdlTarget.value?.connectionId) return undefined;
   return effectiveDatabaseTypeForConnection(connectionStore.getConfig(queryEditorDdlTarget.value.connectionId));
@@ -1457,11 +1465,11 @@ const queryEditorObjectSourceDatabaseType = computed(() => {
 const queryEditorObjectSourceDialect = computed(() => codeMirrorSqlDialect(queryEditorObjectSourceDatabaseType.value));
 const queryEditorObjectSourceFormatDialect = computed(() => sqlFormatDialectForDbType(queryEditorObjectSourceDatabaseType.value));
 const connectionStats = computed(() => ({
-  total: connectionStore.connections.length,
-  connected: connectionStore.connectedIds.size,
-  types: new Set(connectionStore.connections.map((c) => c.driver_profile || c.db_type)).size,
+  total: welcomePageMode.value === "workspace" ? connectionStore.connections.length : 0,
+  connected: welcomePageMode.value === "workspace" ? connectionStore.connectedIds.size : 0,
+  types: welcomePageMode.value === "workspace" ? new Set(connectionStore.connections.map((c) => c.driver_profile || c.db_type)).size : 0,
 }));
-const recentConnections = computed(() => rankRecentConnections(connectionStore.connections, recentConnectionIds.value));
+const recentConnections = computed(() => (welcomePageMode.value === "workspace" ? rankRecentConnections(connectionStore.connections, recentConnectionIds.value) : []));
 
 function rememberRecentConnection(connectionId: string | null) {
   if (!connectionId) return;
@@ -1474,6 +1482,7 @@ function rememberRecentConnection(connectionId: string | null) {
 watch(() => connectionStore.activeConnectionId, rememberRecentConnection);
 
 const savedSqlHistoryItems = computed(() => {
+  if (welcomePageMode.value !== "workspace") return [];
   const folderById = new Map(savedSqlStore.allFolders.map((folder) => [folder.id, folder]));
   const folderPath = (folderId?: string): string | undefined => {
     if (!folderId) return undefined;
@@ -3239,6 +3248,9 @@ function openGitHub() {
 function openMcpGuide() {
   openUrl("https://dbxio.com/cn/docs/mcp");
 }
+function openDbxWebsite() {
+  openUrl("https://dbxio.com");
+}
 
 function setSidebarOpen(open: boolean) {
   sidebarOpen.value = open;
@@ -3707,6 +3719,11 @@ const tabSwitcherKeyboard = createTabSwitcherKeyboardController({
 });
 
 function handleNativeSelectAll(e: KeyboardEvent) {
+  if (isBrowserTaskManagerShortcut(e)) {
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
   if (shouldBlockAppNativeSelectAll(e)) e.preventDefault();
 }
 
@@ -4000,6 +4017,11 @@ async function handleKeydown(e: KeyboardEvent) {
       return;
     }
   }
+  if (isBrowserTaskManagerShortcut(e)) {
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
   if (isDesktop && isBrowserReloadShortcut(e)) {
     e.preventDefault();
     e.stopPropagation();
@@ -4012,6 +4034,24 @@ function onLoginSuccess() {
   needsAuth.value = true;
   window.history.replaceState(null, "", webPath("/"));
   void initApp();
+}
+
+async function handleWebLogout() {
+  if (!window.confirm(t("auth.logoutConfirm"))) return;
+  try {
+    await logoutWeb();
+  } catch (error) {
+    console.error("Failed to log out:", error);
+  } finally {
+    authenticated.value = false;
+    needsAuth.value = true;
+    const target = webPath("/login");
+    if (window.location.pathname === target) {
+      window.location.reload();
+    } else {
+      window.location.href = target;
+    }
+  }
 }
 
 async function initApp() {
@@ -4174,6 +4214,7 @@ watch(appReady, (ready) => void syncConnectionLivenessSubscription(ready), { imm
 onMounted(async () => {
   clearStartupPreloadRetry();
   markStartupPhase("app-mounted");
+  window.addEventListener("keydown", handleNativeSelectAll, true);
   console.log("[STARTUP] onMounted begin");
   const mountStart = performance.now();
   if (isDetachedWindowContext) {
@@ -4195,7 +4236,6 @@ onMounted(async () => {
   });
   applyTheme();
   void applyUiScale(settingsStore.editorSettings.uiScale);
-  window.addEventListener("keydown", handleNativeSelectAll, true);
   window.addEventListener("keydown", handleGlobalSearchKeydownCapture, true);
   window.addEventListener("keydown", handleTabSwitcherKeydownCapture, true);
   window.addEventListener("keydown", handleAuxiliarySearchKeydownCapture, true);
@@ -4339,6 +4379,7 @@ onUnmounted(() => {
           :has-connections="connectionStore.connections.length > 0"
           :can-new-query="canCreateNewQuery"
           :has-sql-file-connections="hasSqlFileConnections"
+          :show-logout="!isDesktop && needsAuth"
           @new-connection="showConnectionDialog = true"
           @expand-sidebar="setSidebarOpen(true)"
           @new-query="newQuery"
@@ -4358,6 +4399,7 @@ onUnmounted(() => {
           @open-data-compare="dialogs.showDataCompareDialog.value = true"
           @open-backups="openSettings('backups')"
           @open-mcp-settings="openSettings('mcp')"
+          @logout="handleWebLogout"
         />
 
         <div :class="isDetachedWindowContext ? 'flex-1 flex min-h-0' : isClassicLayout ? 'app-layout-classic flex-1 flex min-h-0' : 'app-panel-gutter flex-1 flex min-h-0 gap-1 p-1'">
@@ -4452,6 +4494,7 @@ onUnmounted(() => {
                   "
                   @open-mcp-settings="openSettings('mcp')"
                   @ai-config-deep-link-handled="settingsAiConfigDraft = null"
+                  @logout="handleWebLogout"
                 />
               </AppTabBar>
               <DetachedTabHeader
@@ -4618,6 +4661,7 @@ onUnmounted(() => {
                         :connection-stats="connectionStats"
                         :recent-connections="recentConnections"
                         :saved-sql-history-items="savedSqlHistoryItems"
+                        :welcome-page-mode="welcomePageMode"
                         :app-version="appVersion"
                         :can-new-query="canCreateNewQuery"
                         @open-connection-query="openConnectionQuery"
@@ -4628,6 +4672,8 @@ onUnmounted(() => {
                         @import-config="dialogs.onImportClick"
                         @open-github="openGitHub"
                         @open-mcp-guide="openMcpGuide"
+                        @open-website="openDbxWebsite"
+                        @open-settings="openSettings('appearance', 'welcome-page-settings')"
                       />
                     </template>
                   </SqlEditorWorkspace>

@@ -839,6 +839,7 @@ const paginationMaxRows = computed(() => (isResultsContext.value ? queryResultMa
 const infiniteScrollMaxRows = computed(() => continuousQueryResultMaxRows(settingsStore.editorSettings.queryResultMaxRowsEnabled, settingsStore.editorSettings.queryResultMaxRows));
 const showWhitespaceEnabled = computed(() => settingsStore.editorSettings.dataGridShowWhitespace);
 const flatteningMultiLineEnabled = computed(() => settingsStore.editorSettings.flatteningMultiLineText);
+const dataGridStripedRows = computed(() => settingsStore.editorSettings.dataGridStripedRows);
 const expandedCellEditor = ref<{ rowId: number; col: number } | null>(null);
 const readonlyTextCell = ref<{
   rowId: number;
@@ -7025,11 +7026,9 @@ function dataGridRowStyle(item: RowItem): CSSProperties {
           ? dark
             ? "rgb(51, 51, 55)"
             : "rgb(243, 243, 243)"
-          : item.displayIndex % 2 === 1
+          : dataGridStripedRows.value && item.displayIndex % 2 === 1
             ? `var(--data-grid-row-muted-bg, ${dark ? DATA_GRID_DARK_STRIPED_ROW_BG : DATA_GRID_LIGHT_STRIPED_ROW_BG})`
-            : dark
-              ? "rgb(19, 20, 22)"
-              : "rgb(255, 255, 255)";
+            : "var(--data-grid-background)";
   const rowNumberBg =
     item.status === "new"
       ? dark
@@ -7104,7 +7103,9 @@ const dataGridTypeColorKey = computed(() => {
   const colors = resolveActiveDataGridTypeColors(settings.dataGridTypeColorSchemes, settings.activeDataGridTypeColorSchemeId);
   return colors ? DATA_GRID_TYPE_COLOR_KEYS.map((key) => colors[key]).join(",") : "auto";
 });
-const canvasRenderStyleKey = computed(() => `${settingsStore.editorSettings.theme}:${settingsStore.editorSettings.uiScale}:${canvasBackingPixelRatio.value}:${isDark.value}:${themePalette.value}:${tableFontFamily.value}:${tableFontSize.value}:${!!saveError.value}:${dataGridTypeColorKey.value}`);
+const canvasRenderStyleKey = computed(
+  () => `${settingsStore.editorSettings.theme}:${settingsStore.editorSettings.uiScale}:${canvasBackingPixelRatio.value}:${isDark.value}:${themePalette.value}:${tableFontFamily.value}:${tableFontSize.value}:${!!saveError.value}:${dataGridTypeColorKey.value}:${dataGridStripedRows.value}`,
+);
 const CANVAS_MOUSE_WHEEL_SCROLL_MULTIPLIER = 1.5;
 const CANVAS_TRACKPAD_DELTA_THRESHOLD = 40;
 let canvasPixelRatioMediaQuery: MediaQueryList | null = null;
@@ -7879,6 +7880,7 @@ function drawCanvasGrid() {
     booleanDisplayMode: booleanDisplayMode.value,
     flatteningMultiLineEnabled: flatteningMultiLineEnabled.value,
     showWhitespace: showWhitespaceEnabled.value,
+    stripedRows: dataGridStripedRows.value,
     rowNumberMode: dataGridRowNumberMode.value,
   });
   if (!drawn) return;
@@ -7908,6 +7910,7 @@ watch(columnAligns, () => scheduleCanvasDraw());
 watch(booleanDisplayMode, () => scheduleCanvasDraw());
 watch(flatteningMultiLineEnabled, () => scheduleCanvasDraw());
 watch(showWhitespaceEnabled, () => scheduleCanvasDraw());
+watch(dataGridStripedRows, () => scheduleCanvasDraw());
 watch(colorizeDataGridCellTypes, () => scheduleCanvasDraw());
 watch(
   [
@@ -12195,6 +12198,8 @@ defineExpose({
   toggleDdl: toggleTableInfo,
   showTableInfo,
   toggleTableInfo,
+  canOpenTableStructureEditor,
+  openTableStructureEditor,
   multiRowTranspose,
   setMultiRowTranspose,
   toggleMultiRowTranspose,
@@ -14064,7 +14069,7 @@ useUpdateBlocker(() => (hasPendingChanges.value || hasPendingDataEditorDraft.val
                           'data-grid-row--deleted opacity-70': item.isDeleted,
                           'data-grid-row--new': item.isNew && !isRowActive(item.displayIndex),
                           'data-grid-row--draft': item.isDraft && !isRowActive(item.displayIndex),
-                          'data-grid-row--striped': !item.isNew && !item.isDraft && !item.isDeleted && !isRowActive(item.displayIndex) && item.displayIndex % 2 === 1,
+                          'data-grid-row--striped': dataGridStripedRows && !item.isNew && !item.isDraft && !item.isDeleted && !isRowActive(item.displayIndex) && item.displayIndex % 2 === 1,
                           'active-row': isRowActive(item.displayIndex) && !item.isDeleted,
                           'crosshair-row': !!crosshairTarget?.rowCrosshair && crosshairTarget.rowIndex === item.displayIndex && !item.isDeleted,
                           'relative z-20 overflow-visible': editingCell?.rowId === item.id || readonlyTextCell?.rowId === item.id,
@@ -14911,6 +14916,7 @@ useUpdateBlocker(() => (hasPendingChanges.value || hasPendingDataEditorDraft.val
 @reference "../../styles/globals.css";
 
 [data-grid-root] {
+  --data-grid-background: var(--background-solid, var(--background));
   --data-grid-row-muted-bg: rgb(240, 240, 240);
   --data-grid-row-new-bg: rgb(243, 243, 243);
   --data-grid-row-deleted-bg: rgb(255, 244, 244);
@@ -14935,7 +14941,7 @@ useUpdateBlocker(() => (hasPendingChanges.value || hasPendingDataEditorDraft.val
   --data-grid-scrollbar-thumb: color-mix(in oklch, var(--foreground) 30%, transparent);
   --data-grid-scrollbar-thumb-hover: color-mix(in oklch, var(--foreground) 48%, transparent);
   --data-grid-scrollbar-track: transparent;
-  background-color: rgb(255, 255, 255);
+  background-color: var(--data-grid-background);
 }
 
 [data-grid-root].data-grid--has-save-error {
@@ -14969,7 +14975,7 @@ useUpdateBlocker(() => (hasPendingChanges.value || hasPendingDataEditorDraft.val
   --data-grid-scrollbar-thumb: rgb(82, 82, 91);
   --data-grid-scrollbar-thumb-hover: rgb(113, 113, 122);
   --data-grid-scrollbar-track: rgb(24, 24, 27);
-  background-color: rgb(19, 20, 22);
+  background-color: var(--data-grid-background);
 }
 
 [data-grid-root].data-grid--dark.data-grid--has-save-error,
@@ -15081,7 +15087,7 @@ useUpdateBlocker(() => (hasPendingChanges.value || hasPendingDataEditorDraft.val
 
 /* 冻结列：不透明背景遮挡滚动的非冻结列；状态 class 的 !important 会覆盖此项 */
 .data-grid-cell--frozen {
-  background-color: var(--data-grid-cell-bg, rgb(255, 255, 255)) !important;
+  background-color: var(--data-grid-cell-bg, var(--data-grid-background)) !important;
 }
 
 /* 冻结列分隔线：与 Canvas 模式和列头一致（2px 深色右边框） */
@@ -15206,21 +15212,21 @@ useUpdateBlocker(() => (hasPendingChanges.value || hasPendingDataEditorDraft.val
 
 .canvas-grid-scroller.has-horizontal-scrollbar {
   margin-bottom: 10px;
-  box-shadow: 0 10px 0 0 rgb(255, 255, 255);
+  box-shadow: 0 10px 0 0 var(--data-grid-background);
 }
 
 .canvas-grid-scroller {
-  background-color: rgb(255, 255, 255);
+  background-color: var(--data-grid-background);
 }
 
 [data-grid-root].data-grid--dark .canvas-grid-scroller,
 :global(.dark) [data-grid-root] .canvas-grid-scroller {
-  background-color: rgb(19, 20, 22) !important;
+  background-color: var(--data-grid-background) !important;
 }
 
 [data-grid-root].data-grid--dark .canvas-grid-scroller.has-horizontal-scrollbar,
 :global(.dark) [data-grid-root] .canvas-grid-scroller.has-horizontal-scrollbar {
-  box-shadow: 0 10px 0 0 rgb(19, 20, 22);
+  box-shadow: 0 10px 0 0 var(--data-grid-background);
 }
 
 .data-grid-scroller.has-horizontal-scrollbar:not(.canvas-grid-scroller) {
@@ -15228,24 +15234,24 @@ useUpdateBlocker(() => (hasPendingChanges.value || hasPendingDataEditorDraft.val
 }
 
 .data-grid-scroller:not(.canvas-grid-scroller) {
-  background-color: rgb(255, 255, 255);
+  background-color: var(--data-grid-background);
 }
 
 [data-grid-root].data-grid--dark .data-grid-scroller:not(.canvas-grid-scroller),
 :global(.dark) [data-grid-root] .data-grid-scroller:not(.canvas-grid-scroller) {
-  background-color: rgb(19, 20, 22) !important;
+  background-color: var(--data-grid-background) !important;
 }
 
 .data-grid-scroller:not(.canvas-grid-scroller) :deep(.vue-recycle-scroller__item-wrapper),
 .data-grid-scroller:not(.canvas-grid-scroller) :deep(.vue-recycle-scroller__item-view) {
-  background-color: rgb(255, 255, 255);
+  background-color: var(--data-grid-background);
 }
 
 [data-grid-root].data-grid--dark .data-grid-scroller:not(.canvas-grid-scroller) :deep(.vue-recycle-scroller__item-wrapper),
 [data-grid-root].data-grid--dark .data-grid-scroller:not(.canvas-grid-scroller) :deep(.vue-recycle-scroller__item-view),
 :global(.dark) [data-grid-root] .data-grid-scroller:not(.canvas-grid-scroller) :deep(.vue-recycle-scroller__item-wrapper),
 :global(.dark) [data-grid-root] .data-grid-scroller:not(.canvas-grid-scroller) :deep(.vue-recycle-scroller__item-view) {
-  background-color: rgb(19, 20, 22) !important;
+  background-color: var(--data-grid-background) !important;
 }
 
 .data-grid-scroller :deep(.vue-recycle-scroller__item-wrapper) {
@@ -15255,7 +15261,7 @@ useUpdateBlocker(() => (hasPendingChanges.value || hasPendingDataEditorDraft.val
 
 [data-grid-root].data-grid--dark .data-grid-scroller :deep(.vue-recycle-scroller__item-wrapper),
 [data-grid-root].data-grid--dark .data-grid-scroller :deep(.vue-recycle-scroller__item-view) {
-  background-color: rgb(19, 20, 22) !important;
+  background-color: var(--data-grid-background) !important;
 }
 
 .data-grid-scroller :deep(.vue-recycle-scroller__item-view) {
@@ -15286,12 +15292,12 @@ useUpdateBlocker(() => (hasPendingChanges.value || hasPendingDataEditorDraft.val
   height: 10px;
   cursor: pointer;
   touch-action: none;
-  background-color: rgb(255, 255, 255);
+  background-color: var(--data-grid-background);
 }
 
 [data-grid-root].data-grid--dark .data-grid-horizontal-scrollbar,
 :global(.dark) [data-grid-root] .data-grid-horizontal-scrollbar {
-  background-color: rgb(19, 20, 22) !important;
+  background-color: var(--data-grid-background) !important;
 }
 
 .data-grid-horizontal-scrollbar::before {
@@ -15359,7 +15365,7 @@ useUpdateBlocker(() => (hasPendingChanges.value || hasPendingDataEditorDraft.val
 }
 
 :global(.dark) [data-grid-root] .data-grid-vertical-scrollbar {
-  background-color: rgb(19, 20, 22);
+  background-color: var(--data-grid-background);
 }
 
 .data-grid-vertical-scrollbar__thumb {
