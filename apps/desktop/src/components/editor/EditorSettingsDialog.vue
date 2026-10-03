@@ -2104,6 +2104,8 @@ const formatterEditorShortcutIds: ShortcutActionId[] = [
   "uppercaseSelection",
   "lowercaseSelection",
   "toggleFold",
+  "foldAll",
+  "unfoldAll",
 ];
 const formatterEditorShortcutDefinitions = computed(() => formatterEditorShortcutIds.map((id) => SHORTCUT_DEFINITIONS.find((definition) => definition.id === id)).filter((definition): definition is (typeof SHORTCUT_DEFINITIONS)[number] => !!definition));
 const filteredShortcutDefinitions = computed(() => {

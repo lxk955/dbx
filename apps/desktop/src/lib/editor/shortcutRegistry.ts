@@ -32,6 +32,8 @@ export type ShortcutActionId =
   | "convertNamingStyle"
   | "exPasteSqlInCondition"
   | "toggleFold"
+  | "foldAll"
+  | "unfoldAll"
   | "editTableStructure"
   | "copyCurrentRow"
   | "deleteCurrentRow"
@@ -338,6 +340,18 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
     labelKey: "settings.shortcutToggleFold",
     scope: "editor",
     defaultShortcut: "Mod+.",
+  },
+  {
+    id: "foldAll",
+    labelKey: "settings.shortcutFoldAll",
+    scope: "editor",
+    defaultShortcut: "Mod+Alt+[",
+  },
+  {
+    id: "unfoldAll",
+    labelKey: "settings.shortcutUnfoldAll",
+    scope: "editor",
+    defaultShortcut: "Mod+Alt+]",
   },
   {
     id: "editTableStructure",

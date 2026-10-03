@@ -42,6 +42,8 @@ describe("shortcutRegistry editor actions", () => {
     "lowercaseSelection",
     "exPasteSqlInCondition",
     "toggleFold",
+    "foldAll",
+    "unfoldAll",
   ];
   const sidebarShortcutActionIds: ShortcutActionId[] = ["copySidebarSelection", "pasteSidebarSelection", "editSidebarConnection", "disconnectSidebarConnection", "viewTableDdl"];
 
@@ -291,6 +293,8 @@ describe("shortcutRegistry editor actions", () => {
     expect(shortcuts.lowercaseSelection).toBe("Shift+Alt+L");
     expect(shortcuts.exPasteSqlInCondition).toBe("");
     expect(shortcuts.toggleFold).toBe("Mod+.");
+    expect(shortcuts.foldAll).toBe("Mod+Alt+[");
+    expect(shortcuts.unfoldAll).toBe("Mod+Alt+]");
   });
 
   it("registers IntelliJ-style extend selection as a configurable editor shortcut", () => {

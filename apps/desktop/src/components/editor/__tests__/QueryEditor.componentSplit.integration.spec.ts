@@ -305,6 +305,14 @@ describe("QueryEditor component split integration", () => {
     expect(view.state.doc.toString()).toBe("SELECT 1;\nSELECT 2;");
   });
 
+  it("exposes foldAll and unfoldAll handles that can be invoked safely on the editor instance", async () => {
+    const { editor } = await mountEditor({ modelValue: "SELECT 1;\nSELECT 2;" });
+    expect(typeof editor.foldAll).toBe("function");
+    expect(typeof editor.unfoldAll).toBe("function");
+    expect(() => editor.foldAll()).not.toThrow();
+    expect(() => editor.unfoldAll()).not.toThrow();
+  });
+
   it("isolates extension reconfiguration and disposal between editor instances", async () => {
     const first = await mountEditor({ modelValue: "SELECT 1;", tabId: "independent-a" });
     const second = await mountEditor({ modelValue: "SELECT 2;", tabId: "independent-b" });

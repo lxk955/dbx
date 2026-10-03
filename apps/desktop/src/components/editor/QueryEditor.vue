@@ -1216,6 +1216,15 @@ const contextMenuActions: QueryEditorContextMenuActions = {
   sendSelectionToAi: () => {
     if (selectedSql.value.trim()) emit("sendSelectionToAi", selectedSql.value);
   },
+  toggleFoldFromContextMenu: () => {
+    toggleFold();
+  },
+  foldAllFromContextMenu: () => {
+    foldAll();
+  },
+  unfoldAllFromContextMenu: () => {
+    unfoldAll();
+  },
 };
 
 function getContextMenuState(): QueryEditorContextMenuState {
@@ -1383,6 +1392,8 @@ function runKeymapExtension(codeMirrorKeymap: (typeof import("@codemirror/view")
           return codeMirrorRuntime.codeMirrorToggleBlockComment?.(view) ?? false;
         }),
         ...binding(shortcuts.toggleFold, (view) => codeMirrorRuntime.codeMirrorToggleFold?.(view) ?? false),
+        ...binding(shortcuts.foldAll, (view) => codeMirrorRuntime.codeMirrorFoldAll?.(view) ?? false),
+        ...binding(shortcuts.unfoldAll, (view) => codeMirrorRuntime.codeMirrorUnfoldAll?.(view) ?? false),
         ...binding(shortcuts.exPasteSqlInCondition, () => {
           if (!supportsSqlInListPaste(props.databaseType)) return false;
           void pasteClipboardAsSqlInCondition();
@@ -2738,6 +2749,21 @@ function cancelGutterExecutionViewport(requestId: number) {
   return executionViewportOwnership.cancelPendingRequest(requestId);
 }
 
+function toggleFold(): boolean {
+  if (!view.value) return false;
+  return codeMirrorRuntime.codeMirrorToggleFold?.(view.value) ?? false;
+}
+
+function foldAll(): boolean {
+  if (!view.value) return false;
+  return codeMirrorRuntime.codeMirrorFoldAll?.(view.value) ?? false;
+}
+
+function unfoldAll(): boolean {
+  if (!view.value) return false;
+  return codeMirrorRuntime.codeMirrorUnfoldAll?.(view.value) ?? false;
+}
+
 function shouldBlockExecutionShortcut(event?: KeyboardEvent, currentView: EditorViewType | null = view.value): boolean {
   return (currentView ? isEditorComposing(currentView) : false) || (event ? postCompositionKeyGuard.blocks(event) : false);
 }
@@ -2759,6 +2785,9 @@ defineExpose({
   focusErrorPosition,
   previewStatementRange,
   refreshCompletionCache,
+  toggleFold,
+  foldAll,
+  unfoldAll,
 });
 </script>
 
