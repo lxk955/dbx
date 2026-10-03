@@ -150,6 +150,8 @@ type ReadyCodeMirrorBindings = CodeMirrorBindings & {
     | "codeMirrorToggleBlockComment"
     | "codeMirrorDefaultKeymap"
     | "codeMirrorToggleFold"
+    | "codeMirrorFoldAll"
+    | "codeMirrorUnfoldAll"
     | "codeMirrorIndentUnit"]: NonNullable<CodeMirrorBindings[Key]>;
 };
 
