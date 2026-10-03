@@ -962,6 +962,7 @@ export interface EditorSettings {
   multiStatementDefaultView: MultiStatementDefaultView;
   dataGridAutoTransposeSingleRow: boolean;
   dataGridCellDetailButtonVisible: boolean;
+  dataGridCellDetailDialogDefault: boolean;
   dataGridCrosshairHighlight: boolean;
   dataGridMultiRowTranspose: boolean;
   dataGridHideNullColumns: boolean;
@@ -1257,6 +1258,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   multiStatementDefaultView: "result",
   dataGridAutoTransposeSingleRow: false,
   dataGridCellDetailButtonVisible: true,
+  dataGridCellDetailDialogDefault: false,
   dataGridCrosshairHighlight: false,
   dataGridMultiRowTranspose: false,
   dataGridHideNullColumns: false,
@@ -1841,6 +1843,7 @@ export function normalizeEditorSettings(settings: Partial<EditorSettings>, exist
     multiStatementDefaultView: normalizeMultiStatementDefaultView(settings.multiStatementDefaultView),
     dataGridAutoTransposeSingleRow: settings.dataGridAutoTransposeSingleRow === true,
     dataGridCellDetailButtonVisible: typeof settings.dataGridCellDetailButtonVisible === "boolean" ? settings.dataGridCellDetailButtonVisible : DEFAULT_EDITOR_SETTINGS.dataGridCellDetailButtonVisible,
+    dataGridCellDetailDialogDefault: settings.dataGridCellDetailDialogDefault === true,
     dataGridCrosshairHighlight: typeof settings.dataGridCrosshairHighlight === "boolean" ? settings.dataGridCrosshairHighlight : DEFAULT_EDITOR_SETTINGS.dataGridCrosshairHighlight,
     dataGridMultiRowTranspose: settings.dataGridMultiRowTranspose === true,
     dataGridHideNullColumns: settings.dataGridHideNullColumns === true,
@@ -2694,6 +2697,7 @@ export const useSettingsStore = defineStore("settings", () => {
     if (partial.multiStatementDefaultView !== undefined) editorSettings.value.multiStatementDefaultView = normalizeMultiStatementDefaultView(partial.multiStatementDefaultView);
     if (partial.dataGridAutoTransposeSingleRow !== undefined) editorSettings.value.dataGridAutoTransposeSingleRow = partial.dataGridAutoTransposeSingleRow === true;
     if (partial.dataGridCellDetailButtonVisible !== undefined) editorSettings.value.dataGridCellDetailButtonVisible = typeof partial.dataGridCellDetailButtonVisible === "boolean" ? partial.dataGridCellDetailButtonVisible : DEFAULT_EDITOR_SETTINGS.dataGridCellDetailButtonVisible;
+    if (partial.dataGridCellDetailDialogDefault !== undefined) editorSettings.value.dataGridCellDetailDialogDefault = partial.dataGridCellDetailDialogDefault === true;
     if (partial.dataGridCrosshairHighlight !== undefined) editorSettings.value.dataGridCrosshairHighlight = typeof partial.dataGridCrosshairHighlight === "boolean" ? partial.dataGridCrosshairHighlight : DEFAULT_EDITOR_SETTINGS.dataGridCrosshairHighlight;
     if (partial.dataGridMultiRowTranspose !== undefined) editorSettings.value.dataGridMultiRowTranspose = partial.dataGridMultiRowTranspose === true;
     if (partial.dataGridHideNullColumns !== undefined) editorSettings.value.dataGridHideNullColumns = partial.dataGridHideNullColumns === true;

@@ -749,6 +749,7 @@ const editDefaultAutoKeepResults = ref(settingsStore.editorSettings.defaultAutoK
 const editMultiStatementDefaultView = ref<MultiStatementDefaultView>(settingsStore.editorSettings.multiStatementDefaultView);
 const editDataGridAutoTransposeSingleRow = ref(settingsStore.editorSettings.dataGridAutoTransposeSingleRow);
 const editDataGridCellDetailButtonVisible = ref(settingsStore.editorSettings.dataGridCellDetailButtonVisible);
+const editDataGridCellDetailDialogDefault = ref(settingsStore.editorSettings.dataGridCellDetailDialogDefault);
 const editDataGridCrosshairHighlight = ref(settingsStore.editorSettings.dataGridCrosshairHighlight);
 const editPageSize = ref(settingsStore.editorSettings.pageSize);
 const editTableOpenPageSize = ref(settingsStore.editorSettings.tableOpenPageSize);
@@ -1103,6 +1104,7 @@ function currentEditorSettingsDraft(): EditorSettingsDraft {
     multiStatementDefaultView: editMultiStatementDefaultView.value,
     dataGridAutoTransposeSingleRow: editDataGridAutoTransposeSingleRow.value,
     dataGridCellDetailButtonVisible: editDataGridCellDetailButtonVisible.value,
+    dataGridCellDetailDialogDefault: editDataGridCellDetailDialogDefault.value,
     dataGridCrosshairHighlight: editDataGridCrosshairHighlight.value,
     flatteningMultiLineText: editFlatteningMultiLineText.value,
     dataGridShowWhitespace: editDataGridShowWhitespace.value,
@@ -1772,6 +1774,7 @@ function syncEditorSettingsDraftFromStore() {
   editMultiStatementDefaultView.value = settingsStore.editorSettings.multiStatementDefaultView;
   editDataGridAutoTransposeSingleRow.value = settingsStore.editorSettings.dataGridAutoTransposeSingleRow;
   editDataGridCellDetailButtonVisible.value = settingsStore.editorSettings.dataGridCellDetailButtonVisible;
+  editDataGridCellDetailDialogDefault.value = settingsStore.editorSettings.dataGridCellDetailDialogDefault;
   editDataGridCrosshairHighlight.value = settingsStore.editorSettings.dataGridCrosshairHighlight;
   editFlatteningMultiLineText.value = settingsStore.editorSettings.flatteningMultiLineText;
   editDataGridShowWhitespace.value = settingsStore.editorSettings.dataGridShowWhitespace;
@@ -1916,6 +1919,7 @@ const editorSettingsDraftRefs: EditorSettingsDraftRefMap = {
   multiStatementDefaultView: editMultiStatementDefaultView,
   dataGridAutoTransposeSingleRow: editDataGridAutoTransposeSingleRow,
   dataGridCellDetailButtonVisible: editDataGridCellDetailButtonVisible,
+  dataGridCellDetailDialogDefault: editDataGridCellDetailDialogDefault,
   dataGridCrosshairHighlight: editDataGridCrosshairHighlight,
   pageSize: editPageSize,
   tableOpenPageSize: editTableOpenPageSize,
@@ -2492,6 +2496,7 @@ function resetDefaultsForTab(tab: SettingsCategory) {
     editMultiStatementDefaultView.value = DEFAULT_EDITOR_SETTINGS.multiStatementDefaultView;
     editDataGridAutoTransposeSingleRow.value = DEFAULT_EDITOR_SETTINGS.dataGridAutoTransposeSingleRow;
     editDataGridCellDetailButtonVisible.value = DEFAULT_EDITOR_SETTINGS.dataGridCellDetailButtonVisible;
+    editDataGridCellDetailDialogDefault.value = DEFAULT_EDITOR_SETTINGS.dataGridCellDetailDialogDefault;
     editDataGridCrosshairHighlight.value = DEFAULT_EDITOR_SETTINGS.dataGridCrosshairHighlight;
     editFlatteningMultiLineText.value = DEFAULT_EDITOR_SETTINGS.flatteningMultiLineText;
     editDataGridShowWhitespace.value = DEFAULT_EDITOR_SETTINGS.dataGridShowWhitespace;
@@ -2605,6 +2610,7 @@ function resetAllDefaults() {
   editMultiStatementDefaultView.value = DEFAULT_EDITOR_SETTINGS.multiStatementDefaultView;
   editDataGridAutoTransposeSingleRow.value = DEFAULT_EDITOR_SETTINGS.dataGridAutoTransposeSingleRow;
   editDataGridCellDetailButtonVisible.value = DEFAULT_EDITOR_SETTINGS.dataGridCellDetailButtonVisible;
+  editDataGridCellDetailDialogDefault.value = DEFAULT_EDITOR_SETTINGS.dataGridCellDetailDialogDefault;
   editDataGridCrosshairHighlight.value = DEFAULT_EDITOR_SETTINGS.dataGridCrosshairHighlight;
   editFlatteningMultiLineText.value = DEFAULT_EDITOR_SETTINGS.flatteningMultiLineText;
   editDataGridShowWhitespace.value = DEFAULT_EDITOR_SETTINGS.dataGridShowWhitespace;
@@ -8626,6 +8632,17 @@ onUnmounted(() => {
                     </p>
                   </div>
                   <Switch id="data-grid-cell-detail-button-visible" v-model="editDataGridCellDetailButtonVisible" />
+                </div>
+                <div class="settings-item flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">
+                  <div class="space-y-1">
+                    <Label for="data-grid-cell-detail-dialog-default">
+                      {{ t("settings.dataGridCellDetailDialogDefault") }}
+                    </Label>
+                    <p class="text-xs text-muted-foreground">
+                      {{ t("settings.dataGridCellDetailDialogDefaultDescription") }}
+                    </p>
+                  </div>
+                  <Switch id="data-grid-cell-detail-dialog-default" v-model="editDataGridCellDetailDialogDefault" />
                 </div>
                 <div class="settings-item flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">
                   <div class="space-y-1">
