@@ -1,5 +1,7 @@
+import { getActivePinia } from "pinia";
 import type { HistoryEntry } from "@/lib/backend/api";
 import { classifySqlActivityKind, primarySqlOperation } from "@/lib/history/historyActivityKind";
+import { useHistoryStore } from "@/stores/historyStore";
 
 export interface RecordTableMutationHistoryOptions {
   connectionId: string;
@@ -17,7 +19,16 @@ export type TableMutationHistoryStore = {
   add: (entry: Omit<HistoryEntry, "id" | "executed_at">) => Promise<void>;
 };
 
-export async function recordTableMutationHistory(historyStore: TableMutationHistoryStore | undefined, options: RecordTableMutationHistoryOptions): Promise<void> {
+export function getTableMutationHistoryStoreOrNull(): TableMutationHistoryStore | null {
+  try {
+    if (!getActivePinia()) return null;
+    return useHistoryStore();
+  } catch {
+    return null;
+  }
+}
+
+export async function recordTableMutationHistory(historyStore: TableMutationHistoryStore | undefined | null, options: RecordTableMutationHistoryOptions): Promise<void> {
   if (!historyStore) return;
   const sql = options.sql.trim();
   if (!sql || !options.connectionId) return;

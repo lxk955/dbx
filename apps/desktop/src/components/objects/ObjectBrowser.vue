@@ -124,8 +124,7 @@ import { useExportTracker, type ExportTask } from "@/composables/useExportTracke
 import { useSettingsStore } from "@/stores/settingsStore";
 import { formatSidebarTableNamesForCopy, type SidebarTableCopyTarget } from "@/lib/sidebar/sidebarTableNameCopy";
 import { useQueryStore } from "@/stores/queryStore";
-import { useHistoryStore } from "@/stores/historyStore";
-import { recordTableMutationHistory } from "@/lib/history/tableMutationHistory";
+import { getTableMutationHistoryStoreOrNull, recordTableMutationHistory } from "@/lib/history/tableMutationHistory";
 import QueryEditor from "@/components/editor/QueryEditor.vue";
 import MySqlEventEditor from "@/components/objects/MySqlEventEditor.vue";
 import { sqlFormatDialectForDbType, type SqlFormatDialect } from "@/lib/sql/sqlFormatter";
@@ -213,7 +212,6 @@ const { toast } = useToast();
 const { highlight } = useSqlHighlighter();
 const connectionStore = useConnectionStore();
 const queryStore = useQueryStore();
-const historyStore = useHistoryStore();
 const settingsStore = useSettingsStore();
 const refreshTooltip = computed(() => {
   const shortcut = formatShortcut(settingsStore.editorSettings.shortcuts.refreshData);
@@ -1855,7 +1853,7 @@ async function confirmDrop() {
     executedSql = sql;
     const executed = await executeObjectBrowserSqlWithProductionGuard(sql, () => api.executeQuery(props.connection.id, props.database, sql));
     if (!executed) return;
-    await recordTableMutationHistory(historyStore, {
+    await recordTableMutationHistory(getTableMutationHistoryStoreOrNull(), {
       connectionId: props.connection.id,
       connectionName: props.connection.name,
       database: props.database,
@@ -1875,7 +1873,7 @@ async function confirmDrop() {
     await connectionStore.refreshObjectListTreeNode(props.connection.id, props.database, row.schema || selectedSchema.value);
   } catch (e: any) {
     if (executedSql) {
-      await recordTableMutationHistory(historyStore, {
+      await recordTableMutationHistory(getTableMutationHistoryStoreOrNull(), {
         connectionId: props.connection.id,
         connectionName: props.connection.name,
         database: props.database,
@@ -2162,7 +2160,7 @@ async function confirmBatchDropTables() {
     if (!result) return;
 
     batchDropRecorded = true;
-    await recordTableMutationHistory(historyStore, {
+    await recordTableMutationHistory(getTableMutationHistoryStoreOrNull(), {
       connectionId: props.connection.id,
       connectionName: props.connection.name,
       database: props.database,
@@ -2184,7 +2182,7 @@ async function confirmBatchDropTables() {
     toast(t("objects.batchDropSuccess", { count: result.succeeded.length }));
   } catch (e: any) {
     if (!batchDropRecorded && batchSql) {
-      await recordTableMutationHistory(historyStore, {
+      await recordTableMutationHistory(getTableMutationHistoryStoreOrNull(), {
         connectionId: props.connection.id,
         connectionName: props.connection.name,
         database: props.database,
@@ -2268,7 +2266,7 @@ async function confirmBatchTruncateTables() {
       return true;
     });
     if (!executed) return;
-    await recordTableMutationHistory(historyStore, {
+    await recordTableMutationHistory(getTableMutationHistoryStoreOrNull(), {
       connectionId: props.connection.id,
       connectionName: props.connection.name,
       database: props.database,
@@ -2284,7 +2282,7 @@ async function confirmBatchTruncateTables() {
     await connectionStore.refreshObjectListTreeNode(props.connection.id, props.database, selectedSchema.value);
   } catch (e: any) {
     if (batchSql) {
-      await recordTableMutationHistory(historyStore, {
+      await recordTableMutationHistory(getTableMutationHistoryStoreOrNull(), {
         connectionId: props.connection.id,
         connectionName: props.connection.name,
         database: props.database,
@@ -2333,7 +2331,7 @@ async function confirmBatchEmptyTables() {
     });
   });
   if (!result) return;
-  await recordTableMutationHistory(historyStore, {
+  await recordTableMutationHistory(getTableMutationHistoryStoreOrNull(), {
     connectionId: props.connection.id,
     connectionName: props.connection.name,
     database: props.database,
@@ -2943,7 +2941,7 @@ async function confirmTruncateTable() {
     executedSql = sql;
     const executed = await executeObjectBrowserSqlWithProductionGuard(sql, () => api.executeQuery(props.connection.id, props.database, sql));
     if (!executed) return;
-    await recordTableMutationHistory(historyStore, {
+    await recordTableMutationHistory(getTableMutationHistoryStoreOrNull(), {
       connectionId: props.connection.id,
       connectionName: props.connection.name,
       database: props.database,
@@ -2956,7 +2954,7 @@ async function confirmTruncateTable() {
     await refreshMutatedTableDataTabsForRows([row]);
   } catch (e: any) {
     if (executedSql) {
-      await recordTableMutationHistory(historyStore, {
+      await recordTableMutationHistory(getTableMutationHistoryStoreOrNull(), {
         connectionId: props.connection.id,
         connectionName: props.connection.name,
         database: props.database,
@@ -3042,7 +3040,7 @@ async function confirmEmptyTable() {
     executedSql = sql;
     const executed = await executeObjectBrowserSqlWithProductionGuard(sql, () => api.executeQuery(props.connection.id, props.database, sql));
     if (!executed) return;
-    await recordTableMutationHistory(historyStore, {
+    await recordTableMutationHistory(getTableMutationHistoryStoreOrNull(), {
       connectionId: props.connection.id,
       connectionName: props.connection.name,
       database: props.database,
@@ -3055,7 +3053,7 @@ async function confirmEmptyTable() {
     await refreshMutatedTableDataTabsForRows([row]);
   } catch (e: any) {
     if (executedSql) {
-      await recordTableMutationHistory(historyStore, {
+      await recordTableMutationHistory(getTableMutationHistoryStoreOrNull(), {
         connectionId: props.connection.id,
         connectionName: props.connection.name,
         database: props.database,
