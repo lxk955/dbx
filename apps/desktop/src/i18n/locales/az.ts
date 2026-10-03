@@ -7990,6 +7990,7 @@ export default withEnglishFallback({
     shortcutCopySidebarSelection: "Yan paneldəki seçimi kopyala",
     shortcutPasteSidebarSelection: "Yan panelə yerləşdir",
     shortcutEditSidebarConnection: "Yan paneldəki əlaqəni redaktə et",
+    shortcutDisconnectSidebarConnection: "Yan paneldəki əlaqəni kəs",
     shortcutOpenDataInNewTab: "Məlumatları yeni vərəqdə aç (siçan klikləməsi)",
     shortcutViewTableDdl: "Cədvəlin DDL-inə bax",
     shortcutSendSelectionToAi: "Seçimi AI-yə göndər",
