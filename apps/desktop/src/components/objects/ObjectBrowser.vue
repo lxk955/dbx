@@ -1848,6 +1848,7 @@ async function confirmDrop() {
   const row = dropTarget.value;
   let executedSql = "";
   const start = Date.now();
+  let successRecorded = false;
   try {
     const sql = dropPreviewSql.value || (await buildDropSqlForRow(row, { cascade: canDropTargetCascade.value && dropTableCascade.value }));
     executedSql = sql;
@@ -1862,6 +1863,7 @@ async function confirmDrop() {
       success: true,
       target: row.name,
     }).catch((err) => console.warn("[DBX] failed to record drop history", err));
+    successRecorded = true;
     const successKey = row.type === "VIEW" ? "contextMenu.dropViewSuccess" : row.type === "PROCEDURE" ? "contextMenu.dropProcedureSuccess" : row.type === "FUNCTION" ? "contextMenu.dropFunctionSuccess" : row.type === "EVENT" ? "contextMenu.dropEventSuccess" : "contextMenu.dropTableSuccess";
     toast(t(successKey, { name: row.name }));
     const cacheSchema = row.schema || selectedSchema.value || props.database;
@@ -1872,7 +1874,7 @@ async function confirmDrop() {
     await reload();
     await connectionStore.refreshObjectListTreeNode(props.connection.id, props.database, row.schema || selectedSchema.value);
   } catch (e: any) {
-    if (executedSql) {
+    if (executedSql && !successRecorded) {
       await recordTableMutationHistory(getTableMutationHistoryStoreOrNull(), {
         connectionId: props.connection.id,
         connectionName: props.connection.name,
@@ -2246,6 +2248,7 @@ async function confirmBatchTruncateTables() {
   if (targets.length === 0) return;
   let batchSql = "";
   const start = Date.now();
+  let successRecorded = false;
   try {
     const useCascade = canBatchTruncateCascade.value && batchTruncateCascade.value;
     const statements = await Promise.all(
@@ -2275,13 +2278,14 @@ async function confirmBatchTruncateTables() {
       success: true,
       target: targets.map((t) => t.name).join(", "),
     }).catch((err) => console.warn("[DBX] failed to record batch truncate history", err));
+    successRecorded = true;
     toast(t("objects.batchTruncateSuccess", { count: targets.length }));
     clearTableSelection();
     showBatchTruncateConfirm.value = false;
     await reload();
     await connectionStore.refreshObjectListTreeNode(props.connection.id, props.database, selectedSchema.value);
   } catch (e: any) {
-    if (batchSql) {
+    if (batchSql && !successRecorded) {
       await recordTableMutationHistory(getTableMutationHistoryStoreOrNull(), {
         connectionId: props.connection.id,
         connectionName: props.connection.name,
@@ -2936,6 +2940,7 @@ async function confirmTruncateTable() {
   if (!row) return;
   let executedSql = "";
   const start = Date.now();
+  let successRecorded = false;
   try {
     const sql = truncatePreviewSql.value || (await buildTruncateTableSql(tableAdminSqlOptions(row, { cascade: canTruncateTargetCascade.value && truncateTableCascade.value })));
     executedSql = sql;
@@ -2950,10 +2955,11 @@ async function confirmTruncateTable() {
       success: true,
       target: row.name,
     }).catch((err) => console.warn("[DBX] failed to record truncate history", err));
+    successRecorded = true;
     toast(t("contextMenu.truncateTableSuccess", { name: row.name }));
     await refreshMutatedTableDataTabsForRows([row]);
   } catch (e: any) {
-    if (executedSql) {
+    if (executedSql && !successRecorded) {
       await recordTableMutationHistory(getTableMutationHistoryStoreOrNull(), {
         connectionId: props.connection.id,
         connectionName: props.connection.name,
@@ -3035,6 +3041,7 @@ async function confirmEmptyTable() {
   if (!row) return;
   let executedSql = "";
   const start = Date.now();
+  let successRecorded = false;
   try {
     const sql = emptyPreviewSql.value || (await buildEmptyTableSql(tableAdminSqlOptions(row)));
     executedSql = sql;
@@ -3049,10 +3056,11 @@ async function confirmEmptyTable() {
       success: true,
       target: row.name,
     }).catch((err) => console.warn("[DBX] failed to record empty history", err));
+    successRecorded = true;
     toast(t("contextMenu.emptyTableSuccess", { name: row.name }));
     await refreshMutatedTableDataTabsForRows([row]);
   } catch (e: any) {
-    if (executedSql) {
+    if (executedSql && !successRecorded) {
       await recordTableMutationHistory(getTableMutationHistoryStoreOrNull(), {
         connectionId: props.connection.id,
         connectionName: props.connection.name,

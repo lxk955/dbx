@@ -3581,7 +3581,12 @@ async function confirmBatchDrop() {
       const sql = await dropSqlForTreeNode(target, { cascade: useCascade });
       if (!sql) continue;
       const startTime = Date.now();
-      await executeTreeNodeSqlWithProductionGuard(target, sql, { database: target.database, schema: target.schema });
+      const guardResult = await executeTreeNodeSqlWithProductionGuard(target, sql, { database: target.database, schema: target.schema });
+      if (guardResult === undefined) {
+        // The production guard declined the SQL: it was never sent, so keep the
+        // node, skip the history record, and move on to the next target.
+        continue;
+      }
       await recordTableMutationHistory(getTableMutationHistoryStoreOrNull(), {
         connectionId: target.connectionId,
         connectionName: connectionStore.getConfig(target.connectionId)?.name,
@@ -3654,7 +3659,12 @@ async function confirmBatchEmpty() {
     const sql = await emptySqlForTreeNode(target);
     if (!sql) throw new Error("Empty table SQL is unavailable");
     const startTime = Date.now();
-    await executeTreeNodeSqlWithProductionGuard(target, sql, { database: target.database, schema: target.schema });
+    const guardResult = await executeTreeNodeSqlWithProductionGuard(target, sql, { database: target.database, schema: target.schema });
+    if (guardResult === undefined) {
+      // The production guard declined the SQL: it was never sent, so this must
+      // not be recorded as a success nor counted as an emptied table.
+      throw new Error("Production safety confirmation declined");
+    }
     await recordTableMutationHistory(getTableMutationHistoryStoreOrNull(), {
       connectionId: target.connectionId,
       connectionName: connectionStore.getConfig(target.connectionId)?.name,

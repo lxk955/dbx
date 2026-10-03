@@ -462,6 +462,7 @@ export function useSidebarTableMutationRuntime(options: SidebarTableMutationRunt
     const { executionId, isCancelledBeforeDispatch, markDispatched, wasCancelled, cancelConfirmed, waitForCancelConfirmation, markHandedOff } = beginDangerRunningExecution(node.label);
     const start = Date.now();
     let executedSql = "";
+    let successRecorded = false;
     try {
       await connectionStore.ensureConnected(node.connectionId);
       const sql = await buildSql();
@@ -484,6 +485,7 @@ export function useSidebarTableMutationRuntime(options: SidebarTableMutationRunt
           success: true,
           target: node.label,
         }).catch((err) => console.warn("[DBX] failed to record table mutation history", err));
+        successRecorded = true;
       }
       await onSuccess(node);
       endDangerRunningExecution();
@@ -492,7 +494,7 @@ export function useSidebarTableMutationRuntime(options: SidebarTableMutationRunt
       const backendError = normalizeBackendError(error) ?? undefined;
       const cancellationWasRequested = wasCancelled();
       const cancellationWasConfirmed = cancelConfirmed() || (cancellationWasRequested && (await waitForCancelConfirmation()));
-      if (executedSql && options.historyStore && !cancellationWasRequested && !cancellationWasConfirmed && !isCancelledBeforeDispatch()) {
+      if (executedSql && !successRecorded && options.historyStore && !cancellationWasRequested && !cancellationWasConfirmed && !isCancelledBeforeDispatch()) {
         await recordTableMutationHistory(options.historyStore, {
           connectionId: node.connectionId,
           connectionName: connectionStore.getConfig(node.connectionId)?.name,
