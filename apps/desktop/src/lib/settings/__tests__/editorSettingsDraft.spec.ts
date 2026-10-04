@@ -137,8 +137,7 @@ describe("EDITOR_SETTINGS_DRAFT_KEYS", () => {
     expect(EDITOR_SETTINGS_DRAFT_KEYS).toContain("dataGridCellDetailButtonVisible");
   });
 
-  it("includes table zebra striping and zebra row background", () => {
-    expect(EDITOR_SETTINGS_DRAFT_KEYS).toContain("dataGridZebraStriping");
+  it("includes zebra row background in draft keys", () => {
     expect(EDITOR_SETTINGS_DRAFT_KEYS).toContain("dataGridZebraRowBg");
   });
 

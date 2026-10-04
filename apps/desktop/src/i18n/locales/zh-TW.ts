@@ -6610,8 +6610,6 @@ export default withEnglishFallback({
     dataGridCellDetailButtonVisibleDescription: "游標懸停在儲存格上時顯示儲存格詳細資料按鈕。",
     dataGridCrosshairHighlight: "行列十字高亮",
     dataGridCrosshairHighlightDescription: "開啟後，以目前活動儲存格為中心淡色高亮整列和整行（類似 Excel）。焦點儲存格仍保留原有選取樣式。",
-    dataGridZebraStriping: "表格斑馬紋",
-    dataGridZebraStripingDescription: "交替顯示資料表格各列的背景顏色以提高可讀性。",
     dataGridZebraRowBg: "斑馬紋顏色",
     infiniteScroll: "無限滾動載入",
     autoCalculateTotalRows: "自動統計總筆數",

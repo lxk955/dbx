@@ -756,7 +756,6 @@ const editDataGridAutoTransposeSingleRow = ref(settingsStore.editorSettings.data
 const editDataGridCellDetailButtonVisible = ref(settingsStore.editorSettings.dataGridCellDetailButtonVisible);
 const editDataGridCrosshairHighlight = ref(settingsStore.editorSettings.dataGridCrosshairHighlight);
 const editDataGridStripedRows = ref(settingsStore.editorSettings.dataGridStripedRows);
-const editDataGridZebraStriping = ref(settingsStore.editorSettings.dataGridZebraStriping);
 const editDataGridZebraRowBg = ref(settingsStore.editorSettings.dataGridZebraRowBg);
 const editPageSize = ref(settingsStore.editorSettings.pageSize);
 const editTableOpenPageSize = ref(settingsStore.editorSettings.tableOpenPageSize);
@@ -1115,7 +1114,6 @@ function currentEditorSettingsDraft(): EditorSettingsDraft {
     dataGridCellDetailButtonVisible: editDataGridCellDetailButtonVisible.value,
     dataGridCrosshairHighlight: editDataGridCrosshairHighlight.value,
     dataGridStripedRows: editDataGridStripedRows.value,
-    dataGridZebraStriping: editDataGridZebraStriping.value,
     dataGridZebraRowBg: editDataGridZebraRowBg.value,
     flatteningMultiLineText: editFlatteningMultiLineText.value,
     dataGridShowWhitespace: editDataGridShowWhitespace.value,
@@ -1789,7 +1787,6 @@ function syncEditorSettingsDraftFromStore() {
   editDataGridCellDetailButtonVisible.value = settingsStore.editorSettings.dataGridCellDetailButtonVisible;
   editDataGridCrosshairHighlight.value = settingsStore.editorSettings.dataGridCrosshairHighlight;
   editDataGridStripedRows.value = settingsStore.editorSettings.dataGridStripedRows;
-  editDataGridZebraStriping.value = settingsStore.editorSettings.dataGridZebraStriping;
   editDataGridZebraRowBg.value = settingsStore.editorSettings.dataGridZebraRowBg;
   editFlatteningMultiLineText.value = settingsStore.editorSettings.flatteningMultiLineText;
   editDataGridShowWhitespace.value = settingsStore.editorSettings.dataGridShowWhitespace;
@@ -1938,7 +1935,6 @@ const editorSettingsDraftRefs: EditorSettingsDraftRefMap = {
   dataGridCellDetailButtonVisible: editDataGridCellDetailButtonVisible,
   dataGridCrosshairHighlight: editDataGridCrosshairHighlight,
   dataGridStripedRows: editDataGridStripedRows,
-  dataGridZebraStriping: editDataGridZebraStriping,
   dataGridZebraRowBg: editDataGridZebraRowBg,
   pageSize: editPageSize,
   tableOpenPageSize: editTableOpenPageSize,
@@ -2522,7 +2518,6 @@ function resetDefaultsForTab(tab: SettingsCategory) {
     editDataGridCellDetailButtonVisible.value = DEFAULT_EDITOR_SETTINGS.dataGridCellDetailButtonVisible;
     editDataGridCrosshairHighlight.value = DEFAULT_EDITOR_SETTINGS.dataGridCrosshairHighlight;
     editDataGridStripedRows.value = DEFAULT_EDITOR_SETTINGS.dataGridStripedRows;
-    editDataGridZebraStriping.value = DEFAULT_EDITOR_SETTINGS.dataGridZebraStriping;
     editDataGridZebraRowBg.value = DEFAULT_EDITOR_SETTINGS.dataGridZebraRowBg;
     editFlatteningMultiLineText.value = DEFAULT_EDITOR_SETTINGS.flatteningMultiLineText;
     editDataGridShowWhitespace.value = DEFAULT_EDITOR_SETTINGS.dataGridShowWhitespace;
@@ -2639,7 +2634,6 @@ function resetAllDefaults() {
   editDataGridCellDetailButtonVisible.value = DEFAULT_EDITOR_SETTINGS.dataGridCellDetailButtonVisible;
   editDataGridCrosshairHighlight.value = DEFAULT_EDITOR_SETTINGS.dataGridCrosshairHighlight;
   editDataGridStripedRows.value = DEFAULT_EDITOR_SETTINGS.dataGridStripedRows;
-  editDataGridZebraStriping.value = DEFAULT_EDITOR_SETTINGS.dataGridZebraStriping;
   editDataGridZebraRowBg.value = DEFAULT_EDITOR_SETTINGS.dataGridZebraRowBg;
   editFlatteningMultiLineText.value = DEFAULT_EDITOR_SETTINGS.flatteningMultiLineText;
   editDataGridShowWhitespace.value = DEFAULT_EDITOR_SETTINGS.dataGridShowWhitespace;
@@ -8764,19 +8758,10 @@ onUnmounted(() => {
                         @input="editDataGridZebraRowBg = ($event.target as HTMLInputElement).value"
                       />
                       <Button v-if="editDataGridZebraRowBg" type="button" variant="ghost" size="sm" class="h-6 px-1 text-[11px] text-muted-foreground hover:text-foreground" @click="editDataGridZebraRowBg = ''">
-                        {{ t("common.reset") }}
+                        {{ t("settings.reset") }}
                       </Button>
                     </div>
-                    <Switch
-                      id="data-grid-striped-rows"
-                      :model-value="editDataGridStripedRows"
-                      @update:model-value="
-                        (val) => {
-                          editDataGridStripedRows = val;
-                          editDataGridZebraStriping = val;
-                        }
-                      "
-                    />
+                    <Switch id="data-grid-striped-rows" v-model="editDataGridStripedRows" />
                   </div>
                 </div>
                 <div class="settings-item flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">

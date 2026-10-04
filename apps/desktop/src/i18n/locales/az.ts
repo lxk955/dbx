@@ -7271,8 +7271,6 @@ export default withEnglishFallback({
     dataGridCellDetailButtonVisibleDescription: "Kursor xananın üzərinə gətirildikdə xana təfərrüatları düyməsini göstər.",
     dataGridCrosshairHighlight: "Sətir və sütunun çarpaz vurğulanması",
     dataGridCrosshairHighlightDescription: "Aktiv olduqda aktiv xananın bütün sətrini və sütununu yüngülcə vurğula (Excel-dəki kimi). Fokuslanmış xana seçilmiş üslubunu saxlayır.",
-    dataGridZebraStriping: "Cədvəl zolaqlı sətirlər",
-    dataGridZebraStripingDescription: "Oxunaqlılığı artırmaq üçün cədvəl sətirlərinin fon rənglərini növbə ilə göstərir.",
     dataGridZebraRowBg: "Zolaq rəngi",
     infiniteScroll: "Sonsuz sürüşdürmə ilə yükləmə",
     autoCalculateTotalRows: "Ümumi sətir sayını avtomatik hesabla",

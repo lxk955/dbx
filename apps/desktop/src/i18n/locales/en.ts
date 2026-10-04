@@ -8148,8 +8148,6 @@ export default {
     dataGridCellDetailButtonVisibleDescription: "Show the cell detail button when hovering over a cell.",
     dataGridCrosshairHighlight: "Crosshair row & column highlight",
     dataGridCrosshairHighlightDescription: "When enabled, lightly highlight the entire row and column of the active cell (like Excel). The focused cell keeps its selected style.",
-    dataGridZebraStriping: "Table Zebra Striping",
-    dataGridZebraStripingDescription: "Alternate row background colors in data grid tables to improve readability.",
     dataGridZebraRowBg: "Stripe Color",
     infiniteScroll: "Infinite scroll loading",
     autoCalculateTotalRows: "Auto-calculate total row count",

@@ -7262,8 +7262,6 @@ export default withEnglishFallback({
     dataGridCellDetailButtonVisibleDescription: "Mostrar o botão de detalhes da célula ao passar o mouse sobre uma célula.",
     dataGridCrosshairHighlight: "Destacar linha e coluna em cruz",
     dataGridCrosshairHighlightDescription: "Quando ativado, destaca levemente toda a linha e a coluna da célula ativa (como no Excel). A célula focada mantém o estilo selecionado.",
-    dataGridZebraStriping: "Linhas alternadas da tabela",
-    dataGridZebraStripingDescription: "Alterna as cores de fundo das linhas nas tabelas para melhorar a legibilidade.",
     dataGridZebraRowBg: "Cor da linha alternada",
     infiniteScroll: "Carregamento por rolagem infinita",
     autoCalculateTotalRows: "Calcular automaticamente o total de linhas",

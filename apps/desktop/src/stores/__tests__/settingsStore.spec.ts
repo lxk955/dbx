@@ -640,15 +640,7 @@ describe("normalizeEditorSettings", () => {
     }
   });
 
-  it("defaults data grid zebra striping on and normalizes boolean and custom color", () => {
-    expect(normalizeEditorSettings({}).dataGridZebraStriping).toBe(true);
-    expect(normalizeEditorSettings({ dataGridZebraStriping: true }).dataGridZebraStriping).toBe(true);
-    expect(normalizeEditorSettings({ dataGridZebraStriping: false }).dataGridZebraStriping).toBe(false);
-
-    for (const invalidValue of [0, 1, "false", null]) {
-      expect(normalizeEditorSettings({ dataGridZebraStriping: invalidValue as never }).dataGridZebraStriping).toBe(true);
-    }
-
+  it("defaults zebra row background empty and normalizes custom color", () => {
     expect(normalizeEditorSettings({}).dataGridZebraRowBg).toBe("");
     expect(normalizeEditorSettings({ dataGridZebraRowBg: " #334455 \n" }).dataGridZebraRowBg).toBe("#334455");
     expect(normalizeEditorSettings({ dataGridZebraRowBg: null as never }).dataGridZebraRowBg).toBe("");
