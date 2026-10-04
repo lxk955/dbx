@@ -688,6 +688,7 @@ const tableCompletionSchemaQualificationDescription = computed(() => {
 });
 const editInsertSpaceAfterCompletion = ref(settingsStore.editorSettings.insertSpaceAfterCompletion);
 const editSqlServerSpaceConfirmsCompletion = ref(settingsStore.editorSettings.sqlServerSpaceConfirmsCompletion);
+const editFunctionCompletionIncludeParams = ref(settingsStore.editorSettings.functionCompletionIncludeParams);
 const showSqlServerSpaceConfirmsCompletion = computed(() => hasSqlServerConnection.value || settingsStore.editorSettings.sqlServerSpaceConfirmsCompletion || editSqlServerSpaceConfirmsCompletion.value);
 const editSortCompletionColumnsAlphabetically = ref(settingsStore.editorSettings.sortCompletionColumnsAlphabetically);
 const editSelectFirstCompletionOnOpen = ref(settingsStore.editorSettings.selectFirstCompletionOnOpen);
@@ -1073,6 +1074,7 @@ function currentEditorSettingsDraft(): EditorSettingsDraft {
     tableCompletionSchemaQualification: editTableCompletionSchemaQualification.value,
     insertSpaceAfterCompletion: editInsertSpaceAfterCompletion.value,
     sqlServerSpaceConfirmsCompletion: editSqlServerSpaceConfirmsCompletion.value,
+    functionCompletionIncludeParams: editFunctionCompletionIncludeParams.value,
     sortCompletionColumnsAlphabetically: editSortCompletionColumnsAlphabetically.value,
     selectFirstCompletionOnOpen: editSelectFirstCompletionOnOpen.value,
     completionTriggerMode: editCompletionTriggerMode.value,
@@ -1748,6 +1750,7 @@ function syncEditorSettingsDraftFromStore() {
   editTableCompletionSchemaQualification.value = settingsStore.editorSettings.tableCompletionSchemaQualification;
   editInsertSpaceAfterCompletion.value = settingsStore.editorSettings.insertSpaceAfterCompletion;
   editSqlServerSpaceConfirmsCompletion.value = settingsStore.editorSettings.sqlServerSpaceConfirmsCompletion;
+  editFunctionCompletionIncludeParams.value = settingsStore.editorSettings.functionCompletionIncludeParams;
   editSortCompletionColumnsAlphabetically.value = settingsStore.editorSettings.sortCompletionColumnsAlphabetically;
   editSelectFirstCompletionOnOpen.value = settingsStore.editorSettings.selectFirstCompletionOnOpen;
   editCompletionTriggerMode.value = settingsStore.editorSettings.completionTriggerMode;
@@ -1902,6 +1905,7 @@ const editorSettingsDraftRefs: EditorSettingsDraftRefMap = {
   tableCompletionSchemaQualification: editTableCompletionSchemaQualification,
   insertSpaceAfterCompletion: editInsertSpaceAfterCompletion,
   sqlServerSpaceConfirmsCompletion: editSqlServerSpaceConfirmsCompletion,
+  functionCompletionIncludeParams: editFunctionCompletionIncludeParams,
   sortCompletionColumnsAlphabetically: editSortCompletionColumnsAlphabetically,
   selectFirstCompletionOnOpen: editSelectFirstCompletionOnOpen,
   wordWrap: editWordWrap,
@@ -2430,6 +2434,7 @@ function resetDefaultsForTab(tab: SettingsCategory) {
     editTableCompletionSchemaQualification.value = DEFAULT_EDITOR_SETTINGS.tableCompletionSchemaQualification;
     editInsertSpaceAfterCompletion.value = DEFAULT_EDITOR_SETTINGS.insertSpaceAfterCompletion;
     editSqlServerSpaceConfirmsCompletion.value = DEFAULT_EDITOR_SETTINGS.sqlServerSpaceConfirmsCompletion;
+    editFunctionCompletionIncludeParams.value = DEFAULT_EDITOR_SETTINGS.functionCompletionIncludeParams;
     editSortCompletionColumnsAlphabetically.value = DEFAULT_EDITOR_SETTINGS.sortCompletionColumnsAlphabetically;
     editSelectFirstCompletionOnOpen.value = DEFAULT_EDITOR_SETTINGS.selectFirstCompletionOnOpen;
     editCompletionTriggerMode.value = DEFAULT_EDITOR_SETTINGS.completionTriggerMode;
@@ -2604,6 +2609,7 @@ function resetAllDefaults() {
   editTableCompletionSchemaQualification.value = DEFAULT_EDITOR_SETTINGS.tableCompletionSchemaQualification;
   editInsertSpaceAfterCompletion.value = DEFAULT_EDITOR_SETTINGS.insertSpaceAfterCompletion;
   editSqlServerSpaceConfirmsCompletion.value = DEFAULT_EDITOR_SETTINGS.sqlServerSpaceConfirmsCompletion;
+  editFunctionCompletionIncludeParams.value = DEFAULT_EDITOR_SETTINGS.functionCompletionIncludeParams;
   editSortCompletionColumnsAlphabetically.value = DEFAULT_EDITOR_SETTINGS.sortCompletionColumnsAlphabetically;
   editSelectFirstCompletionOnOpen.value = DEFAULT_EDITOR_SETTINGS.selectFirstCompletionOnOpen;
   editWordWrap.value = DEFAULT_EDITOR_SETTINGS.wordWrap;
@@ -6862,6 +6868,16 @@ onUnmounted(() => {
                     </p>
                   </div>
                   <Switch id="editor-sqlserver-space-confirms-completion" v-model="editSqlServerSpaceConfirmsCompletion" class="mt-0.5" />
+                </div>
+
+                <div class="settings-item flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">
+                  <div class="space-y-1">
+                    <Label for="editor-function-completion-include-params">{{ t("settings.functionCompletionIncludeParams") }}</Label>
+                    <p class="text-xs text-muted-foreground">
+                      {{ t("settings.functionCompletionIncludeParamsDescription") }}
+                    </p>
+                  </div>
+                  <Switch id="editor-function-completion-include-params" v-model="editFunctionCompletionIncludeParams" class="mt-0.5" />
                 </div>
 
                 <div class="settings-item flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">
