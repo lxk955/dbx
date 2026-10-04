@@ -60,6 +60,10 @@ describe("EDITOR_SETTINGS_DRAFT_KEYS", () => {
     expect(EDITOR_SETTINGS_DRAFT_KEYS).toContain("continueOnErrorOnBatch");
   });
 
+  it("includes sidebarTooltipDelaySecs", () => {
+    expect(EDITOR_SETTINGS_DRAFT_KEYS).toContain("sidebarTooltipDelaySecs");
+  });
+
   it("includes the table-open page size", () => {
     expect(EDITOR_SETTINGS_DRAFT_KEYS).toContain("pageSize");
     expect(EDITOR_SETTINGS_DRAFT_KEYS).toContain("tableOpenPageSize");

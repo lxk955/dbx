@@ -138,6 +138,7 @@ const SETTINGS_TRANSFER_CATEGORY_KEYS: Record<SettingsTransferCategoryId, readon
     "sidebarObjectInfoMode",
     "sidebarAllowHorizontalScroll",
     "sidebarShowTooltips",
+    "sidebarTooltipDelaySecs",
     "sidebarIndent",
     "sidebarFontSize",
     "sidebarHiddenTablePrefixes",

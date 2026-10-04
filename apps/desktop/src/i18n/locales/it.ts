@@ -7364,6 +7364,8 @@ export default withEnglishFallback({
     sidebarAllowHorizontalScrollDescription: "Mostra i nomi lunghi di tabelle, viste e collezioni per intero consentendo lo scorrimento orizzontale della barra laterale.",
     sidebarShowTooltips: "Tooltip al passaggio del mouse nella barra laterale",
     sidebarShowTooltipsDescription: "Mostra tooltip con dettagli al passaggio del mouse su connessioni e oggetti del database nella barra laterale. Disattiva per nasconderli.",
+    sidebarTooltipDelaySecs: "Ritardo tooltip barra laterale (secondi)",
+    sidebarTooltipDelaySecsDescription: "Tempo di permanenza del cursore su un elemento della barra laterale prima di mostrare i dettagli; imposta su 0 per la visualizzazione immediata.",
     snippetsDescription: "Personalizza i modelli di snippet SQL attivati nell'editor.",
     syncSnippetProviderGitee: "Snippet Gitee",
     syncGitLabInstance: "URL dell'istanza GitLab",

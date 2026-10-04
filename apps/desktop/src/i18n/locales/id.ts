@@ -8052,6 +8052,8 @@ export default withEnglishFallback({
     sidebarAllowHorizontalScrollDescription: "Tampilkan nama tabel, tampilan, dan koleksi yang panjang secara lengkap dengan mengizinkan gulir horizontal pada bilah sisi.",
     sidebarShowTooltips: "Tooltip hover bilah sisi",
     sidebarShowTooltipsDescription: "Tampilkan tooltip detail saat mengarahkan kursor ke koneksi dan objek database di bilah sisi. Nonaktifkan untuk menghentikan popup hover.",
+    sidebarTooltipDelaySecs: "Penundaan tooltip bilah sisi (detik)",
+    sidebarTooltipDelaySecsDescription: "Berapa lama mengarahkan kursor ke item bilah sisi sebelum menampilkan detail; atur ke 0 untuk tampilan langsung.",
     sidebarIndent: "Indentasi bilah sisi",
     sidebarIndentDescription: "Offset horizontal yang ditambahkan per tingkat kedalaman pohon, dalam piksel.",
     sidebarFontSize: "Ukuran font bilah sisi",

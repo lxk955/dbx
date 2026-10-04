@@ -7379,6 +7379,8 @@ export default withEnglishFallback({
     sidebarAllowHorizontalScrollDescription: "サイドバーの横スクロールを許可して、長いテーブル、ビュー、コレクション名を完全に表示します。",
     sidebarShowTooltips: "サイドバーのホバーツールチップ",
     sidebarShowTooltipsDescription: "サイドバーで接続やデータベースオブジェクトにホバーしたときに詳細ツールチップを表示します。オフにすると表示されません。",
+    sidebarTooltipDelaySecs: "サイドバーツールチップのホバー遅延（秒）",
+    sidebarTooltipDelaySecsDescription: "詳細を表示するまでにサイドバー項目にカーソルを合わせる時間。0 に設定すると即座に表示されます。",
     snippetsDescription: "エディタでトリガーされるSQLスニペットテンプレートをカスタマイズします。",
     syncSnippetProviderGitee: "Gitee コードスニペット",
     syncGitLabInstance: "GitLab インスタンス URL",

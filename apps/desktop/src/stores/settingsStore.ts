@@ -743,6 +743,9 @@ export const SIDEBAR_FONT_SIZE_DEFAULT = 14;
 export const SIDEBAR_INDENT_MIN = 4;
 export const SIDEBAR_INDENT_MAX = 32;
 export const SIDEBAR_INDENT_DEFAULT = 16;
+export const SIDEBAR_TOOLTIP_DELAY_SECS_MIN = 0;
+export const SIDEBAR_TOOLTIP_DELAY_SECS_MAX = 10;
+export const DEFAULT_SIDEBAR_TOOLTIP_DELAY_SECS = 3;
 const DISCONNECT_TAB_HANDLING_MODES = ["close-tabs", "keep-tabs-clear-results", "keep-tabs-keep-results"] as const;
 export type DisconnectTabHandlingMode = (typeof DISCONNECT_TAB_HANDLING_MODES)[number];
 
@@ -1042,6 +1045,7 @@ export interface EditorSettings {
   sidebarObjectInfoMode: SidebarObjectInfoMode;
   sidebarShowConnectionNotes: boolean;
   sidebarShowTooltips: boolean;
+  sidebarTooltipDelaySecs: number;
   sidebarAllowHorizontalScroll: boolean;
   sidebarIndent: number;
   sidebarFontSize: number;
@@ -1336,6 +1340,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   sidebarObjectInfoMode: "comment-inline",
   sidebarShowConnectionNotes: false,
   sidebarShowTooltips: true,
+  sidebarTooltipDelaySecs: DEFAULT_SIDEBAR_TOOLTIP_DELAY_SECS,
   sidebarAllowHorizontalScroll: false,
   sidebarIndent: SIDEBAR_INDENT_DEFAULT,
   sidebarFontSize: SIDEBAR_FONT_SIZE_DEFAULT,
@@ -1497,6 +1502,11 @@ function normalizeSidebarFontSize(value: unknown): number {
 function normalizeSidebarIndent(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return SIDEBAR_INDENT_DEFAULT;
   return Math.min(SIDEBAR_INDENT_MAX, Math.max(SIDEBAR_INDENT_MIN, Math.round(value)));
+}
+
+export function normalizeSidebarTooltipDelaySecs(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_SIDEBAR_TOOLTIP_DELAY_SECS;
+  return Math.min(SIDEBAR_TOOLTIP_DELAY_SECS_MAX, Math.max(SIDEBAR_TOOLTIP_DELAY_SECS_MIN, Math.round(value * 10) / 10));
 }
 
 function normalizeUpdateDownloadSource(value: unknown): UpdateDownloadSource {
@@ -1973,6 +1983,7 @@ export function normalizeEditorSettings(settings: Partial<EditorSettings>, exist
     ),
     sidebarShowConnectionNotes: settings.sidebarShowConnectionNotes === true,
     sidebarShowTooltips: settings.sidebarShowTooltips ?? DEFAULT_EDITOR_SETTINGS.sidebarShowTooltips,
+    sidebarTooltipDelaySecs: normalizeSidebarTooltipDelaySecs(settings.sidebarTooltipDelaySecs),
     sidebarAllowHorizontalScroll: settings.sidebarAllowHorizontalScroll ?? DEFAULT_EDITOR_SETTINGS.sidebarAllowHorizontalScroll,
     sidebarIndent: normalizeSidebarIndent(settings.sidebarIndent),
     sidebarFontSize: normalizeSidebarFontSize(settings.sidebarFontSize),
@@ -2794,6 +2805,7 @@ export const useSettingsStore = defineStore("settings", () => {
     if (partial.sidebarObjectInfoMode !== undefined) editorSettings.value.sidebarObjectInfoMode = normalizeSidebarObjectInfoMode(partial.sidebarObjectInfoMode);
     if (partial.sidebarShowConnectionNotes !== undefined) editorSettings.value.sidebarShowConnectionNotes = partial.sidebarShowConnectionNotes === true;
     if (partial.sidebarShowTooltips !== undefined) editorSettings.value.sidebarShowTooltips = partial.sidebarShowTooltips;
+    if (partial.sidebarTooltipDelaySecs !== undefined) editorSettings.value.sidebarTooltipDelaySecs = normalizeSidebarTooltipDelaySecs(partial.sidebarTooltipDelaySecs);
     if (partial.sidebarAllowHorizontalScroll !== undefined) editorSettings.value.sidebarAllowHorizontalScroll = partial.sidebarAllowHorizontalScroll;
     if (partial.sidebarIndent !== undefined) editorSettings.value.sidebarIndent = normalizeSidebarIndent(partial.sidebarIndent);
     if (partial.sidebarFontSize !== undefined) editorSettings.value.sidebarFontSize = normalizeSidebarFontSize(partial.sidebarFontSize);

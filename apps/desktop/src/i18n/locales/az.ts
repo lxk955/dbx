@@ -7365,6 +7365,8 @@ export default withEnglishFallback({
     sidebarAllowHorizontalScrollDescription: "Yan paneldə üfüqi sürüşdürməyə icazə verərək uzun cədvəl, görünüş və kolleksiya adlarını tam göstər.",
     sidebarShowTooltips: "Yan paneldə kursor üzərinə gətirildikdə ipucları",
     sidebarShowTooltipsDescription: "Kursor yan paneldəki əlaqələrin və verilənlər bazası obyektlərinin üzərinə gətirildikdə ətraflı ipucları göstər. Bu pəncərələri dayandırmaq üçün söndürün.",
+    sidebarTooltipDelaySecs: "Yan panel ipucu gecikməsi (saniyə)",
+    sidebarTooltipDelaySecsDescription: "Təfərrüatları göstərməzdən əvvəl yan panel elementinin üzərində nə qədər qalınacağı; dərhal göstərmək üçün 0 təyin edin.",
     sidebarIndent: "Yan panel abzası",
     sidebarIndentDescription: "Ağacın hər dərinlik səviyyəsi üçün əlavə olunan üfüqi məsafə, piksellə.",
     sidebarFontSize: "Yan panel şriftinin ölçüsü",

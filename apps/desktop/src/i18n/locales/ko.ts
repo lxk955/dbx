@@ -7165,6 +7165,8 @@ export default withEnglishFallback({
     sidebarAllowHorizontalScrollDescription: "사이드바 가로 스크롤을 허용하여 긴 테이블, 뷰, 컬렉션 이름을 전체로 표시합니다.",
     sidebarShowTooltips: "사이드바 호버 툴팁",
     sidebarShowTooltipsDescription: "사이드바에서 연결 및 데이터베이스 개체에 마우스를 올리면 상세 툴팁을 표시합니다. 끄면 표시되지 않습니다.",
+    sidebarTooltipDelaySecs: "사이드바 툴팁 호버 지연 시간(초)",
+    sidebarTooltipDelaySecsDescription: "상세 정보를 표시하기 전 사이드바 항목 위에 마우스를 올려둘 시간입니다. 0으로 설정하면 즉시 표시됩니다.",
     snippetsDescription: "편집기에서 트리거되는 SQL 스니펫 템플릿을 사용자 정의합니다.",
     snippetsPlaceholderHint: "{'${번호:기본 텍스트}'}를 사용하여 편집 가능한 자리 표시자를 만듭니다. 같은 번호의 자리 표시자는 함께 수정됩니다. 예:",
     snippetsAdd: "스니펫 추가",

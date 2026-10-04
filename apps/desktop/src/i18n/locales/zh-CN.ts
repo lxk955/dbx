@@ -8244,6 +8244,8 @@ export default withEnglishFallback({
     sidebarAllowHorizontalScrollDescription: "完整显示较长的表、视图和集合名称；默认关闭以保留省略号截断。",
     sidebarShowTooltips: "侧边栏悬浮提示",
     sidebarShowTooltipsDescription: "在侧边栏的连接和数据库对象上悬浮时显示详情提示；关闭后悬浮不再弹出。",
+    sidebarTooltipDelaySecs: "侧边栏悬浮提示延迟（秒）",
+    sidebarTooltipDelaySecsDescription: "鼠标悬停在侧边栏对象上多久后显示详情提示；设置为 0 时立即显示。",
     sidebarIndent: "侧边栏缩进",
     sidebarIndentDescription: "每个树层级缩进的像素偏移量。",
     sidebarFontSize: "侧边栏字体大小",

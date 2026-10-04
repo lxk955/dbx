@@ -7264,6 +7264,8 @@ export default withEnglishFallback({
     sidebarAllowHorizontalScrollDescription: "Yatay kenar çubuğu kaydırmasına izin vererek uzun tablo, görünüm ve koleksiyon adlarını tam göster.",
     sidebarShowTooltips: "Kenar çubuğu ipuçları",
     sidebarShowTooltipsDescription: "Kenar çubuğunda bağlantıların ve veritabanı nesnelerinin üzerine gelindiğinde ayrıntı ipuçlarını göster. Açılır ipuçlarını durdurmak için kapatın.",
+    sidebarTooltipDelaySecs: "Kenar çubuğu ipucu gecikmesi (saniye)",
+    sidebarTooltipDelaySecsDescription: "Ayrıntıları göstermeden önce bir kenar çubuğu öğesinin üzerinde ne kadar süre beklenmesi gerektiği; anında görüntüleme için 0 yapın.",
     sidebarIndent: "Kenar çubuğu girintisi",
     sidebarIndentDescription: "Ağaç derinliğinin her düzeyi için piksel cinsinden eklenen yatay kaydırma.",
     sidebarFontSize: "Kenar çubuğu yazı tipi boyutu",

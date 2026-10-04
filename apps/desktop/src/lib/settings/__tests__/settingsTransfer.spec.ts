@@ -33,6 +33,16 @@ describe("settingsTransfer", () => {
     if (!invalid.ok) expect(invalid.error.detail).toContain("welcomePageMode");
   });
 
+  it("round-trips sidebar tooltip delay and rejects non-numbers or out-of-domain values", () => {
+    const text = serializeSettingsTransfer({ ...DEFAULT_EDITOR_SETTINGS, sidebarTooltipDelaySecs: 5 });
+    const result = parseSettingsTransferFile(text);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.editorSettings.sidebarTooltipDelaySecs).toBe(5);
+    expect(transferCategoryForKey("sidebarTooltipDelaySecs")).toBe("navigation");
+    expect(parseSettingsTransferFile(fileWith({ sidebarTooltipDelaySecs: "5" })).ok).toBe(false);
+    expect(parseSettingsTransferFile(fileWith({ sidebarTooltipDelaySecs: -1 })).ok).toBe(false);
+  });
+
   it("builds a dated transfer filename", () => {
     expect(buildSettingsTransferFilename(new Date(2026, 8, 6))).toBe("dbx-settings-2026-09-06.json");
   });

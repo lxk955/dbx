@@ -6713,6 +6713,8 @@ export default withEnglishFallback({
     sidebarAllowHorizontalScrollDescription: "透過啟用側邊欄的水平捲動功能，完整顯示長表格、檢視和集合的名稱",
     sidebarShowTooltips: "側邊欄懸浮提示",
     sidebarShowTooltipsDescription: "在側邊欄的連線與資料庫物件上懸浮時顯示詳細提示；關閉後懸浮不再彈出。",
+    sidebarTooltipDelaySecs: "側邊欄懸浮提示延遲（秒）",
+    sidebarTooltipDelaySecsDescription: "滑鼠懸停在側邊欄物件上多久後顯示詳細提示；設定為 0 時立即顯示。",
     snippetsDescription: "自訂編輯器中觸發的 SQL 程式碼片段範本。",
     syncSnippetProviderGitee: "Gitee 程式碼片段",
     syncGitLabInstance: "GitLab 執行個體網址",
