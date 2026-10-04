@@ -7630,6 +7630,8 @@ export default withEnglishFallback({
     sidebarAllowHorizontalScrollDescription: "Muestra completos los nombres largos de tablas, vistas y colecciones permitiendo desplazamiento horizontal en la barra lateral.",
     sidebarShowTooltips: "Sugerencias al pasar el cursor en la barra lateral",
     sidebarShowTooltipsDescription: "Muestra sugerencias con detalles al pasar el cursor sobre conexiones y objetos de la base de datos en la barra lateral. Desactívalo para ocultarlas.",
+    sidebarTooltipDelaySecs: "Retraso de sugerencias de la barra lateral (segundos)",
+    sidebarTooltipDelaySecsDescription: "Tiempo que se debe mantener el cursor sobre un elemento de la barra lateral antes de mostrar los detalles; configúrelo en 0 para mostrarlo de inmediato.",
     snippetsDescription: "Personaliza plantillas SQL activadas en el editor.",
     snippetTriggerKey: "Tecla de activación de fragmentos",
     snippetTriggerKeyDescription: "Elija la tecla utilizada para activar la expansión de fragmentos en el editor (Tab, Espacio o Ambos).",

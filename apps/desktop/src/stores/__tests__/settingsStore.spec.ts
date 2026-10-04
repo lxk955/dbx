@@ -16,6 +16,10 @@ import {
   normalizeDesktopSettings,
   normalizeEditorSettings,
   normalizeMcpGlobalPolicy,
+  normalizeSidebarTooltipDelaySecs,
+  DEFAULT_SIDEBAR_TOOLTIP_DELAY_SECS,
+  SIDEBAR_TOOLTIP_DELAY_SECS_MIN,
+  SIDEBAR_TOOLTIP_DELAY_SECS_MAX,
   type RightSidebarPanelState,
   transitionRightSidebarPanels,
   WELCOME_PAGE_DEFAULT_VERSION,
@@ -328,6 +332,29 @@ describe("normalizeEditorSettings", () => {
     expect(normalizeEditorSettings({}).sidebarShowTooltips).toBe(true);
     expect(normalizeEditorSettings({ sidebarShowTooltips: false }).sidebarShowTooltips).toBe(false);
     expect(normalizeEditorSettings({ sidebarShowTooltips: true }).sidebarShowTooltips).toBe(true);
+  });
+
+  it("defaults sidebar tooltip delay to 3 seconds and clamps or sanitizes invalid values", () => {
+    expect(DEFAULT_SIDEBAR_TOOLTIP_DELAY_SECS).toBe(3);
+    expect(SIDEBAR_TOOLTIP_DELAY_SECS_MIN).toBe(0);
+    expect(SIDEBAR_TOOLTIP_DELAY_SECS_MAX).toBe(10);
+    expect(normalizeSidebarTooltipDelaySecs(undefined)).toBe(3);
+    expect(normalizeSidebarTooltipDelaySecs(null)).toBe(3);
+    expect(normalizeSidebarTooltipDelaySecs("invalid")).toBe(3);
+    expect(normalizeSidebarTooltipDelaySecs(NaN)).toBe(3);
+    expect(normalizeSidebarTooltipDelaySecs(-1)).toBe(0);
+    expect(normalizeSidebarTooltipDelaySecs(0)).toBe(0);
+    expect(normalizeSidebarTooltipDelaySecs(0.5)).toBe(0.5);
+    expect(normalizeSidebarTooltipDelaySecs(1.23)).toBe(1.2);
+    expect(normalizeSidebarTooltipDelaySecs(3)).toBe(3);
+    expect(normalizeSidebarTooltipDelaySecs(10)).toBe(10);
+    expect(normalizeSidebarTooltipDelaySecs(15)).toBe(10);
+
+    expect(normalizeEditorSettings({}).sidebarTooltipDelaySecs).toBe(3);
+    expect(normalizeEditorSettings({ sidebarTooltipDelaySecs: 0 }).sidebarTooltipDelaySecs).toBe(0);
+    expect(normalizeEditorSettings({ sidebarTooltipDelaySecs: 5 }).sidebarTooltipDelaySecs).toBe(5);
+    expect(normalizeEditorSettings({ sidebarTooltipDelaySecs: -2 }).sidebarTooltipDelaySecs).toBe(0);
+    expect(normalizeEditorSettings({ sidebarTooltipDelaySecs: 99 }).sidebarTooltipDelaySecs).toBe(10);
   });
 
   it("defaults SQL execution to the current statement and migrates legacy execute-all settings", () => {

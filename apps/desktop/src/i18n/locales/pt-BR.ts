@@ -7410,6 +7410,8 @@ export default withEnglishFallback({
     sidebarAllowHorizontalScrollDescription: "Mostrar nomes longos de tabelas, views e coleções por completo, permitindo a rolagem horizontal da barra lateral.",
     sidebarShowTooltips: "Dicas ao passar o mouse na barra lateral",
     sidebarShowTooltipsDescription: "Mostra dicas com detalhes ao passar o mouse sobre conexões e objetos do banco de dados na barra lateral. Desative para ocultá-las.",
+    sidebarTooltipDelaySecs: "Atraso de dicas da barra lateral (segundos)",
+    sidebarTooltipDelaySecsDescription: "Tempo para passar o mouse sobre um item da barra lateral antes de exibir detalhes; defina como 0 para exibição imediata.",
     snippetsDescription: "Personalize os modelos de snippets SQL acionados no editor.",
     snippetTriggerKey: "Tecla de ativação de snippets",
     snippetTriggerKeyDescription: "Escolha a tecla usada para acionar a expansão de snippets no editor (Tab, Espaço ou Ambos).",

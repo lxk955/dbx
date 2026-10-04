@@ -336,6 +336,7 @@ describe("settings search", () => {
       { titleKey: "settings.sqlFormatterParamTypes", category: "formatter", targetId: "formatter" },
       { titleKey: "settings.routineSourceOpenMode", category: "navigation", targetId: "navigation" },
       { titleKey: "settings.disconnectTabHandlingMode", category: "navigation", targetId: "navigation" },
+      { titleKey: "settings.sidebarTooltipDelaySecs", category: "navigation", targetId: "navigation" },
       { titleKey: "settings.compactColumnHeaderActions", category: "data", targetId: "data" },
       { titleKey: "settings.infiniteScroll", category: "data", targetId: "data" },
       { titleKey: "settings.globalDateTimeDisplayFormat", category: "data", targetId: "data" },
