@@ -91,7 +91,8 @@ function getTriggerElement(): HTMLElement | undefined {
 }
 
 function getFocusableElements(): HTMLElement[] {
-  const selector = 'button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"]):not([disabled])';
+  const selector =
+    'button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), a[href]:not([tabindex="-1"]), [contenteditable="true"]:not([tabindex="-1"]), [tabindex]:not([tabindex="-1"]):not([disabled])';
   return Array.from(document.querySelectorAll<HTMLElement>(selector)).filter((el) => {
     if (listCard.value?.contains(el)) return false;
     if (el.hidden || el.getAttribute("aria-hidden") === "true") return false;
@@ -304,6 +305,7 @@ function optionCount() {
 }
 
 function handleKeydown(event: KeyboardEvent) {
+  if (event.isComposing || event.key === "Process" || event.keyCode === 229) return;
   if (event.key === "ArrowDown") {
     event.preventDefault();
     const total = optionCount();

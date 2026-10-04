@@ -176,6 +176,30 @@ describe("SearchableSelect trigger", () => {
     expect(emitted.open).toContain(false);
   });
 
+  it("does not intercept Tab while an IME composition is active in search input", async () => {
+    const { root, emitted } = mountSelect({
+      options: ["varchar", "bigint"],
+      modelValue: "",
+    });
+
+    const trigger = root.querySelector("button")!;
+    trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "v", bubbles: true, cancelable: true }));
+
+    await nextTick();
+    const input = document.body.querySelector<HTMLInputElement>("input")!;
+    expect(input).not.toBeNull();
+
+    const composingTab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    Object.defineProperty(composingTab, "isComposing", { value: true });
+    input.dispatchEvent(composingTab);
+    await nextTick();
+
+    // Composition must survive: no selection, no close, focus stays in the search input.
+    expect(emitted.modelValue).toEqual([]);
+    expect(emitted.open).not.toContain(false);
+    expect(document.activeElement).toBe(input);
+  });
+
   it("marks list option buttons with tabindex=-1 to prevent tab trapping", async () => {
     const { root } = mountSelect({
       options: ["int", "varchar"],
