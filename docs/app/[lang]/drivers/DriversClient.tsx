@@ -19,6 +19,7 @@ const i18n = {
     jdbcPluginInstallHint: "Import this ZIP in DBX from Settings > Driver Manager > JDBC Drivers > Local Install.",
     bundles: "Offline Bundles",
     bundlesDesc: "Platform-specific ZIP packages that include the agent registry, database drivers, native agents, and the matching JRE.",
+    currentPlatform: "Current platform",
     drivers: "Database Drivers",
     driversDesc: "Single-driver .tar.zst packages for Java agents. Install the matching JRE separately when it is not already available.",
     nativeAgents: "Native Agents",
@@ -51,8 +52,6 @@ const i18n = {
     customIncludeJre: `Include JRE 21`,
     customIncludeJreForced: "Included automatically — Java agents require the JRE",
     customSource: "Fetch source",
-    customSourceCnb: "CNB (direct)",
-    customSourceGithub: "GitHub (via this site)",
     customDownload: "Download bundle",
     customEstimate: "Estimated download",
     customSelected: "selected",
@@ -61,7 +60,6 @@ const i18n = {
     customWorkersNote: "The SQLite SSH Worker Linux packages are always included — remote SSH hosts execute them.",
     customNoDrivers: "No drivers match this platform or search.",
     customPhaseDownload: "Downloading",
-    customPhaseUnpack: "Unpacking",
     customPhaseAssemble: "Assembling ZIP",
     customPhaseDone: "Custom bundle downloaded ({size}). Import it in DBX from Settings > Driver Manager > offline import.",
     customErrorTitle: "Bundle build failed",
@@ -79,6 +77,7 @@ const i18n = {
     jdbcPluginInstallHint: "在 DBX 的“设置 > 驱动管理 > JDBC 驱动 > 本地安装”中导入这个 ZIP。",
     bundles: "整包下载",
     bundlesDesc: "按平台提供的 ZIP 离线包，包含 Agent registry、数据库驱动、原生 Agent 和匹配的 JRE。",
+    currentPlatform: "当前平台",
     drivers: "数据库驱动",
     driversDesc: "Java Agent 的单驱动 .tar.zst 包；目标机器尚未安装 JRE 时需要另外安装一次对应 JRE。",
     nativeAgents: "原生 Agent",
@@ -111,8 +110,6 @@ const i18n = {
     customIncludeJre: "包含 JRE 21",
     customIncludeJreForced: "已自动包含——Java 驱动必须搭配 JRE",
     customSource: "下载源",
-    customSourceCnb: "CNB（直连）",
-    customSourceGithub: "GitHub（经本站代理）",
     customDownload: "下载离线包",
     customEstimate: "预计下载量",
     customSelected: "已选",
@@ -121,7 +118,6 @@ const i18n = {
     customWorkersNote: "SQLite SSH Worker 的 Linux 包会自动包含——它们在远端 SSH 主机上执行。",
     customNoDrivers: "没有匹配该平台或搜索词的驱动。",
     customPhaseDownload: "正在下载",
-    customPhaseUnpack: "正在解包",
     customPhaseAssemble: "正在打包",
     customPhaseDone: "自定义离线包已下载（{size}）。在 DBX 的“设置 > 驱动管理”中离线导入即可。",
     customErrorTitle: "打包失败",
@@ -143,6 +139,32 @@ function detectBundlePlatform(): string {
   if (/Macintosh|Mac OS/i.test(ua)) return "macos-x64";
   if (/Linux|X11/i.test(ua)) return /aarch64|arm64/i.test(ua) ? "linux-aarch64" : "linux-x64";
   return "windows-x64";
+}
+
+/**
+ * Apple Silicon Macs report "Intel Mac OS X" in their UA, so the sync pass
+ * defaults them to the x64 build. Chromium-based browsers expose the real CPU
+ * architecture via the async User-Agent Client Hints API; Safari and Firefox
+ * keep the UA-based guess.
+ */
+async function refineBundlePlatformWithHints(): Promise<string | null> {
+  const uaData = (
+    navigator as Navigator & {
+      userAgentData?: { getHighEntropyValues?: (hints: string[]) => Promise<{ architecture?: string }> };
+    }
+  ).userAgentData;
+  if (!uaData?.getHighEntropyValues) return null;
+  try {
+    const hints = await uaData.getHighEntropyValues(["architecture"]);
+    if (hints.architecture !== "arm" && hints.architecture !== "arm64") return null;
+    const ua = navigator.userAgent;
+    if (/Macintosh|Mac OS/i.test(ua)) return "macos-aarch64";
+    if (/Windows/i.test(ua)) return "windows-aarch64";
+    if (/Linux|X11/i.test(ua)) return "linux-aarch64";
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 function platformKey(j: JreDisplayEntry): string {
@@ -203,6 +225,7 @@ export function DriversClient({ initialCatalog, initialRegistry }: { initialCata
   const [selectedNativePlatforms, setSelectedNativePlatforms] = useState<Record<string, string>>({});
 
   const [bundlePlatform, setBundlePlatform] = useState("windows-x64");
+  const [detectedPlatform, setDetectedPlatform] = useState<string | null>(null);
   const [selectedKeys, setSelectedKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [includeJre, setIncludeJre] = useState(false);
   const [bundleSource, setBundleSource] = useState<BundleSource>("cnb");
@@ -211,6 +234,7 @@ export function DriversClient({ initialCatalog, initialRegistry }: { initialCata
   const [bundleError, setBundleError] = useState<string | null>(null);
   const [bundleDone, setBundleDone] = useState<number | null>(null);
   const bundleAbortRef = useRef<AbortController | null>(null);
+  const platformTouchedRef = useRef(false);
 
   const bundles = catalog?.bundles ?? [];
   const drivers = catalog?.drivers ?? [];
@@ -273,8 +297,22 @@ export function DriversClient({ initialCatalog, initialRegistry }: { initialCata
 
   useEffect(() => {
     // Detected after hydration: the prerendered HTML cannot know the visitor's
-    // platform, and a differing initial state would hydration-mismatch.
-    setBundlePlatform(detectBundlePlatform());
+    // platform, and a differing initial state would hydration-mismatch. The
+    // detected platform also badges the matching full-bundle row, so it is kept
+    // separately from the custom-tab selector the visitor may re-target.
+    const initial = detectBundlePlatform();
+    setDetectedPlatform(initial);
+    setBundlePlatform(initial);
+    let cancelled = false;
+    refineBundlePlatformWithHints().then((refined) => {
+      if (cancelled || !refined) return;
+      setDetectedPlatform(refined);
+      // Never override a platform the visitor picked while the hint resolved.
+      if (!platformTouchedRef.current) setBundlePlatform(refined);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const bundleOptions = useMemo(() => buildCustomBundleOptions(initialRegistry, bundlePlatform), [initialRegistry, bundlePlatform]);
@@ -296,22 +334,22 @@ export function DriversClient({ initialCatalog, initialRegistry }: { initialCata
   };
 
   const changeBundlePlatform = (platformKey: string) => {
+    platformTouchedRef.current = true;
     setBundlePlatform(platformKey);
     setSelectedKeys(new Set());
   };
 
   const fetchBundlePackage = async (url: string, onProgress: (received: number) => void, signal: AbortSignal): Promise<Uint8Array> => {
-    const proxy = proxyUrl(window.location.origin, url);
-    const mirror = cnbMirrorUrl(url);
+    // The selected source is tried first; the other is a silent fallback.
     const attempts: Array<{ label: string; url: string }> =
       bundleSource === "cnb"
         ? [
-            { label: t.customSourceCnb, url: mirror },
-            { label: t.customSourceGithub, url: proxy },
+            { label: "CNB", url: cnbMirrorUrl(url) },
+            { label: "GitHub", url: proxyUrl(window.location.origin, url) },
           ]
         : [
-            { label: t.customSourceGithub, url: proxy },
-            { label: t.customSourceCnb, url: mirror },
+            { label: "GitHub", url: proxyUrl(window.location.origin, url) },
+            { label: "CNB", url: cnbMirrorUrl(url) },
           ];
     const errors: string[] = [];
     for (const attempt of attempts) {
@@ -388,12 +426,10 @@ export function DriversClient({ initialCatalog, initialRegistry }: { initialCata
   const bundleProgressText = useMemo(() => {
     if (!bundleProgress) return "";
     if (bundleProgress.phase === "download") {
-      const expected = bundleProgress.expectedBytes > 0 ? ` / ${formatSize(bundleProgress.expectedBytes)}` : "";
-      return `${t.customPhaseDownload} ${bundleProgress.label} (${bundleProgress.index}/${bundleProgress.total}) · ${formatSize(bundleProgress.received)}${expected}`;
+      const expected = bundleProgress.totalBytes > 0 ? ` / ${formatSize(bundleProgress.totalBytes)}` : "";
+      return `${t.customPhaseDownload} ${bundleProgress.completed}/${bundleProgress.total} · ${formatSize(bundleProgress.receivedBytes)}${expected}`;
     }
-    if (bundleProgress.phase === "unpack") return `${t.customPhaseUnpack} ${bundleProgress.label}`;
-    if (bundleProgress.phase === "assemble") return t.customPhaseAssemble;
-    return "";
+    return t.customPhaseAssemble;
   }, [bundleProgress, t]);
 
   const activeCount = activeTab === "bundles" ? filteredBundles.length : activeTab === "custom" ? filteredBundleOptions.length : activeTab === "drivers" ? filteredDrivers.length : activeTab === "native" ? filteredNativeGroups.length : activeTab === "jre" ? filteredJres.length : filteredJdbcPlugin.length;
@@ -403,10 +439,10 @@ export function DriversClient({ initialCatalog, initialRegistry }: { initialCata
     <main className="landing">
       <LandingNav lang={lang} active="drivers" />
 
-      <section className="pt-[100px] pb-8 max-[760px]:pt-[80px] max-[760px]:pb-6">
+      <section className="pt-[100px] pb-6 max-[760px]:pt-[80px] max-[760px]:pb-4">
         <div className="max-w-[1180px] mx-auto px-7 max-[760px]:px-[18px]">
           <div className="grid justify-items-center max-w-[900px] mx-auto text-center">
-            <h1 className="text-[clamp(30px,4vw,46px)] font-[820] leading-[1.08] tracking-tight text-landing-ink">{t.title}</h1>
+            <h1 className="sr-only">{t.title}</h1>
             <p className="min-w-0 mx-auto text-[15px] font-[460] leading-[1.7] text-landing-muted max-w-[760px] max-[760px]:text-[13px] max-[760px]:whitespace-normal max-[760px]:max-w-[300px]">{t.subtitle}</p>
           </div>
         </div>
@@ -534,6 +570,9 @@ export function DriversClient({ initialCatalog, initialRegistry }: { initialCata
                           <td className="min-w-0 px-5 py-3 font-medium text-landing-ink max-[760px]:px-0">
                             <div className="flex min-w-0 items-center gap-2">
                               <span className="min-w-0 truncate">{bundle.platformLabel}</span>
+                              {bundle.platformKey === detectedPlatform && (
+                                <span className="shrink-0 rounded-[5px] border border-landing-green/35 bg-landing-green/10 px-1.5 py-0.5 text-[11px] font-[650] text-landing-green">{t.currentPlatform}</span>
+                              )}
                               <span className="hidden shrink-0 rounded-[5px] border border-landing-blue/35 bg-landing-blue/10 px-1.5 py-0.5 font-mono text-[11px] text-landing-sky max-[760px]:inline">ZIP</span>
                             </div>
                           </td>
@@ -580,8 +619,8 @@ export function DriversClient({ initialCatalog, initialRegistry }: { initialCata
                       <LandingSelect<BundleSource>
                         value={bundleSource}
                         options={[
-                          { value: "cnb", label: t.customSourceCnb },
-                          { value: "github", label: t.customSourceGithub },
+                          { value: "cnb", label: "CNB" },
+                          { value: "github", label: "GitHub" },
                         ]}
                         onChange={setBundleSource}
                         disabled={bundleBusy}

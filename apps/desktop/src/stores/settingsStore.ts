@@ -734,6 +734,8 @@ export const RESULT_TAB_NAMING_MODES = ["source", "ordinal", "comment"] as const
 export type ResultTabNamingMode = (typeof RESULT_TAB_NAMING_MODES)[number];
 const MULTI_STATEMENT_DEFAULT_VIEWS = ["result", "summary"] as const;
 export type MultiStatementDefaultView = (typeof MULTI_STATEMENT_DEFAULT_VIEWS)[number];
+export const DEFAULT_EXPLAIN_VIEWS = ["canvas", "tree", "summary", "table", "raw"] as const;
+export type DefaultExplainView = (typeof DEFAULT_EXPLAIN_VIEWS)[number];
 export const TABLE_FONT_SIZE_MIN = 8;
 export const TABLE_FONT_SIZE_MAX = 16;
 export const TABLE_FONT_SIZE_DEFAULT = 13;
@@ -885,6 +887,7 @@ export interface EditorSettings {
   tableCompletionSchemaQualification: SqlTableCompletionSchemaQualification;
   insertSpaceAfterCompletion: boolean;
   sqlServerSpaceConfirmsCompletion: boolean;
+  functionCompletionIncludeParams: boolean;
   sortCompletionColumnsAlphabetically: boolean;
   selectFirstCompletionOnOpen: boolean;
   wordWrap: boolean;
@@ -987,6 +990,7 @@ export interface EditorSettings {
   resultRunDisplayMode: ResultRunDisplayMode;
   defaultAutoKeepResults: boolean;
   multiStatementDefaultView: MultiStatementDefaultView;
+  defaultExplainView: DefaultExplainView;
   dataGridAutoTransposeSingleRow: boolean;
   dataGridCellDetailButtonVisible: boolean;
   dataGridCellDetailDialogDefault: boolean;
@@ -1063,6 +1067,7 @@ export interface EditorSettings {
   tableColumnTemplateFields: string[];
   exportBatchSize: number;
   preferredExportPath: string;
+  autoOpenExportFolder: boolean;
   csvQuoteMode: CsvQuoteMode;
   csvNullMode: CsvNullMode;
   /** Global Redis key-search templates; overridden by non-empty connection templates. */
@@ -1219,6 +1224,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   tableCompletionSchemaQualification: DEFAULT_SQL_TABLE_COMPLETION_SCHEMA_QUALIFICATION,
   insertSpaceAfterCompletion: true,
   sqlServerSpaceConfirmsCompletion: false,
+  functionCompletionIncludeParams: true,
   snippetTriggerKey: "tab",
   sortCompletionColumnsAlphabetically: true,
   selectFirstCompletionOnOpen: true,
@@ -1296,6 +1302,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   resultRunDisplayMode: "tabs",
   defaultAutoKeepResults: false,
   multiStatementDefaultView: "result",
+  defaultExplainView: "canvas",
   dataGridAutoTransposeSingleRow: false,
   dataGridCellDetailButtonVisible: true,
   dataGridCellDetailDialogDefault: false,
@@ -1368,6 +1375,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   tableColumnTemplateFields: [...DEFAULT_TABLE_COLUMN_TEMPLATE_FIELDS],
   exportBatchSize: 2000,
   preferredExportPath: "",
+  autoOpenExportFolder: false,
   csvQuoteMode: DEFAULT_CSV_QUOTE_MODE,
   csvNullMode: DEFAULT_CSV_NULL_MODE,
   redisKeyTemplates: [],
@@ -1512,6 +1520,10 @@ function normalizeResultTabNamingMode(value: unknown): ResultTabNamingMode {
 
 function normalizeMultiStatementDefaultView(value: unknown): MultiStatementDefaultView {
   return MULTI_STATEMENT_DEFAULT_VIEWS.includes(value as MultiStatementDefaultView) ? (value as MultiStatementDefaultView) : DEFAULT_EDITOR_SETTINGS.multiStatementDefaultView;
+}
+
+function normalizeDefaultExplainView(value: unknown): DefaultExplainView {
+  return DEFAULT_EXPLAIN_VIEWS.includes(value as DefaultExplainView) ? (value as DefaultExplainView) : DEFAULT_EDITOR_SETTINGS.defaultExplainView;
 }
 
 function normalizeTableFontSize(value: unknown): number {
@@ -1829,6 +1841,7 @@ export function normalizeEditorSettings(settings: Partial<EditorSettings>, exist
     tableCompletionSchemaQualification: normalizeSqlTableCompletionSchemaQualification(settings.tableCompletionSchemaQualification),
     insertSpaceAfterCompletion: typeof settings.insertSpaceAfterCompletion === "boolean" ? settings.insertSpaceAfterCompletion : DEFAULT_EDITOR_SETTINGS.insertSpaceAfterCompletion,
     sqlServerSpaceConfirmsCompletion: typeof settings.sqlServerSpaceConfirmsCompletion === "boolean" ? settings.sqlServerSpaceConfirmsCompletion : DEFAULT_EDITOR_SETTINGS.sqlServerSpaceConfirmsCompletion,
+    functionCompletionIncludeParams: typeof settings.functionCompletionIncludeParams === "boolean" ? settings.functionCompletionIncludeParams : DEFAULT_EDITOR_SETTINGS.functionCompletionIncludeParams,
     snippetTriggerKey: settings.snippetTriggerKey === "space" || settings.snippetTriggerKey === "both" ? settings.snippetTriggerKey : DEFAULT_EDITOR_SETTINGS.snippetTriggerKey,
     sortCompletionColumnsAlphabetically: typeof settings.sortCompletionColumnsAlphabetically === "boolean" ? settings.sortCompletionColumnsAlphabetically : DEFAULT_EDITOR_SETTINGS.sortCompletionColumnsAlphabetically,
     selectFirstCompletionOnOpen: typeof settings.selectFirstCompletionOnOpen === "boolean" ? settings.selectFirstCompletionOnOpen : DEFAULT_EDITOR_SETTINGS.selectFirstCompletionOnOpen,
@@ -1906,6 +1919,7 @@ export function normalizeEditorSettings(settings: Partial<EditorSettings>, exist
     resultRunDisplayMode: normalizeResultRunDisplayMode(settings.resultRunDisplayMode),
     defaultAutoKeepResults: settings.defaultAutoKeepResults === true,
     multiStatementDefaultView: normalizeMultiStatementDefaultView(settings.multiStatementDefaultView),
+    defaultExplainView: normalizeDefaultExplainView(settings.defaultExplainView),
     dataGridAutoTransposeSingleRow: settings.dataGridAutoTransposeSingleRow === true,
     dataGridCellDetailButtonVisible: typeof settings.dataGridCellDetailButtonVisible === "boolean" ? settings.dataGridCellDetailButtonVisible : DEFAULT_EDITOR_SETTINGS.dataGridCellDetailButtonVisible,
     dataGridCellDetailDialogDefault: settings.dataGridCellDetailDialogDefault === true,
@@ -2025,6 +2039,7 @@ export function normalizeEditorSettings(settings: Partial<EditorSettings>, exist
     tableColumnTemplateFields: normalizeTableColumnTemplateFields(settings.tableColumnTemplateFields),
     exportBatchSize: typeof settings.exportBatchSize === "number" && settings.exportBatchSize >= 100 && settings.exportBatchSize <= 100000 ? Math.round(settings.exportBatchSize) : DEFAULT_EDITOR_SETTINGS.exportBatchSize,
     preferredExportPath: typeof settings.preferredExportPath === "string" ? settings.preferredExportPath.trim() : DEFAULT_EDITOR_SETTINGS.preferredExportPath,
+    autoOpenExportFolder: typeof settings.autoOpenExportFolder === "boolean" ? settings.autoOpenExportFolder : DEFAULT_EDITOR_SETTINGS.autoOpenExportFolder,
     csvQuoteMode: normalizeCsvQuoteMode(settings.csvQuoteMode),
     csvNullMode: normalizeCsvNullMode(settings.csvNullMode),
     redisKeyTemplates: normalizeRedisKeyTemplates(settings.redisKeyTemplates),
@@ -2683,6 +2698,7 @@ export const useSettingsStore = defineStore("settings", () => {
     if (partial.tableCompletionSchemaQualification !== undefined) editorSettings.value.tableCompletionSchemaQualification = normalizeSqlTableCompletionSchemaQualification(partial.tableCompletionSchemaQualification);
     if (partial.insertSpaceAfterCompletion !== undefined) editorSettings.value.insertSpaceAfterCompletion = partial.insertSpaceAfterCompletion === true;
     if (partial.sqlServerSpaceConfirmsCompletion !== undefined) editorSettings.value.sqlServerSpaceConfirmsCompletion = partial.sqlServerSpaceConfirmsCompletion === true;
+    if (partial.functionCompletionIncludeParams !== undefined) editorSettings.value.functionCompletionIncludeParams = partial.functionCompletionIncludeParams === true;
     if (partial.snippetTriggerKey !== undefined) editorSettings.value.snippetTriggerKey = partial.snippetTriggerKey === "space" || partial.snippetTriggerKey === "both" ? partial.snippetTriggerKey : "tab";
     if (partial.sortCompletionColumnsAlphabetically !== undefined) editorSettings.value.sortCompletionColumnsAlphabetically = partial.sortCompletionColumnsAlphabetically === true;
     if (partial.selectFirstCompletionOnOpen !== undefined) editorSettings.value.selectFirstCompletionOnOpen = partial.selectFirstCompletionOnOpen === true;
@@ -2769,6 +2785,7 @@ export const useSettingsStore = defineStore("settings", () => {
     if (partial.resultRunDisplayMode !== undefined) editorSettings.value.resultRunDisplayMode = normalizeResultRunDisplayMode(partial.resultRunDisplayMode);
     if (partial.defaultAutoKeepResults !== undefined) editorSettings.value.defaultAutoKeepResults = partial.defaultAutoKeepResults === true;
     if (partial.multiStatementDefaultView !== undefined) editorSettings.value.multiStatementDefaultView = normalizeMultiStatementDefaultView(partial.multiStatementDefaultView);
+    if (partial.defaultExplainView !== undefined) editorSettings.value.defaultExplainView = normalizeDefaultExplainView(partial.defaultExplainView);
     if (partial.dataGridAutoTransposeSingleRow !== undefined) editorSettings.value.dataGridAutoTransposeSingleRow = partial.dataGridAutoTransposeSingleRow === true;
     if (partial.dataGridCellDetailButtonVisible !== undefined) editorSettings.value.dataGridCellDetailButtonVisible = typeof partial.dataGridCellDetailButtonVisible === "boolean" ? partial.dataGridCellDetailButtonVisible : DEFAULT_EDITOR_SETTINGS.dataGridCellDetailButtonVisible;
     if (partial.dataGridCellDetailDialogDefault !== undefined) editorSettings.value.dataGridCellDetailDialogDefault = partial.dataGridCellDetailDialogDefault === true;
@@ -2852,6 +2869,7 @@ export const useSettingsStore = defineStore("settings", () => {
     if (partial.tableColumnTemplateFields !== undefined) editorSettings.value.tableColumnTemplateFields = normalizeTableColumnTemplateFields(partial.tableColumnTemplateFields);
     if (partial.exportBatchSize !== undefined) editorSettings.value.exportBatchSize = Math.min(100000, Math.max(100, Math.round(partial.exportBatchSize)));
     if (partial.preferredExportPath !== undefined) editorSettings.value.preferredExportPath = typeof partial.preferredExportPath === "string" ? partial.preferredExportPath.trim() : "";
+    if (partial.autoOpenExportFolder !== undefined) editorSettings.value.autoOpenExportFolder = partial.autoOpenExportFolder === true;
     if (partial.csvQuoteMode !== undefined) editorSettings.value.csvQuoteMode = normalizeCsvQuoteMode(partial.csvQuoteMode);
     if (partial.csvNullMode !== undefined) editorSettings.value.csvNullMode = normalizeCsvNullMode(partial.csvNullMode);
     if (partial.redisKeyTemplates !== undefined) editorSettings.value.redisKeyTemplates = normalizeRedisKeyTemplates(partial.redisKeyTemplates);
