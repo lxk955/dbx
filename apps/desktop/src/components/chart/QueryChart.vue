@@ -25,10 +25,18 @@ const { isDark } = useTheme();
 
 const QUERY_CHART_SHOW_LABELS_KEY = "dbx-query-chart-show-labels";
 
+function readShowLabelsPreference(): boolean {
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem(QUERY_CHART_SHOW_LABELS_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
 const chartType = ref<ChartType>("bar");
 const xColumnIndex = ref(0);
 const yColumnIndexes = ref<number[]>([]);
-const showLabels = ref(typeof localStorage !== "undefined" && localStorage.getItem(QUERY_CHART_SHOW_LABELS_KEY) === "true");
+const showLabels = ref(readShowLabelsPreference());
 
 watch(showLabels, (val) => {
   try {

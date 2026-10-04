@@ -80,6 +80,7 @@ describe("chartData", () => {
           fontSize: 11,
         },
       });
+      expect(option?.series[0].labelLayout).toBeUndefined();
     });
 
     it("builds bar chart with showLabels enabled and dark theme", () => {
@@ -106,6 +107,8 @@ describe("chartData", () => {
         color: "#ccc",
         fontSize: 11,
       });
+      expect(option?.series[0].labelLayout).toEqual({ hideOverlap: true });
+      expect(option?.series[1].labelLayout).toEqual({ hideOverlap: true });
     });
 
     it("builds line chart with showLabels enabled", () => {
@@ -141,6 +144,8 @@ describe("chartData", () => {
       expect(withoutLabels?.series[0].label).toEqual({
         show: true,
         formatter: "{b}",
+        color: "#333",
+        fontSize: 11,
       });
 
       const withLabels = buildQueryChartOption(testResult, {
@@ -152,6 +157,8 @@ describe("chartData", () => {
       expect(withLabels?.series[0].label).toEqual({
         show: true,
         formatter: "{b}: {c}",
+        color: "#333",
+        fontSize: 11,
       });
     });
   });

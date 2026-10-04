@@ -58,6 +58,8 @@ export function buildQueryChartOption(result: QueryResult, config: QueryChartOpt
           label: {
             show: true,
             formatter: showLabels ? "{b}: {c}" : "{b}",
+            color: isDark ? "#ccc" : "#333",
+            fontSize: 11,
           },
         },
       ],
@@ -94,6 +96,7 @@ export function buildQueryChartOption(result: QueryResult, config: QueryChartOpt
         color: isDark ? "#ccc" : "#333",
         fontSize: 11,
       },
+      ...(showLabels ? { labelLayout: { hideOverlap: true } } : {}),
     })),
   };
 }
