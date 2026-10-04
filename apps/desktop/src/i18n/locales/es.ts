@@ -2016,6 +2016,7 @@ export default withEnglishFallback({
     bar: "Barras",
     pie: "Circular",
     noNumericData: "No hay datos numéricos disponibles para graficar",
+    showLabels: "Mostrar valores",
   },
   grid: {
     agentExecuteTime: "Ejecución: {duration}",

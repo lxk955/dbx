@@ -1748,6 +1748,7 @@ export default withEnglishFallback({
     bar: "Sütun",
     pie: "Pasta",
     noNumericData: "Grafik için sayısal veri yok",
+    showLabels: "Değerleri Göster",
   },
   grid: {
     rows: "{count} satır",
