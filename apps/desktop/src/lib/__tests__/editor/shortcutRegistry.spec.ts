@@ -14,6 +14,7 @@ import {
   normalizeShortcutSettings,
   resolveCapturedShortcutEdit,
   selectionOccurrenceDefaultShortcut,
+  selectLineEndsDefaultShortcut,
   SHORTCUT_DEFINITIONS,
   shortcutToCodeMirrorKey,
   toggleAiPanelDefaultShortcut,
@@ -41,6 +42,7 @@ describe("shortcutRegistry editor actions", () => {
     "selectAllSelectionOccurrences",
     "uppercaseSelection",
     "lowercaseSelection",
+    "toggleCaseSelection",
     "exPasteSqlInCondition",
     "toggleFold",
     "foldAll",
@@ -292,6 +294,7 @@ describe("shortcutRegistry editor actions", () => {
     expect(shortcuts.selectAllSelectionOccurrences).toBe(selectionOccurrenceDefaultShortcut("selectAllSelectionOccurrences"));
     expect(shortcuts.uppercaseSelection).toBe("Shift+Alt+U");
     expect(shortcuts.lowercaseSelection).toBe("Shift+Alt+L");
+    expect(shortcuts.toggleCaseSelection).toBe("Mod+Shift+U");
     expect(shortcuts.exPasteSqlInCondition).toBe("");
     expect(shortcuts.toggleFold).toBe("Mod+.");
     expect(shortcuts.foldAll).toBe(foldAllDefaultShortcut("foldAll"));
@@ -308,6 +311,13 @@ describe("shortcutRegistry editor actions", () => {
     expect(normalizeShortcutSettings({ foldAll: "", unfoldAll: "" }, "Win32")).toMatchObject({ foldAll: "", unfoldAll: "" });
   });
 
+  it("registers toggle case as a configurable editor shortcut (#5085)", () => {
+    const definition = SHORTCUT_DEFINITIONS.find((item) => item.id === "toggleCaseSelection");
+
+    expect(definition).toMatchObject({ scope: "editor", defaultShortcut: "Mod+Shift+U", labelKey: "settings.shortcutToggleCaseSelection" });
+    expect(DEFAULT_SHORTCUT_SETTINGS.toggleCaseSelection).toBe("Mod+Shift+U");
+  });
+
   it("registers IntelliJ-style extend selection as a configurable editor shortcut", () => {
     const definition = SHORTCUT_DEFINITIONS.find((item) => item.id === "extendSelection");
 
@@ -322,6 +332,14 @@ describe("shortcutRegistry editor actions", () => {
     expect(next).toMatchObject({ scope: "editor", defaultShortcut: "Ctrl+G" });
     expect(all).toMatchObject({ scope: "editor", defaultShortcut: "Ctrl+Mod+G" });
     expect(findShortcutConflict("selectAllSelectionOccurrences", DEFAULT_SHORTCUT_SETTINGS.selectAllSelectionOccurrences, DEFAULT_SHORTCUT_SETTINGS)).toBeNull();
+  });
+
+  it("registers the VS Code-style select-line-ends shortcut", () => {
+    const definition = SHORTCUT_DEFINITIONS.find((item) => item.id === "selectLineEnds");
+    expect(definition).toMatchObject({ scope: "editor", defaultShortcut: "Alt+Shift+I", labelKey: "settings.shortcutSelectLineEnds" });
+    expect(selectLineEndsDefaultShortcut("MacIntel")).toBe("Alt+Shift+I");
+    expect(selectLineEndsDefaultShortcut("Win32")).toBe("Alt+Shift+I");
+    expect(shortcutToCodeMirrorKey(selectLineEndsDefaultShortcut("MacIntel"))).toBe("Alt-Shift-i");
   });
 
   it("resolves occurrence selection defaults per platform", () => {

@@ -398,6 +398,7 @@ import { dataGridConditionColumnOptions, dataGridConditionIdentifierQuote, dataG
 import { isMacOS } from "@/lib/backend/platform";
 import { appendDebugLog, isDebugLoggingEnabled } from "@/lib/backend/debugLog";
 import { formatShortcut } from "@/lib/editor/shortcutRegistry";
+import { formatShortcutTooltip } from "@/lib/editor/shortcutDisplay";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useDataGridColumnFormatter } from "@/composables/useDataGridColumnFormatter";
 import { useDataGridTableMetadataLoaders } from "@/composables/useDataGridTableMetadataLoaders";
@@ -433,6 +434,7 @@ const connectionStore = useConnectionStore();
 const queryStore = useQueryStore();
 const settingsStore = useSettingsStore();
 const cellDetailButtonEnabled = computed(() => settingsStore.editorSettings.dataGridCellDetailButtonVisible);
+const cellDetailDialogDefault = computed(() => settingsStore.editorSettings.dataGridCellDetailDialogDefault);
 const dataGridCrosshairHighlight = computed(() => settingsStore.editorSettings.dataGridCrosshairHighlight);
 const tableFontSize = computed(() => settingsStore.editorSettings.tableFontSize);
 const rowNumberWidth = ref(DATA_GRID_ROW_NUM_WIDTH);
@@ -603,6 +605,7 @@ interface DataGridProps {
   showCancel?: boolean;
   cancelling?: boolean;
   cancelDisabled?: boolean;
+  revealColumnRequest?: { id: number; columnName: string };
 }
 
 const props = withDefaults(defineProps<DataGridProps>(), {
@@ -2212,6 +2215,7 @@ function goToColumnTriggerElement(): HTMLElement | undefined {
 }
 
 const goToColumnSelectedIndex = ref(0);
+const goToColumnTooltip = computed(() => formatShortcutTooltip(t("grid.goToColumn"), settingsStore.editorSettings.shortcuts.goToColumn));
 const columnOrderKeys = computed(() => uniqueDataGridColumnOrderKeys(props.result.columns, props.sourceColumns));
 const resolvedColumnLayoutScopeKey = computed(
   () =>
@@ -2518,6 +2522,52 @@ function scrollToColumnIndex(columnIndex: number) {
     }
   });
 }
+
+let lastHandledRevealColumnRequestId: number | null = null;
+
+function handleRevealColumnRequest(request?: { id: number; columnName: string }) {
+  if (!request?.columnName || request.id === lastHandledRevealColumnRequestId) return;
+  if (!props.result.columns || props.result.columns.length === 0) return;
+  const columnIndex = props.result.columns.findIndex((column, index) => matchesTableInfoColumn(column, props.sourceColumns?.[index], request.columnName));
+  if (columnIndex < 0) return;
+  lastHandledRevealColumnRequestId = request.id;
+  scrollToColumnIndex(columnIndex);
+}
+
+watch(
+  () => props.revealColumnRequest,
+  (request) => {
+    handleRevealColumnRequest(request);
+  },
+  { immediate: true, deep: true },
+);
+
+watch(
+  () => props.result.columns,
+  () => {
+    if (props.revealColumnRequest && props.revealColumnRequest.id !== lastHandledRevealColumnRequestId) {
+      void nextTick(() => {
+        handleRevealColumnRequest(props.revealColumnRequest);
+      });
+    }
+  },
+);
+
+onMounted(() => {
+  if (props.revealColumnRequest && props.revealColumnRequest.id !== lastHandledRevealColumnRequestId) {
+    void nextTick(() => {
+      handleRevealColumnRequest(props.revealColumnRequest);
+    });
+  }
+});
+
+onActivated(() => {
+  if (props.revealColumnRequest && props.revealColumnRequest.id !== lastHandledRevealColumnRequestId) {
+    void nextTick(() => {
+      handleRevealColumnRequest(props.revealColumnRequest);
+    });
+  }
+});
 
 // --- Column resize composable ---
 const columnWidthDensity = computed(() => settingsStore.editorSettings.columnWidthDensity);
@@ -7027,7 +7077,7 @@ function dataGridRowStyle(item: RowItem): CSSProperties {
             ? "rgb(51, 51, 55)"
             : "rgb(243, 243, 243)"
           : dataGridStripedRows.value && item.displayIndex % 2 === 1
-            ? `var(--data-grid-row-muted-bg, ${dark ? DATA_GRID_DARK_STRIPED_ROW_BG : DATA_GRID_LIGHT_STRIPED_ROW_BG})`
+            ? settingsStore.editorSettings.dataGridZebraRowBg?.trim() || `var(--data-grid-row-muted-bg, ${dark ? DATA_GRID_DARK_STRIPED_ROW_BG : DATA_GRID_LIGHT_STRIPED_ROW_BG})`
             : "var(--data-grid-background)";
   const rowNumberBg =
     item.status === "new"
@@ -7104,7 +7154,8 @@ const dataGridTypeColorKey = computed(() => {
   return colors ? DATA_GRID_TYPE_COLOR_KEYS.map((key) => colors[key]).join(",") : "auto";
 });
 const canvasRenderStyleKey = computed(
-  () => `${settingsStore.editorSettings.theme}:${settingsStore.editorSettings.uiScale}:${canvasBackingPixelRatio.value}:${isDark.value}:${themePalette.value}:${tableFontFamily.value}:${tableFontSize.value}:${!!saveError.value}:${dataGridTypeColorKey.value}:${dataGridStripedRows.value}`,
+  () =>
+    `${settingsStore.editorSettings.theme}:${settingsStore.editorSettings.uiScale}:${canvasBackingPixelRatio.value}:${isDark.value}:${themePalette.value}:${tableFontFamily.value}:${tableFontSize.value}:${!!saveError.value}:${dataGridTypeColorKey.value}:${dataGridStripedRows.value}:${settingsStore.editorSettings.dataGridZebraRowBg}`,
 );
 const CANVAS_MOUSE_WHEEL_SCROLL_MULTIPLIER = 1.5;
 const CANVAS_TRACKPAD_DELTA_THRESHOLD = 40;
@@ -7881,6 +7932,7 @@ function drawCanvasGrid() {
     flatteningMultiLineEnabled: flatteningMultiLineEnabled.value,
     showWhitespace: showWhitespaceEnabled.value,
     stripedRows: dataGridStripedRows.value,
+    zebraRowBg: settingsStore.editorSettings.dataGridZebraRowBg,
     rowNumberMode: dataGridRowNumberMode.value,
   });
   if (!drawn) return;
@@ -8485,7 +8537,12 @@ function showCellDetailsForVisibleCell(rowIndex: number, visibleColIdx: number, 
   clearRowSelection();
   invalidateContextMenuTarget();
   selectSingleCell(rowIndex, visibleColIdx);
-  showCellDetails(rowIndex, actualColIdx);
+  if (cellDetailDialogDefault.value) {
+    showCellDetail.value = false;
+    openCellDetailDialog(rowIndex, actualColIdx);
+  } else {
+    showCellDetails(rowIndex, actualColIdx);
+  }
 }
 
 function openCellDetailDialog(rowIndex: number, columnIndex: number) {
@@ -8614,7 +8671,12 @@ function showTransposeCellDetails(rowIndex: number, actualColIdx: number) {
   invalidateContextMenuTarget();
   selectSingleCell(rowIndex, visibleColIdx);
   transposeRowIndex.value = rowIndex;
-  showCellDetails(rowIndex, actualColIdx);
+  if (cellDetailDialogDefault.value) {
+    showCellDetail.value = false;
+    openCellDetailDialog(rowIndex, actualColIdx);
+  } else {
+    showCellDetails(rowIndex, actualColIdx);
+  }
   gridRef.value?.focus({ preventScroll: true });
 }
 
@@ -9724,10 +9786,9 @@ async function onGridKeydown(event: KeyboardEvent) {
   }
 
   const targetAllowsNativeClipboard = eventTargetAllowsNativeClipboard(event);
-  if (!targetAllowsNativeClipboard && props.context === "table-data" && canOpenTableStructureEditor.value && isEditTableStructureShortcut(event, settingsStore.editorSettings.shortcuts)) {
+  if (!targetAllowsNativeClipboard && props.context === "table-data" && isEditTableStructureShortcut(event, settingsStore.editorSettings.shortcuts) && openTableStructureEditor("columns")) {
     event.preventDefault();
     event.stopPropagation();
-    openTableStructureEditor("columns");
     return;
   }
   if (!targetAllowsNativeClipboard && isGoToColumnShortcut(event, settingsStore.editorSettings.shortcuts) && openGoToColumn()) {
@@ -11836,9 +11897,10 @@ function copyDdl() {
   copyText(ddlContent.value);
 }
 
-function openTableStructureEditor(initialTab: TableInfoTab) {
-  if (!props.connectionId || !props.database || !props.tableMeta?.tableName || !canOpenTableStructureEditor.value) return;
+function openTableStructureEditor(initialTab: TableInfoTab = "columns"): boolean {
+  if (!props.connectionId || !props.database || !props.tableMeta?.tableName || !canOpenTableStructureEditor.value) return false;
   queryStore.openTableStructure(props.connectionId, props.database, props.tableMeta.schema, props.tableMeta.tableName, initialTab, undefined, props.tableMeta.catalog, (props.tableMeta.tableType || "").toUpperCase() === "VIEW" ? "view" : "table");
+  return true;
 }
 
 function toggleDdlWrap() {
@@ -12868,7 +12930,7 @@ useUpdateBlocker(() => (hasPendingChanges.value || hasPendingDataEditorDraft.val
                       </Button>
                     </PopoverTrigger>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom">{{ t("grid.goToColumn") }}</TooltipContent>
+                  <TooltipContent side="bottom">{{ goToColumnTooltip }}</TooltipContent>
                 </Tooltip>
                 <PopoverContent :reference="goToColumnTriggerElement()" align="end" class="w-56 p-2" @keydown="onGoToColumnKeydown">
                   <div class="relative mb-1">

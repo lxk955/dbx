@@ -273,12 +273,14 @@ describe("settingsTransfer", () => {
       theme: DEFAULT_EDITOR_SETTINGS.theme,
       pageSize: 200,
       snippets: [{ id: "s1", label: "L", prefix: "p", body: "SELECT 1", enabled: true }],
+      snippetTriggerKey: "space",
     } as EditorSettings;
     const result = parseSettingsTransferFile(serializeSettingsTransfer(settings));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.editorSettings.pageSize).toBe(200);
     expect(result.value.editorSettings.snippets).toEqual(settings.snippets);
+    expect(result.value.editorSettings.snippetTriggerKey).toBe("space");
   });
 
   it("round-trips table default sorting settings", () => {
@@ -472,5 +474,18 @@ describe("settingsTransfer", () => {
   it("maps csvNullMode into the data category", () => {
     expect(transferCategoryForKey("csvNullMode")).toBe("data");
     expect(collectTransferCategories(["csvNullMode", "csvQuoteMode"])).toEqual(["data"]);
+  });
+
+  it("round-trips zebra row background in data category", () => {
+    expect(transferCategoryForKey("dataGridZebraRowBg")).toBe("data");
+
+    const text = serializeSettingsTransfer({
+      ...DEFAULT_EDITOR_SETTINGS,
+      dataGridZebraRowBg: "#232323",
+    });
+    const result = parseSettingsTransferFile(text);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.editorSettings.dataGridZebraRowBg).toBe("#232323");
   });
 });

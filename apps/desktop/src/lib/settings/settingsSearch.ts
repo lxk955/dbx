@@ -50,7 +50,7 @@ export interface SettingsSearchRoute {
 
 export type Translate = (key: string) => string;
 
-type ToolbarVisibilityItemKey = "dataTransfer" | "driverManager" | "pluginCenter" | "sqlFile" | "schemaDiff" | "dataCompare" | "checkUpdates" | "sqlLibrary" | "sqlFileTree" | "history" | "ai" | "theme" | "github" | "alwaysOnTop";
+type ToolbarVisibilityItemKey = "immediateSync" | "dataTransfer" | "driverManager" | "pluginCenter" | "sqlFile" | "schemaDiff" | "dataCompare" | "checkUpdates" | "sqlLibrary" | "sqlFileTree" | "history" | "ai" | "theme" | "github" | "alwaysOnTop";
 
 export type ToolbarVisibilityItem = ({ key: ToolbarVisibilityItemKey; titleKey: string; title?: never } | { key: ToolbarVisibilityItemKey; title: string; titleKey?: never }) & {
   /** The matching toolbar button can only exist in the desktop app, so the Web build hides the switch. */
@@ -77,6 +77,7 @@ export const TOOLBAR_VISIBILITY_ITEMS: readonly ToolbarVisibilityItem[] = [
   { key: "theme", titleKey: "toolbar.theme" },
   { key: "github", title: "GitHub" },
   { key: "alwaysOnTop", titleKey: "toolbar.alwaysOnTop", desktopOnly: true },
+  { key: "immediateSync", titleKey: "toolbar.immediateSync" },
 ];
 
 export function toolbarVisibilityItemLabel(item: ToolbarVisibilityItem, translate: Translate): string {
@@ -190,6 +191,7 @@ export const SETTINGS_SEARCH_DEFINITIONS: readonly SettingsSearchDefinition[] = 
   { id: "appearance-welcome-page", category: "appearance", titleKey: "settings.welcomePage", descriptionKey: "settings.welcomePageDescription", targetId: "welcome-page-settings" },
   { id: "appearance-layout", category: "appearance", titleKey: "settings.appLayout", targetId: "appearance" },
   { id: "appearance-tab-layout", category: "appearance", titleKey: "settings.tabLayout", targetId: "appearance" },
+  { id: "appearance-tab-max-width", category: "appearance", titleKey: "settings.tabMaxWidth", descriptionKey: "settings.tabMaxWidthDescription", targetId: "appearance" },
   { id: "appearance-connection-tab-colors", category: "appearance", titleKey: "settings.colorizeConnectionTabs", descriptionKey: "settings.colorizeConnectionTabsDescription", targetId: "appearance" },
   { id: "appearance-icons", category: "appearance", titleKey: "settings.iconTheme", targetId: "appearance", visible: desktopOnly },
   { id: "appearance-tray", category: "appearance", titleKey: "settings.showTrayIcon", descriptionKey: "settings.showTrayIconDescription", targetId: "appearance", visible: desktopOnly },
@@ -272,6 +274,7 @@ export const SETTINGS_SEARCH_DEFINITIONS: readonly SettingsSearchDefinition[] = 
   { id: "shortcuts", category: "shortcuts", titleKey: "settings.shortcutsTab", targetId: "shortcuts" },
   { id: "sql-shortcuts", category: "shortcuts", titleKey: "settings.sqlShortcutsTitle", descriptionKey: "settings.sqlShortcutsDescription", targetId: "sql-shortcuts" },
   { id: "snippets", category: "snippets", titleKey: "settings.snippetsTab", descriptionKey: "settings.snippetsDescription", targetId: "snippets" },
+  { id: "snippet-trigger-key", category: "snippets", titleKey: "settings.snippetTriggerKey", descriptionKey: "settings.snippetTriggerKeyDescription", targetId: "snippet-trigger-key" },
   { id: "sync-webdav", category: "sync", titleKey: "settings.syncWebDavTitle", descriptionKey: "settings.syncWebDavDescription", targetId: "sync-webdav", route: { syncMethodTab: "webdav" } },
   { id: "sync-webdav-endpoint", category: "sync", titleKey: "settings.syncEndpoint", targetId: "sync-webdav", route: { syncMethodTab: "webdav" } },
   { id: "sync-webdav-username", category: "sync", titleKey: "settings.syncUsername", targetId: "sync-webdav", route: { syncMethodTab: "webdav" } },

@@ -18,9 +18,11 @@ import {
   normalizeMcpGlobalPolicy,
   type RightSidebarPanelState,
   transitionRightSidebarPanels,
+  WELCOME_PAGE_DEFAULT_VERSION,
 } from "@/stores/settingsStore";
 import type { AiConfigItem } from "@/types/ai";
 import { DATA_GRID_EXTRACTOR_OPTIONS_MIGRATION_VERSION } from "@/lib/dataGrid/dataGridCopyExtractor";
+import { DEFAULT_MONO_FONT_FAMILY } from "@/lib/app/appFonts";
 
 describe("normalizeEditorSettings", () => {
   it("preserves comment-first naming for existing settings and permits opting out", () => {
@@ -28,6 +30,16 @@ describe("normalizeEditorSettings", () => {
     expect(normalizeEditorSettings({}).resultTabPreferComments).toBe(true);
     expect(normalizeEditorSettings({ resultTabPreferComments: false }).resultTabPreferComments).toBe(false);
     expect(normalizeEditorSettings({ resultTabPreferComments: "false" } as any).resultTabPreferComments).toBe(true);
+  });
+
+  it("defaults the welcome page to the workspace overview and honors an explicitly saved intro mode", () => {
+    expect(DEFAULT_EDITOR_SETTINGS.welcomePageMode).toBe("workspace");
+    expect(normalizeEditorSettings({}).welcomePageMode).toBe("workspace");
+    expect(normalizeEditorSettings({ welcomePageMode: "bogus", welcomePageModeDefaultVersion: WELCOME_PAGE_DEFAULT_VERSION }).welcomePageMode).toBe("workspace");
+    // A persisted intro from the intro-default builds carries no version marker and migrates back.
+    expect(normalizeEditorSettings({ welcomePageMode: "intro" }).welcomePageMode).toBe("workspace");
+    expect(normalizeEditorSettings({ welcomePageMode: "intro", welcomePageModeDefaultVersion: WELCOME_PAGE_DEFAULT_VERSION }).welcomePageMode).toBe("intro");
+    expect(normalizeEditorSettings({ welcomePageMode: "workspace", welcomePageModeDefaultVersion: WELCOME_PAGE_DEFAULT_VERSION }).welcomePageMode).toBe("workspace");
   });
 
   it("defaults and sanitizes AI conversation typography independently", () => {
@@ -352,6 +364,14 @@ describe("normalizeEditorSettings", () => {
     expect(normalizeEditorSettings({ sqlServerSpaceConfirmsCompletion: "yes" as unknown as boolean }).sqlServerSpaceConfirmsCompletion).toBe(false);
   });
 
+  it("defaults snippetTriggerKey to tab and preserves valid options while falling back on invalid values", () => {
+    expect(normalizeEditorSettings({}).snippetTriggerKey).toBe("tab");
+    expect(normalizeEditorSettings({ snippetTriggerKey: "tab" }).snippetTriggerKey).toBe("tab");
+    expect(normalizeEditorSettings({ snippetTriggerKey: "space" }).snippetTriggerKey).toBe("space");
+    expect(normalizeEditorSettings({ snippetTriggerKey: "both" }).snippetTriggerKey).toBe("both");
+    expect(normalizeEditorSettings({ snippetTriggerKey: "enter" as any }).snippetTriggerKey).toBe("tab");
+  });
+
   it("selects the first completion candidate by default and preserves the opt-out", () => {
     expect(normalizeEditorSettings({}).selectFirstCompletionOnOpen).toBe(true);
     expect(normalizeEditorSettings({ selectFirstCompletionOnOpen: true }).selectFirstCompletionOnOpen).toBe(true);
@@ -630,6 +650,16 @@ describe("normalizeEditorSettings", () => {
     }
   });
 
+  it("defaults cell detail dialog default off and preserves only boolean values", () => {
+    expect(normalizeEditorSettings({}).dataGridCellDetailDialogDefault).toBe(false);
+    expect(normalizeEditorSettings({ dataGridCellDetailDialogDefault: true }).dataGridCellDetailDialogDefault).toBe(true);
+    expect(normalizeEditorSettings({ dataGridCellDetailDialogDefault: false }).dataGridCellDetailDialogDefault).toBe(false);
+
+    for (const invalidValue of [0, 1, "true", null]) {
+      expect(normalizeEditorSettings({ dataGridCellDetailDialogDefault: invalidValue as never }).dataGridCellDetailDialogDefault).toBe(false);
+    }
+  });
+
   it("defaults the crosshair highlight off and preserves only boolean values", () => {
     expect(normalizeEditorSettings({}).dataGridCrosshairHighlight).toBe(false);
     expect(normalizeEditorSettings({ dataGridCrosshairHighlight: true }).dataGridCrosshairHighlight).toBe(true);
@@ -640,11 +670,28 @@ describe("normalizeEditorSettings", () => {
     }
   });
 
+  it("defaults zebra row background empty and normalizes custom color", () => {
+    expect(normalizeEditorSettings({}).dataGridZebraRowBg).toBe("");
+    expect(normalizeEditorSettings({ dataGridZebraRowBg: " #334455 \n" }).dataGridZebraRowBg).toBe("#334455");
+    expect(normalizeEditorSettings({ dataGridZebraRowBg: null as never }).dataGridZebraRowBg).toBe("");
+  });
+
   it("defaults the data grid font and preserves a custom font family", () => {
     const defaultFontFamily = `"Geist Variable Tabular", "Geist Variable", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif`;
     expect(normalizeEditorSettings({}).tableFontFamily).toBe(defaultFontFamily);
     expect(normalizeEditorSettings({ tableFontFamily: "'IBM Plex Mono', monospace" }).tableFontFamily).toBe("'IBM Plex Mono', monospace");
     expect(normalizeEditorSettings({ tableFontFamily: "   " }).tableFontFamily).toBe(defaultFontFamily);
+  });
+
+  it("defaults the editor font with CJK fallbacks and migrates legacy default presets", () => {
+    expect(normalizeEditorSettings({}).fontFamily).toBe(DEFAULT_MONO_FONT_FAMILY);
+    expect(
+      normalizeEditorSettings({
+        fontFamily: "'Fira Code', 'Cascadia Code', 'Cascadia Mono', 'JetBrains Mono', monospace",
+      }).fontFamily,
+    ).toBe(DEFAULT_MONO_FONT_FAMILY);
+    expect(normalizeEditorSettings({ fontFamily: "'Custom Mono', monospace" }).fontFamily).toBe("'Custom Mono', monospace");
+    expect(normalizeEditorSettings({ fontFamily: "   " }).fontFamily).toBe(DEFAULT_MONO_FONT_FAMILY);
   });
 
   it("shows cell detail metadata by default and preserves collapsed state", () => {
@@ -962,6 +1009,26 @@ describe("normalizeEditorSettings - tabLayout", () => {
     expect(normalizeEditorSettings({ tabLayout: undefined } as any).tabLayout).toBe("scroll");
     expect(normalizeEditorSettings({ tabLayout: null } as any).tabLayout).toBe("scroll");
     expect(normalizeEditorSettings({ tabLayout: 123 } as any).tabLayout).toBe("scroll");
+  });
+});
+
+describe("normalizeEditorSettings - tabMaxWidth", () => {
+  it("defaults tabMaxWidth to 0", () => {
+    expect(normalizeEditorSettings({}).tabMaxWidth).toBe(0);
+  });
+
+  it("preserves valid width values", () => {
+    expect(normalizeEditorSettings({ tabMaxWidth: 160 }).tabMaxWidth).toBe(160);
+    expect(normalizeEditorSettings({ tabMaxWidth: 240 }).tabMaxWidth).toBe(240);
+    expect(normalizeEditorSettings({ tabMaxWidth: 320 }).tabMaxWidth).toBe(320);
+  });
+
+  it("falls back to 0 for invalid values", () => {
+    expect(normalizeEditorSettings({ tabMaxWidth: -10 } as any).tabMaxWidth).toBe(0);
+    expect(normalizeEditorSettings({ tabMaxWidth: 9999 } as any).tabMaxWidth).toBe(0);
+    expect(normalizeEditorSettings({ tabMaxWidth: "240" } as any).tabMaxWidth).toBe(0);
+    expect(normalizeEditorSettings({ tabMaxWidth: null } as any).tabMaxWidth).toBe(0);
+    expect(normalizeEditorSettings({ tabMaxWidth: undefined } as any).tabMaxWidth).toBe(0);
   });
 });
 
@@ -1291,6 +1358,31 @@ describe("settingsStore persisted settings initialization", () => {
     expect(saveEditorSettings).toHaveBeenLastCalledWith(expect.objectContaining({ dataGridKeepFilterEditorExpanded: false }));
   });
 
+  it("resets a persisted intro welcome page from the intro-default builds and keeps later explicit choices", async () => {
+    const loadEditorSettings = vi.fn().mockResolvedValueOnce({
+      welcomePageMode: "intro",
+      executeModeDefaultVersion: EXECUTE_MODE_CURRENT_DEFAULT_VERSION,
+      sidebarBrowseObjectsOnDatabaseActivationMigrationVersion: SIDEBAR_BROWSE_OBJECTS_MIGRATION_VERSION,
+      dataGridExtractorOptionsMigrationVersion: DATA_GRID_EXTRACTOR_OPTIONS_MIGRATION_VERSION,
+    });
+    const saveEditorSettings = vi.fn().mockResolvedValue(undefined);
+    vi.doMock("@/lib/backend/api", () => ({ loadEditorSettings, saveEditorSettings }));
+
+    const { useSettingsStore } = await import("@/stores/settingsStore");
+    const store = useSettingsStore();
+    await store.initEditorSettings();
+
+    expect(store.editorSettings.welcomePageMode).toBe("workspace");
+    expect(store.editorSettings.welcomePageModeDefaultVersion).toBe(WELCOME_PAGE_DEFAULT_VERSION);
+    await vi.waitFor(() => expect(saveEditorSettings).toHaveBeenCalledOnce());
+    expect(saveEditorSettings).toHaveBeenLastCalledWith(expect.objectContaining({ welcomePageMode: "workspace", welcomePageModeDefaultVersion: WELCOME_PAGE_DEFAULT_VERSION }));
+
+    store.updateEditorSettings({ welcomePageMode: "intro" });
+    expect(store.editorSettings.welcomePageMode).toBe("intro");
+    await vi.waitFor(() => expect(saveEditorSettings).toHaveBeenCalledTimes(2));
+    expect(saveEditorSettings).toHaveBeenLastCalledWith(expect.objectContaining({ welcomePageMode: "intro", welcomePageModeDefaultVersion: WELCOME_PAGE_DEFAULT_VERSION }));
+  });
+
   it("persists table completion schema qualification updates", async () => {
     const loadEditorSettings = vi.fn().mockResolvedValue({});
     const saveEditorSettings = vi.fn().mockResolvedValue(undefined);
@@ -1451,6 +1543,28 @@ describe("settingsStore persisted settings initialization", () => {
     const restartedStore = useSettingsStore();
     await restartedStore.initEditorSettings();
     expect(restartedStore.editorSettings.dataGridCellDetailButtonVisible).toBe(true);
+  });
+
+  it("defaults cell detail dialog default to off, persists an opt-in, and reloads it", async () => {
+    let persistedSettings: Record<string, unknown> = { dataGridCellDetailDialogDefault: true };
+    const loadEditorSettings = vi.fn(async () => JSON.parse(JSON.stringify(persistedSettings)));
+    const saveEditorSettings = vi.fn(async (settings: Record<string, unknown>) => {
+      persistedSettings = JSON.parse(JSON.stringify(settings));
+    });
+    vi.doMock("@/lib/backend/api", () => ({ loadEditorSettings, saveEditorSettings }));
+
+    const { useSettingsStore } = await import("@/stores/settingsStore");
+    const store = useSettingsStore();
+    await store.initEditorSettings();
+
+    expect(store.editorSettings.dataGridCellDetailDialogDefault).toBe(true);
+    await store.updateEditorSettingsAndPersist({ dataGridCellDetailDialogDefault: false });
+    expect(saveEditorSettings).toHaveBeenLastCalledWith(expect.objectContaining({ dataGridCellDetailDialogDefault: false }));
+
+    setActivePinia(createPinia());
+    const restartedStore = useSettingsStore();
+    await restartedStore.initEditorSettings();
+    expect(restartedStore.editorSettings.dataGridCellDetailDialogDefault).toBe(false);
   });
 
   it("defaults the crosshair highlight to off, persists an opt-in, and reloads it", async () => {
@@ -1638,6 +1752,7 @@ describe("settingsStore editor settings persistence", () => {
       ignoredUpdateVersion: "",
       executeModeDefaultVersion: EXECUTE_MODE_CURRENT_DEFAULT_VERSION,
       sidebarBrowseObjectsOnDatabaseActivationMigrationVersion: SIDEBAR_BROWSE_OBJECTS_MIGRATION_VERSION,
+      welcomePageModeDefaultVersion: WELCOME_PAGE_DEFAULT_VERSION,
     });
     const saveEditorSettings = vi.fn().mockRejectedValueOnce(new Error("save failed")).mockResolvedValueOnce(undefined);
     vi.doMock("@/lib/backend/api", () => ({ loadEditorSettings, saveEditorSettings }));
@@ -1685,6 +1800,7 @@ describe("settingsStore editor settings persistence", () => {
       ignoredUpdateVersion: "",
       executeModeDefaultVersion: EXECUTE_MODE_CURRENT_DEFAULT_VERSION,
       sidebarBrowseObjectsOnDatabaseActivationMigrationVersion: SIDEBAR_BROWSE_OBJECTS_MIGRATION_VERSION,
+      welcomePageModeDefaultVersion: WELCOME_PAGE_DEFAULT_VERSION,
     });
     const saveEditorSettings = vi.fn().mockImplementationOnce(
       () =>
@@ -1721,6 +1837,7 @@ describe("settingsStore editor settings persistence", () => {
       theme: "system",
       executeModeDefaultVersion: EXECUTE_MODE_CURRENT_DEFAULT_VERSION,
       sidebarBrowseObjectsOnDatabaseActivationMigrationVersion: SIDEBAR_BROWSE_OBJECTS_MIGRATION_VERSION,
+      welcomePageModeDefaultVersion: WELCOME_PAGE_DEFAULT_VERSION,
     });
     const saveEditorSettings = vi.fn().mockImplementationOnce(
       () =>
