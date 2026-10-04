@@ -113,6 +113,16 @@ describe("settings search", () => {
     });
   });
 
+  it("indexes the default explain view and its settings control", () => {
+    expect(SETTINGS_SEARCH_DEFINITIONS).toContainEqual({
+      id: "default-explain-view",
+      category: "data",
+      titleKey: "settings.defaultExplainView",
+      descriptionKey: "settings.defaultExplainViewDescription",
+      targetId: "default-explain-view",
+    });
+  });
+
   it("places SQL file limits in their owning settings categories", () => {
     expect(SETTINGS_SEARCH_DEFINITIONS).toContainEqual({
       id: "sql-file-editor-max-mb",
@@ -299,6 +309,7 @@ describe("settings search", () => {
       { titleKey: "toolbar.theme", category: "appearance", targetId: "appearance" },
       { titleKey: "settings.sidebarObjectInfoMode", category: "navigation", targetId: "navigation" },
       { titleKey: "settings.insertSpaceAfterCompletion", category: "editor", targetId: "editor" },
+      { titleKey: "settings.functionCompletionIncludeParams", category: "editor", targetId: "editor" },
       { titleKey: "settings.completionTriggerMode", category: "editor", targetId: "editor" },
       { titleKey: "settings.tableCompletionSchemaQualification", category: "editor", targetId: "editor" },
       { titleKey: "settings.autoAliasTables", category: "editor", targetId: "editor" },

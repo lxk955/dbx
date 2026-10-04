@@ -140,6 +140,10 @@ describe("EDITOR_SETTINGS_DRAFT_KEYS", () => {
     expect(EDITOR_SETTINGS_DRAFT_KEYS).toContain("multiStatementDefaultView");
   });
 
+  it("includes the default explain view", () => {
+    expect(EDITOR_SETTINGS_DRAFT_KEYS).toContain("defaultExplainView");
+  });
+
   it("includes the cell detail button visibility", () => {
     expect(EDITOR_SETTINGS_DRAFT_KEYS).toContain("dataGridCellDetailButtonVisible");
   });
@@ -166,6 +170,15 @@ describe("EDITOR_SETTINGS_DRAFT_KEYS", () => {
 
   it("includes the SQL variable substitution master switch", () => {
     expect(EDITOR_SETTINGS_DRAFT_KEYS).toContain("sqlVariableSubstitutionEnabled");
+  });
+
+  it("includes functionCompletionIncludeParams in draft keys, draft conversion, and patch", () => {
+    expect(EDITOR_SETTINGS_DRAFT_KEYS).toContain("functionCompletionIncludeParams");
+    const draft = editorSettingsDraftFromSettings(makeSettings({ functionCompletionIncludeParams: false }));
+    const base = editorSettingsDraftFromSettings(makeSettings({ functionCompletionIncludeParams: true }));
+    expect(draft.functionCompletionIncludeParams).toBe(false);
+    expect(editorSettingsDraftChanged(draft, base)).toBe(true);
+    expect(editorSettingsPatchFromDraft(draft, base)).toEqual({ functionCompletionIncludeParams: false });
   });
 });
 
@@ -234,6 +247,10 @@ describe("editorSettingsDraftFromSettings", () => {
 
   it("maps the multi-statement default view from settings", () => {
     expect(editorSettingsDraftFromSettings(makeSettings({ multiStatementDefaultView: "summary" })).multiStatementDefaultView).toBe("summary");
+  });
+
+  it("maps the default explain view from settings", () => {
+    expect(editorSettingsDraftFromSettings(makeSettings({ defaultExplainView: "table" })).defaultExplainView).toBe("table");
   });
 
   it("preserves the table-open default for legacy settings", () => {
@@ -382,6 +399,13 @@ describe("editorSettingsPatchFromDraft", () => {
     const summary = editorSettingsDraftFromSettings(makeSettings({ multiStatementDefaultView: "summary" }));
 
     expect(editorSettingsPatchFromDraft(summary, result)).toEqual({ multiStatementDefaultView: "summary" });
+  });
+
+  it("includes the default explain view when changed", () => {
+    const canvas = editorSettingsDraftFromSettings(makeSettings({ defaultExplainView: "canvas" }));
+    const table = editorSettingsDraftFromSettings(makeSettings({ defaultExplainView: "table" }));
+
+    expect(editorSettingsPatchFromDraft(table, canvas)).toEqual({ defaultExplainView: "table" });
   });
 
   it("includes continueOnErrorOnBatch in patch when changed", () => {
