@@ -7757,6 +7757,8 @@ export default withEnglishFallback({
     preferredExportPathClear: "Üstünlük verilən ixrac yolunu təmizləyin",
     autoOpenExportFolder: "İxracdan sonra qovluğu avtomatik aç",
     autoOpenExportFolderDescription: "Məlumat ixracı uğurla başa çatdıqda fayl menecerində ixrac edilən faylın qovluğunu avtomatik açır.",
+    autoRevealExportedFile: "İxrac edilmiş faylı fayl menecerində göstər",
+    autoRevealExportedFileDescription: "Məlumat ixracı tamamlandıqdan sonra fayl menecerini avtomatik açın və faylı vurğulayın.",
     exportSection: "İxrac",
     csvQuoteMode: "CSV sahələrinin dırnaqları",
     csvQuoteModeDescription: "CSV sahələrində qoşa dırnaqların necə istifadə olunacağını seçin.",

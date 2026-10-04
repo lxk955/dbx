@@ -9081,6 +9081,8 @@ export default withEnglishFallback({
     preferredExportPathClear: "Очистить предпочтительный путь экспорта",
     autoOpenExportFolder: "Автоматически открывать папку после экспорта",
     autoOpenExportFolderDescription: "Автоматически открывать папку с экспортированным файлом в файловом менеджере после завершения экспорта данных.",
+    autoRevealExportedFile: "Показывать экспортированный файл в проводнике",
+    autoRevealExportedFileDescription: "Автоматически открывать диспетчер файлов и выделять экспортированный файл после завершения экспорта.",
     exportSection: "Экспорт",
     csvQuoteMode: "Кавычки в полях CSV",
     csvQuoteModeDescription: "Выберите, как поля CSV используют двойные кавычки.",

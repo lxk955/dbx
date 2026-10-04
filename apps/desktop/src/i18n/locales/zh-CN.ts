@@ -8763,6 +8763,8 @@ export default withEnglishFallback({
     preferredExportPathClear: "清除首选导出路径",
     autoOpenExportFolder: "导出后自动打开所在文件夹",
     autoOpenExportFolderDescription: "数据导出成功后，自动在系统文件管理器中打开并定位导出文件所在的文件夹。",
+    autoRevealExportedFile: "导出后在文件管理器中定位",
+    autoRevealExportedFileDescription: "数据导出完成后，自动在系统文件管理器中打开并定位到导出的文件。",
     exportSection: "导出",
     csvQuoteMode: "CSV 字段引号",
     csvQuoteModeDescription: "选择 CSV 导出时字段使用双引号的方式。",

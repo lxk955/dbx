@@ -25,6 +25,7 @@ import type { SqlInsertDialect, SqlInsertMode } from "@/lib/export/sqlInsertMode
 import { revealExportedPath } from "@/lib/export/exportPath";
 import { translateBackendError } from "@/i18n/backend-errors";
 import { loadSavedDatabaseExportOptions, MAX_SPLIT_SQL_PART_MB, MIN_SPLIT_SQL_PART_MB, saveDatabaseExportOptions, sortDatabaseTableNames } from "@/lib/export/databaseExportOptions";
+import { notifyExportComplete } from "@/lib/export/exportReveal";
 
 const { t } = useI18n();
 const { toast } = useToast();
@@ -228,12 +229,24 @@ function normalizedSplitSqlPartMaxMb(): number {
 // Lenient exports write per-object failures into the SQL file as `-- ERROR`
 // comments and still finish; completion must warn instead of reporting plain
 // success (#8184).
-function toastDatabaseExportCompletion(errorCount: number, errorSummary: string | null) {
+function toastDatabaseExportCompletion(errorCount: number, errorSummary: string | null, filePath?: string | null) {
   if (errorCount > 0) {
-    toast(t("databaseExport.exportSuccessWithErrors", { count: errorCount, firstError: errorSummary ?? "" }), 8000);
+    notifyExportComplete({
+      filePath,
+      message: t("databaseExport.exportSuccessWithErrors", { count: errorCount, firstError: errorSummary ?? "" }),
+      openFolderLabel: t("exportProgress.openFolder"),
+      toast,
+      duration: 8000,
+    });
     return;
   }
-  toast(t("databaseExport.exportSuccess"), 3000);
+  notifyExportComplete({
+    filePath,
+    message: t("databaseExport.exportSuccess"),
+    openFolderLabel: t("exportProgress.openFolder"),
+    toast,
+    duration: 3000,
+  });
 }
 
 const canChangeQueryTimeout = computed(() => !!connectionId.value && !!exportWarning.value && isQueryTimeoutErrorMessage(exportWarning.value));
@@ -469,7 +482,7 @@ async function startExport() {
             exportDone.value = true;
             exportWarning.value = progress.errorSummary ?? null;
             isExporting.value = false;
-            toastDatabaseExportCompletion(progress.errorCount ?? 0, progress.errorSummary ?? null);
+            toastDatabaseExportCompletion(progress.errorCount ?? 0, progress.errorSummary ?? null, filePath);
           } else if (progress.status === "Error") {
             finishExportTiming();
             exportError.value = progress.error;
@@ -666,9 +679,21 @@ async function startAllDatabasesExport() {
       exportProgress.value = finalProgress;
       updateDatabaseExportTask(batchId, finalProgress);
       if (batchLenientErrorCount > 0) {
-        toast(t("databaseExport.exportAllSuccessWithErrors", { count: dbs.length, errorCount: batchLenientErrorCount, firstError: batchFirstErrorSummary ?? "" }), 8000);
+        notifyExportComplete({
+          filePath: directoryPath,
+          message: t("databaseExport.exportAllSuccessWithErrors", { count: dbs.length, errorCount: batchLenientErrorCount, firstError: batchFirstErrorSummary ?? "" }),
+          openFolderLabel: t("exportProgress.openFolder"),
+          toast,
+          duration: 8000,
+        });
       } else {
-        toast(t("databaseExport.exportAllSuccess", { count: dbs.length }), 3000);
+        notifyExportComplete({
+          filePath: directoryPath,
+          message: t("databaseExport.exportAllSuccess", { count: dbs.length }),
+          openFolderLabel: t("exportProgress.openFolder"),
+          toast,
+          duration: 3000,
+        });
       }
     }
   } catch (e: any) {

@@ -8556,6 +8556,8 @@ export default withEnglishFallback({
     preferredExportPathClear: "Hapus jalur ekspor pilihan",
     autoOpenExportFolder: "Buka folder otomatis setelah ekspor",
     autoOpenExportFolderDescription: "Buka dan tampilkan folder yang berisi berkas hasil ekspor secara otomatis di pengelola berkas setelah ekspor data berhasil.",
+    autoRevealExportedFile: "Buka file hasil ekspor di pengelola file",
+    autoRevealExportedFileDescription: "Buka pengelola file secara otomatis dan sorot file setelah ekspor data selesai.",
     exportSection: "Ekspor",
     csvQuoteMode: "Tanda kutip bidang CSV",
     csvQuoteModeDescription: "Pilih bagaimana bidang CSV menggunakan tanda kutip ganda.",
