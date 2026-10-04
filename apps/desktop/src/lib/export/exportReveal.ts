@@ -1,19 +1,23 @@
 import { isTauriRuntime } from "@/lib/backend/tauriRuntime";
-import * as api from "@/lib/backend/api";
+import { revealExportedPath } from "@/lib/export/exportPath";
 import { useSettingsStore } from "@/stores/settingsStore";
 import type { ToastAction } from "@/composables/useToast";
 
 export function shouldAutoRevealExportedFile(): boolean {
   if (!isTauriRuntime()) return false;
-  const settings = useSettingsStore().editorSettings;
-  return Boolean(settings?.autoRevealExportedFile || settings?.autoOpenExportFolder);
+  try {
+    const settings = useSettingsStore().editorSettings;
+    return Boolean(settings?.autoOpenExportFolder);
+  } catch {
+    return false;
+  }
 }
 
 export async function revealExportedFile(filePath: string, onError?: (error: unknown) => void): Promise<boolean> {
   const trimmed = filePath?.trim();
   if (!trimmed || !isTauriRuntime()) return false;
   try {
-    await api.revealPathInFileManager(trimmed);
+    await revealExportedPath(trimmed);
     return true;
   } catch (error) {
     if (onError) {

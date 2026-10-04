@@ -3,9 +3,9 @@ import { shouldAutoRevealExportedFile, revealExportedFile, notifyExportComplete 
 
 const mocks = vi.hoisted(() => ({
   isTauriRuntime: vi.fn(),
-  revealPathInFileManager: vi.fn(),
+  revealExportedPath: vi.fn(),
   editorSettings: {
-    autoRevealExportedFile: false,
+    autoOpenExportFolder: false,
   },
 }));
 
@@ -13,8 +13,8 @@ vi.mock("@/lib/backend/tauriRuntime", () => ({
   isTauriRuntime: () => mocks.isTauriRuntime(),
 }));
 
-vi.mock("@/lib/backend/api", () => ({
-  revealPathInFileManager: (...args: unknown[]) => mocks.revealPathInFileManager(...args),
+vi.mock("@/lib/export/exportPath", () => ({
+  revealExportedPath: (...args: unknown[]) => mocks.revealExportedPath(...args),
 }));
 
 vi.mock("@/stores/settingsStore", () => ({
@@ -27,34 +27,26 @@ describe("exportReveal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.isTauriRuntime.mockReturnValue(true);
-    mocks.revealPathInFileManager.mockResolvedValue(undefined);
-    mocks.editorSettings.autoRevealExportedFile = false;
-    (mocks.editorSettings as any).autoOpenExportFolder = false;
+    mocks.revealExportedPath.mockResolvedValue(undefined);
+    mocks.editorSettings.autoOpenExportFolder = false;
   });
 
   describe("shouldAutoRevealExportedFile", () => {
     it("returns false when not running under Tauri", () => {
       mocks.isTauriRuntime.mockReturnValue(false);
-      mocks.editorSettings.autoRevealExportedFile = true;
+      mocks.editorSettings.autoOpenExportFolder = true;
       expect(shouldAutoRevealExportedFile()).toBe(false);
     });
 
-    it("returns false when autoRevealExportedFile setting is false", () => {
+    it("returns false when autoOpenExportFolder setting is false", () => {
       mocks.isTauriRuntime.mockReturnValue(true);
-      mocks.editorSettings.autoRevealExportedFile = false;
+      mocks.editorSettings.autoOpenExportFolder = false;
       expect(shouldAutoRevealExportedFile()).toBe(false);
-    });
-
-    it("returns true when running under Tauri and autoRevealExportedFile setting is true", () => {
-      mocks.isTauriRuntime.mockReturnValue(true);
-      mocks.editorSettings.autoRevealExportedFile = true;
-      expect(shouldAutoRevealExportedFile()).toBe(true);
     });
 
     it("returns true when running under Tauri and autoOpenExportFolder setting is true", () => {
       mocks.isTauriRuntime.mockReturnValue(true);
-      mocks.editorSettings.autoRevealExportedFile = false;
-      (mocks.editorSettings as any).autoOpenExportFolder = true;
+      mocks.editorSettings.autoOpenExportFolder = true;
       expect(shouldAutoRevealExportedFile()).toBe(true);
     });
   });
@@ -63,26 +55,26 @@ describe("exportReveal", () => {
     it("returns false when path is empty or whitespace", async () => {
       expect(await revealExportedFile("")).toBe(false);
       expect(await revealExportedFile("   ")).toBe(false);
-      expect(mocks.revealPathInFileManager).not.toHaveBeenCalled();
+      expect(mocks.revealExportedPath).not.toHaveBeenCalled();
     });
 
     it("returns false when not running under Tauri", async () => {
       mocks.isTauriRuntime.mockReturnValue(false);
       expect(await revealExportedFile("/tmp/test.csv")).toBe(false);
-      expect(mocks.revealPathInFileManager).not.toHaveBeenCalled();
+      expect(mocks.revealExportedPath).not.toHaveBeenCalled();
     });
 
-    it("calls api.revealPathInFileManager with trimmed path and returns true", async () => {
+    it("calls revealExportedPath with trimmed path and returns true", async () => {
       mocks.isTauriRuntime.mockReturnValue(true);
       const result = await revealExportedFile("  /path/to/exported.xlsx  ");
       expect(result).toBe(true);
-      expect(mocks.revealPathInFileManager).toHaveBeenCalledWith("/path/to/exported.xlsx");
+      expect(mocks.revealExportedPath).toHaveBeenCalledWith("/path/to/exported.xlsx");
     });
 
-    it("calls onError callback and returns false when api call rejects", async () => {
+    it("calls onError callback and returns false when revealExportedPath rejects", async () => {
       mocks.isTauriRuntime.mockReturnValue(true);
       const err = new Error("File not found");
-      mocks.revealPathInFileManager.mockRejectedValueOnce(err);
+      mocks.revealExportedPath.mockRejectedValueOnce(err);
       const onError = vi.fn();
 
       const result = await revealExportedFile("/tmp/file.sql", onError);
@@ -90,9 +82,9 @@ describe("exportReveal", () => {
       expect(onError).toHaveBeenCalledWith(err);
     });
 
-    it("logs warning and returns false when api call rejects without onError", async () => {
+    it("logs warning and returns false when revealExportedPath rejects without onError", async () => {
       mocks.isTauriRuntime.mockReturnValue(true);
-      mocks.revealPathInFileManager.mockRejectedValueOnce(new Error("Permission denied"));
+      mocks.revealExportedPath.mockRejectedValueOnce(new Error("Permission denied"));
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
       const result = await revealExportedFile("/tmp/file.sql");
@@ -115,7 +107,7 @@ describe("exportReveal", () => {
       });
 
       expect(toast).toHaveBeenCalledWith("Exported");
-      expect(mocks.revealPathInFileManager).not.toHaveBeenCalled();
+      expect(mocks.revealExportedPath).not.toHaveBeenCalled();
     });
 
     it("shows toast without action when filePath is omitted or null", () => {
@@ -130,12 +122,12 @@ describe("exportReveal", () => {
       });
 
       expect(toast).toHaveBeenCalledWith("Exported");
-      expect(mocks.revealPathInFileManager).not.toHaveBeenCalled();
+      expect(mocks.revealExportedPath).not.toHaveBeenCalled();
     });
 
     it("shows toast with action button in Tauri and does not auto-reveal when setting is off", () => {
       mocks.isTauriRuntime.mockReturnValue(true);
-      mocks.editorSettings.autoRevealExportedFile = false;
+      mocks.editorSettings.autoOpenExportFolder = false;
       const toast = vi.fn();
 
       notifyExportComplete({
@@ -145,7 +137,7 @@ describe("exportReveal", () => {
         toast,
       });
 
-      expect(mocks.revealPathInFileManager).not.toHaveBeenCalled();
+      expect(mocks.revealExportedPath).not.toHaveBeenCalled();
       expect(toast).toHaveBeenCalledWith(
         "Exported",
         4000,
@@ -158,12 +150,12 @@ describe("exportReveal", () => {
       // Clicking the action reveals the file
       const action = toast.mock.calls[0][2];
       action.onClick();
-      expect(mocks.revealPathInFileManager).toHaveBeenCalledWith("/path/to/result.csv");
+      expect(mocks.revealExportedPath).toHaveBeenCalledWith("/path/to/result.csv");
     });
 
-    it("auto-reveals the file when autoRevealExportedFile is enabled", () => {
+    it("auto-reveals the file when autoOpenExportFolder is enabled", () => {
       mocks.isTauriRuntime.mockReturnValue(true);
-      mocks.editorSettings.autoRevealExportedFile = true;
+      mocks.editorSettings.autoOpenExportFolder = true;
       const toast = vi.fn();
 
       notifyExportComplete({
@@ -173,7 +165,7 @@ describe("exportReveal", () => {
         toast,
       });
 
-      expect(mocks.revealPathInFileManager).toHaveBeenCalledWith("/path/to/result.xlsx");
+      expect(mocks.revealExportedPath).toHaveBeenCalledWith("/path/to/result.xlsx");
       expect(toast).toHaveBeenCalledWith(
         "Exported",
         4000,

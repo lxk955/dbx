@@ -584,6 +584,8 @@ async function startAllDatabasesExport() {
       preparing: true,
     };
 
+    let firstExportedFilePath = "";
+
     for (let index = 0; index < exportPlan.length; index += 1) {
       if (exportCancelled.value) break;
       const item = exportPlan[index]!;
@@ -591,6 +593,9 @@ async function startAllDatabasesExport() {
       const currentExportId = `${batchId}-${index + 1}`;
       activeDatabaseExportId.value = currentExportId;
       const filePath = isTauriRuntime() ? joinExportPath(directoryPath, `${sanitizeFileName(item.fileStem)}.${splitSqlOutput.value ? "zip" : "sql"}`) : `__web_export_${currentExportId}.${splitSqlOutput.value ? "zip" : "sql"}`;
+      if (!firstExportedFilePath && isTauriRuntime()) {
+        firstExportedFilePath = filePath;
+      }
       let currentDatabaseRowsExported = 0;
 
       const terminal = await runWithDatabaseBackupSnapshot(
@@ -678,9 +683,13 @@ async function startAllDatabasesExport() {
       };
       exportProgress.value = finalProgress;
       updateDatabaseExportTask(batchId, finalProgress);
+      // On Linux, revealPathInFileManager on a directory path opens the parent directory
+      // rather than opening into the directory itself. Revealing the first exported file
+      // navigates directly into the target export directory across all platforms.
+      const targetPath = firstExportedFilePath || directoryPath;
       if (batchLenientErrorCount > 0) {
         notifyExportComplete({
-          filePath: directoryPath,
+          filePath: targetPath,
           message: t("databaseExport.exportAllSuccessWithErrors", { count: dbs.length, errorCount: batchLenientErrorCount, firstError: batchFirstErrorSummary ?? "" }),
           openFolderLabel: t("exportProgress.openFolder"),
           toast,
@@ -688,7 +697,7 @@ async function startAllDatabasesExport() {
         });
       } else {
         notifyExportComplete({
-          filePath: directoryPath,
+          filePath: targetPath,
           message: t("databaseExport.exportAllSuccess", { count: dbs.length }),
           openFolderLabel: t("exportProgress.openFolder"),
           toast,

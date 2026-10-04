@@ -8030,8 +8030,6 @@ export default withEnglishFallback({
     preferredExportPathClear: "Borrar ruta de exportación preferida",
     autoOpenExportFolder: "Abrir carpeta automáticamente después de exportar",
     autoOpenExportFolderDescription: "Abre y muestra automáticamente la carpeta que contiene el archivo exportado en el administrador de archivos tras completarse la exportación.",
-    autoRevealExportedFile: "Mostrar archivo exportado en el administrador de archivos",
-    autoRevealExportedFileDescription: "Abrir automáticamente el administrador de archivos y resaltar el archivo tras completar la exportación.",
     exportSection: "Exportar",
     csvQuoteMode: "Comillas de campos CSV",
     csvQuoteModeDescription: "Elige cómo usar comillas dobles en los campos CSV.",

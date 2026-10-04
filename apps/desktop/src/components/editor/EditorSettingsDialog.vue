@@ -910,7 +910,6 @@ const editSidebarFontSize = ref(settingsStore.editorSettings.sidebarFontSize);
 const editExportBatchSize = ref(settingsStore.editorSettings.exportBatchSize);
 const editPreferredExportPath = ref(settingsStore.editorSettings.preferredExportPath);
 const editAutoOpenExportFolder = ref(settingsStore.editorSettings.autoOpenExportFolder);
-const editAutoRevealExportedFile = ref(settingsStore.editorSettings.autoRevealExportedFile);
 const editCsvQuoteMode = ref<CsvQuoteMode>(settingsStore.editorSettings.csvQuoteMode);
 const editCsvNullMode = ref<CsvNullMode>(settingsStore.editorSettings.csvNullMode);
 const editGlobalDateTimeDisplayFormat = ref(settingsStore.editorSettings.globalDateTimeDisplayFormat);
@@ -1195,7 +1194,6 @@ function currentEditorSettingsDraft(): EditorSettingsDraft {
     exportBatchSize: editExportBatchSize.value,
     preferredExportPath: editPreferredExportPath.value,
     autoOpenExportFolder: editAutoOpenExportFolder.value,
-    autoRevealExportedFile: editAutoRevealExportedFile.value,
     csvQuoteMode: editCsvQuoteMode.value,
     csvNullMode: editCsvNullMode.value,
     globalDateTimeDisplayFormat: editGlobalDateTimeDisplayFormat.value,
@@ -1879,7 +1877,6 @@ function syncEditorSettingsDraftFromStore() {
   editExportBatchSize.value = settingsStore.editorSettings.exportBatchSize;
   editPreferredExportPath.value = settingsStore.editorSettings.preferredExportPath;
   editAutoOpenExportFolder.value = settingsStore.editorSettings.autoOpenExportFolder;
-  editAutoRevealExportedFile.value = settingsStore.editorSettings.autoRevealExportedFile;
   editCsvQuoteMode.value = settingsStore.editorSettings.csvQuoteMode;
   editCsvNullMode.value = settingsStore.editorSettings.csvNullMode;
   editGlobalDateTimeDisplayFormat.value = settingsStore.editorSettings.globalDateTimeDisplayFormat;
@@ -2036,7 +2033,6 @@ const editorSettingsDraftRefs: EditorSettingsDraftRefMap = {
   exportBatchSize: editExportBatchSize,
   preferredExportPath: editPreferredExportPath,
   autoOpenExportFolder: editAutoOpenExportFolder,
-  autoRevealExportedFile: editAutoRevealExportedFile,
   csvQuoteMode: editCsvQuoteMode,
   csvNullMode: editCsvNullMode,
   exportRowLimitEnabled: editExportRowLimitEnabled,
@@ -2369,7 +2365,6 @@ async function persistSettings() {
     // reporting unsaved changes after a successful apply.
     editRedisDatabaseDisplayLimit.value = settingsStore.editorSettings.redisDatabaseDisplayLimit;
     editPreferredExportPath.value = settingsStore.editorSettings.preferredExportPath;
-    editAutoRevealExportedFile.value = settingsStore.editorSettings.autoRevealExportedFile;
     // 同理：落盘口径可能改写键位（跨平台默认键、保留键回退），草稿要跟着回到
     // 落盘值，避免面板卡在“未保存”无法应用（#9881）。
     editShortcuts.value = normalizeShortcutSettings(settingsStore.editorSettings.shortcuts);
@@ -2599,7 +2594,6 @@ function resetDefaultsForTab(tab: SettingsCategory) {
     editExportBatchSize.value = DEFAULT_EDITOR_SETTINGS.exportBatchSize;
     editPreferredExportPath.value = DEFAULT_EDITOR_SETTINGS.preferredExportPath;
     editAutoOpenExportFolder.value = DEFAULT_EDITOR_SETTINGS.autoOpenExportFolder;
-    editAutoRevealExportedFile.value = DEFAULT_EDITOR_SETTINGS.autoRevealExportedFile;
     editCsvQuoteMode.value = DEFAULT_EDITOR_SETTINGS.csvQuoteMode;
     editCsvNullMode.value = DEFAULT_EDITOR_SETTINGS.csvNullMode;
     editGlobalDateTimeDisplayFormat.value = DEFAULT_EDITOR_SETTINGS.globalDateTimeDisplayFormat;
@@ -2761,7 +2755,6 @@ function resetAllDefaults() {
   editExportBatchSize.value = DEFAULT_EDITOR_SETTINGS.exportBatchSize;
   editPreferredExportPath.value = DEFAULT_EDITOR_SETTINGS.preferredExportPath;
   editAutoOpenExportFolder.value = DEFAULT_EDITOR_SETTINGS.autoOpenExportFolder;
-  editAutoRevealExportedFile.value = DEFAULT_EDITOR_SETTINGS.autoRevealExportedFile;
   editCsvQuoteMode.value = DEFAULT_EDITOR_SETTINGS.csvQuoteMode;
   editCsvNullMode.value = DEFAULT_EDITOR_SETTINGS.csvNullMode;
   editGlobalDateTimeDisplayFormat.value = DEFAULT_EDITOR_SETTINGS.globalDateTimeDisplayFormat;
@@ -9161,15 +9154,6 @@ onUnmounted(() => {
                     </p>
                   </div>
                   <Switch id="export-auto-open-folder" v-model="editAutoOpenExportFolder" class="mt-0.5" />
-                </div>
-                <div v-if="!isWeb" data-settings-search-id="data-export-auto-reveal" :class="['flex items-start justify-between gap-3', settingsSearchTargetClass('data-export-auto-reveal')]">
-                  <div class="space-y-0.5">
-                    <Label for="export-auto-reveal">{{ t("settings.autoRevealExportedFile") }}</Label>
-                    <p class="text-xs text-muted-foreground">
-                      {{ t("settings.autoRevealExportedFileDescription") }}
-                    </p>
-                  </div>
-                  <Switch id="export-auto-reveal" v-model="editAutoRevealExportedFile" class="mt-0.5" />
                 </div>
                 <div class="space-y-2">
                   <Label>{{ t("settings.exportBatchSize") }}</Label>

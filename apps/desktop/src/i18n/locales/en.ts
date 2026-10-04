@@ -8780,8 +8780,6 @@ export default {
     preferredExportPathClear: "Clear preferred export path",
     autoOpenExportFolder: "Auto-open folder after export",
     autoOpenExportFolderDescription: "Automatically reveal and open the containing folder in the file manager after data export succeeds.",
-    autoRevealExportedFile: "Auto-reveal exported file in file manager",
-    autoRevealExportedFileDescription: "Automatically open the file manager and highlight the exported file after data export completes.",
     exportSection: "Export",
     csvQuoteMode: "CSV field quotes",
     csvQuoteModeDescription: "Choose how CSV fields use double quotes.",

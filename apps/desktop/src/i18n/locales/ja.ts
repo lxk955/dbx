@@ -7787,8 +7787,6 @@ export default withEnglishFallback({
     preferredExportPathClear: "優先エクスポートパスをクリア",
     autoOpenExportFolder: "エクスポート後に保存先フォルダーを開く",
     autoOpenExportFolderDescription: "データエクスポート完了後、ファイルマネージャーで保存先フォルダーを自動的に開きます。",
-    autoRevealExportedFile: "エクスポート後にファイルマネージャーで表示",
-    autoRevealExportedFileDescription: "データのエクスポート完了後、システムファイルマネージャーで対象ファイルを開いて選択します。",
     exportSection: "エクスポート",
     csvQuoteMode: "CSV フィールドの引用符",
     csvQuoteModeDescription: "CSV フィールドを二重引用符で囲む方法を選択します。",

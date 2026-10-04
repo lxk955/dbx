@@ -1108,23 +1108,6 @@ describe("normalizeEditorSettings - autoOpenExportFolder", () => {
   });
 });
 
-describe("normalizeEditorSettings - autoRevealExportedFile", () => {
-  it("defaults autoRevealExportedFile to false", () => {
-    expect(normalizeEditorSettings({}).autoRevealExportedFile).toBe(false);
-  });
-
-  it("preserves boolean values", () => {
-    expect(normalizeEditorSettings({ autoRevealExportedFile: true }).autoRevealExportedFile).toBe(true);
-    expect(normalizeEditorSettings({ autoRevealExportedFile: false }).autoRevealExportedFile).toBe(false);
-  });
-
-  it("falls back to default for non-boolean values", () => {
-    expect(normalizeEditorSettings({ autoRevealExportedFile: null } as any).autoRevealExportedFile).toBe(false);
-    expect(normalizeEditorSettings({ autoRevealExportedFile: undefined } as any).autoRevealExportedFile).toBe(false);
-    expect(normalizeEditorSettings({ autoRevealExportedFile: "true" } as any).autoRevealExportedFile).toBe(false);
-  });
-});
-
 // --- Helpers for Pinia store tests ---
 
 function makeTestConfig(overrides: Partial<AiConfigItem> & { id: string }): AiConfigItem {
@@ -1809,20 +1792,6 @@ describe("settingsStore persisted settings initialization", () => {
     await store.updateEditorSettingsAndPersist({ autoOpenExportFolder: true });
     expect(store.editorSettings.autoOpenExportFolder).toBe(true);
     expect(saveEditorSettings).toHaveBeenCalledWith(expect.objectContaining({ autoOpenExportFolder: true }));
-  });
-
-  it("persists autoRevealExportedFile update", async () => {
-    const loadEditorSettings = vi.fn().mockResolvedValue({ autoRevealExportedFile: false });
-    const saveEditorSettings = vi.fn().mockResolvedValue(undefined);
-    vi.doMock("@/lib/backend/api", () => ({ loadEditorSettings, saveEditorSettings }));
-
-    const { useSettingsStore } = await import("@/stores/settingsStore");
-    const store = useSettingsStore();
-    await store.initEditorSettings();
-
-    await store.updateEditorSettingsAndPersist({ autoRevealExportedFile: true });
-    expect(store.editorSettings.autoRevealExportedFile).toBe(true);
-    expect(saveEditorSettings).toHaveBeenCalledWith(expect.objectContaining({ autoRevealExportedFile: true }));
   });
 });
 

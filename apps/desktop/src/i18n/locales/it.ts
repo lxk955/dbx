@@ -7792,8 +7792,6 @@ export default withEnglishFallback({
     preferredExportPathClear: "Cancella il percorso di esportazione preferito",
     autoOpenExportFolder: "Apri cartella automaticamente dopo l'esportazione",
     autoOpenExportFolderDescription: "Apre e mostra automaticamente la cartella contenente il file esportato nel file manager dopo il completamento dell'esportazione.",
-    autoRevealExportedFile: "Mostra file esportato nel file manager",
-    autoRevealExportedFileDescription: "Apri automaticamente il file manager ed evidenzia il file al termine dell'esportazione.",
     exportSection: "Esportazione",
     csvQuoteMode: "Virgolette campi CSV",
     csvQuoteModeDescription: "Scegli come usare le virgolette doppie nei campi CSV.",
