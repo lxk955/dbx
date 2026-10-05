@@ -7866,6 +7866,7 @@ export default withEnglishFallback({
     shortcutNewQuery: "Yeni sorğu",
     shortcutOpenSettings: "Parametrləri aç",
     shortcutCloseTab: "Vərəqi bağla",
+    shortcutCloseWindow: "Pəncərəni bağla",
     shortcutFocusSearch: "Cari görünüşün axtarış sahəsinə keç",
     shortcutQuickOpen: "Sürətli açılış (bütün verilənlər bazası obyektlərini axtar)",
     shortcutGlobalSearch: "Qlobal fayl məzmunu axtarışı",

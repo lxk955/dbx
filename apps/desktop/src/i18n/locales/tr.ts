@@ -7767,6 +7767,7 @@ export default withEnglishFallback({
     shortcutNewQuery: "Yeni sorgu",
     shortcutOpenSettings: "Ayarları aç",
     shortcutCloseTab: "Sekmeyi kapat",
+    shortcutCloseWindow: "Pencereyi kapat",
     shortcutFocusSearch: "Geçerli görünüm aramasına odaklan",
     shortcutQuickOpen: "Hızlı aç (tüm veritabanı nesnelerinde ara)",
     shortcutGlobalSearch: "Genel dosya içeriği arama",

@@ -7921,6 +7921,7 @@ export default withEnglishFallback({
     shortcutNewQuery: "新しいクエリ",
     shortcutOpenSettings: "設定を開く",
     shortcutCloseTab: "タブを閉じる",
+    shortcutCloseWindow: "ウィンドウを閉じる",
     shortcutFocusSearch: "現在のビューの検索にフォーカス",
     shortcutQuickOpen: "クイックオープン (すべてのデータベースオブジェクトを検索)",
     shortcutGlobalSearch: "グローバルファイル内容検索",
