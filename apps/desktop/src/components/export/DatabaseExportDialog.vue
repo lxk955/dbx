@@ -24,7 +24,7 @@ import { isQueryTimeoutErrorMessage } from "@/lib/sql/queryError";
 import type { SqlInsertDialect, SqlInsertMode } from "@/lib/export/sqlInsertMode";
 import { revealExportedPath } from "@/lib/export/exportPath";
 import { translateBackendError } from "@/i18n/backend-errors";
-import { loadSavedDatabaseExportOptions, saveDatabaseExportOptions, sortDatabaseTableNames } from "@/lib/export/databaseExportOptions";
+import { loadSavedDatabaseExportOptions, MAX_SPLIT_SQL_PART_MB, MIN_SPLIT_SQL_PART_MB, saveDatabaseExportOptions, sortDatabaseTableNames } from "@/lib/export/databaseExportOptions";
 
 const { t } = useI18n();
 const { toast } = useToast();
@@ -79,8 +79,6 @@ const omitAutoIncrement = ref(savedOptions.omitAutoIncrement);
 const preserveOriginalLanguage = ref(savedOptions.preserveOriginalLanguage);
 const splitSqlOutput = ref(savedOptions.splitSqlOutput);
 const splitSqlPartMaxMb = ref(savedOptions.splitSqlPartMaxMb);
-const MIN_SPLIT_SQL_PART_MB = 1;
-const MAX_SPLIT_SQL_PART_MB = 4096;
 
 function applyStoredExportOptions() {
   const saved = loadSavedDatabaseExportOptions();
@@ -381,7 +379,6 @@ async function buildExportPlanForDatabases(dbs: string[]): Promise<AllDatabaseEx
 
 async function startExport() {
   if (!canExport.value) return;
-  persistExportOptions();
   if (exportAllDatabases.value) {
     await startAllDatabasesExport();
     return;
@@ -509,7 +506,6 @@ async function startExport() {
 
 async function startAllDatabasesExport() {
   if (!canExport.value) return;
-  persistExportOptions();
 
   let directoryPath = "";
   if (isTauriRuntime()) {

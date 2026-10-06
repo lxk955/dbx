@@ -1,4 +1,4 @@
-import type { SqlInsertDialect, SqlInsertMode } from "./sqlInsertMode";
+import { DEFAULT_SQL_INSERT_DIALECT, DEFAULT_SQL_INSERT_MODE, type SqlInsertDialect, type SqlInsertMode } from "./sqlInsertMode";
 
 export interface DatabaseExportSavedOptions {
   includeStructure: boolean;
@@ -14,11 +14,14 @@ export interface DatabaseExportSavedOptions {
   splitSqlPartMaxMb: number;
 }
 
+export const MIN_SPLIT_SQL_PART_MB = 1;
+export const MAX_SPLIT_SQL_PART_MB = 4096;
+
 export const DEFAULT_DATABASE_EXPORT_OPTIONS: DatabaseExportSavedOptions = {
   includeStructure: true,
   includeData: true,
-  insertDialect: "source",
-  insertMode: "batch",
+  insertDialect: DEFAULT_SQL_INSERT_DIALECT,
+  insertMode: DEFAULT_SQL_INSERT_MODE,
   includeObjects: true,
   includeCreateDatabase: false,
   dropTableIfExists: false,
@@ -28,7 +31,7 @@ export const DEFAULT_DATABASE_EXPORT_OPTIONS: DatabaseExportSavedOptions = {
   splitSqlPartMaxMb: 100,
 };
 
-export const DATABASE_EXPORT_OPTIONS_STORAGE_KEY = "dbx-database-export-last-options";
+export const DATABASE_EXPORT_OPTIONS_STORAGE_KEY = "dbx-database-export-last-options-v1";
 
 export function loadSavedDatabaseExportOptions(storage?: Pick<Storage, "getItem">): DatabaseExportSavedOptions {
   try {
@@ -44,15 +47,15 @@ export function loadSavedDatabaseExportOptions(storage?: Pick<Storage, "getItem"
     return {
       includeStructure: typeof parsed.includeStructure === "boolean" ? parsed.includeStructure : DEFAULT_DATABASE_EXPORT_OPTIONS.includeStructure,
       includeData: typeof parsed.includeData === "boolean" ? parsed.includeData : DEFAULT_DATABASE_EXPORT_OPTIONS.includeData,
-      insertDialect: parsed.insertDialect === "standard" ? "standard" : "source",
-      insertMode: parsed.insertMode === "single" ? "single" : "batch",
+      insertDialect: parsed.insertDialect === "standard" ? "standard" : DEFAULT_DATABASE_EXPORT_OPTIONS.insertDialect,
+      insertMode: parsed.insertMode === "single" ? "single" : DEFAULT_DATABASE_EXPORT_OPTIONS.insertMode,
       includeObjects: typeof parsed.includeObjects === "boolean" ? parsed.includeObjects : DEFAULT_DATABASE_EXPORT_OPTIONS.includeObjects,
       includeCreateDatabase: typeof parsed.includeCreateDatabase === "boolean" ? parsed.includeCreateDatabase : DEFAULT_DATABASE_EXPORT_OPTIONS.includeCreateDatabase,
       dropTableIfExists: typeof parsed.dropTableIfExists === "boolean" ? parsed.dropTableIfExists : DEFAULT_DATABASE_EXPORT_OPTIONS.dropTableIfExists,
       omitAutoIncrement: typeof parsed.omitAutoIncrement === "boolean" ? parsed.omitAutoIncrement : DEFAULT_DATABASE_EXPORT_OPTIONS.omitAutoIncrement,
       preserveOriginalLanguage: typeof parsed.preserveOriginalLanguage === "boolean" ? parsed.preserveOriginalLanguage : DEFAULT_DATABASE_EXPORT_OPTIONS.preserveOriginalLanguage,
       splitSqlOutput: typeof parsed.splitSqlOutput === "boolean" ? parsed.splitSqlOutput : DEFAULT_DATABASE_EXPORT_OPTIONS.splitSqlOutput,
-      splitSqlPartMaxMb: typeof parsed.splitSqlPartMaxMb === "number" && Number.isFinite(parsed.splitSqlPartMaxMb) ? Math.min(4096, Math.max(1, Math.round(parsed.splitSqlPartMaxMb))) : DEFAULT_DATABASE_EXPORT_OPTIONS.splitSqlPartMaxMb,
+      splitSqlPartMaxMb: typeof parsed.splitSqlPartMaxMb === "number" && Number.isFinite(parsed.splitSqlPartMaxMb) ? Math.min(MAX_SPLIT_SQL_PART_MB, Math.max(MIN_SPLIT_SQL_PART_MB, Math.round(parsed.splitSqlPartMaxMb))) : DEFAULT_DATABASE_EXPORT_OPTIONS.splitSqlPartMaxMb,
     };
   } catch {
     return { ...DEFAULT_DATABASE_EXPORT_OPTIONS };
@@ -76,5 +79,6 @@ export function saveDatabaseExportOptions(options: Partial<DatabaseExportSavedOp
 }
 
 export function sortDatabaseTableNames(names: string[]): string[] {
-  return [...names].sort((a, b) => a.localeCompare(b));
+  // Pin the collation so the order does not shift with the OS locale.
+  return [...names].sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
 }
