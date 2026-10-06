@@ -2284,6 +2284,8 @@ export default withEnglishFallback({
     unfreezeColumns: "Descongelar colunas ({count})",
     hideColumn: "Ocultar esta coluna",
     hideSelectedColumns: "Ocultar colunas selecionadas ({count})",
+    hideIdenticalColumns: "Ocultar colunas com valores idénticos",
+    hideIdenticalColumnsCount: "Ocultar colunas com valores idénticos ({count})",
     showAllColumnsMenu: "Mostrar todas as colunas",
     pasted: "Colado!",
     search: "Pesquisar...",
