@@ -182,8 +182,22 @@ function readValueEnd(sql: string, start: number, databaseType?: DatabaseType): 
       continue;
     }
     if (databaseType === "postgres" && ch === "]") bracketDepth = Math.max(0, bracketDepth - 1);
-    if (ch === "-" && next === "-") return i;
-    if (ch === "/" && next === "*") return i;
+    if (ch === "-" && next === "-") {
+      const lineEnd = skipLine(sql, i + 2);
+      if (depth === 0 && bracketDepth === 0 && isNextDeclaration(sql, lineEnd)) {
+        return i;
+      }
+      i = lineEnd;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      const blockEnd = skipBlockComment(sql, i + 2);
+      if (depth === 0 && bracketDepth === 0 && isNextDeclaration(sql, blockEnd)) {
+        return i;
+      }
+      i = blockEnd;
+      continue;
+    }
     if (ch === "$") {
       const marker = readDollarQuoteMarker(sql, i);
       if (marker) {
@@ -194,7 +208,8 @@ function readValueEnd(sql: string, start: number, databaseType?: DatabaseType): 
     }
     if (ch === "(") depth += 1;
     else if (ch === ")") depth = Math.max(0, depth - 1);
-    else if ((ch === ";" || ch === "\n") && depth === 0 && bracketDepth === 0) return i;
+    else if (ch === ";" && depth === 0 && bracketDepth === 0) return i;
+    else if (ch === "\n" && depth === 0 && bracketDepth === 0 && isNextDeclaration(sql, i + 1)) return i;
     i += 1;
   }
   return sql.length;
@@ -302,6 +317,28 @@ function matchesWord(sql: string, start: number, word: string): boolean {
   const value = sql.slice(start, start + word.length);
   if (value.toLowerCase() !== word) return false;
   return !VARIABLE_NAME_CHAR_RE.test(sql[start + word.length] ?? "");
+}
+
+function isNextDeclaration(sql: string, start: number): boolean {
+  let j = start;
+  while (j < sql.length) {
+    const ch = sql[j];
+    const next = sql[j + 1];
+    if (ch === " " || ch === "\t" || ch === "\r" || ch === "\n") {
+      j += 1;
+      continue;
+    }
+    if (ch === "-" && next === "-") {
+      j = skipLine(sql, j + 2);
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      j = skipBlockComment(sql, j + 2);
+      continue;
+    }
+    break;
+  }
+  return sql[j] === "@" && matchesWord(sql, j + 1, "set");
 }
 
 function readVariableName(sql: string, start: number): string {

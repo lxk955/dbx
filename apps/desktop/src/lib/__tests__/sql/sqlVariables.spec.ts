@@ -105,4 +105,34 @@ describe("expandSqlVariables", () => {
     const sql = "select @settings from t";
     expect(expandSqlVariables(sql)).toEqual({ sql, expanded: false });
   });
+
+  it("inlines a multiline value starting on a new line after =", () => {
+    const sql = ["@set cond =", "  from users", "  where id = 42;", "select * @cond"].join("\n");
+    expect(expandSqlVariables(sql).sql).toBe("select * from users\n  where id = 42");
+  });
+
+  it("inlines a multiline value starting on the same line as =", () => {
+    const sql = ["@set cond = from users", "where id = 42;", "select * @cond"].join("\n");
+    expect(expandSqlVariables(sql).sql).toBe("select * from users\nwhere id = 42");
+  });
+
+  it("inlines multiline values with line and block comments", () => {
+    const sql = ["@set cond =", "  -- target table", "  from users /* active accounts */", "  where status = 'active';", "select id @cond"].join("\n");
+    expect(expandSqlVariables(sql).sql).toBe("select id -- target table\n  from users /* active accounts */\n  where status = 'active'");
+  });
+
+  it("handles semicolons inside comments within a multiline value", () => {
+    const sql = ["@set cond =", "  from users -- note: filter by id; active only", "  where id = 42;", "select * @cond"].join("\n");
+    expect(expandSqlVariables(sql).sql).toBe("select * from users -- note: filter by id; active only\n  where id = 42");
+  });
+
+  it("supports multiple multiline declarations in sequence", () => {
+    const sql = ["@set cond_a =", "  from users", "  where id = 1;", "@set cond_b =", "  from orders", "  where id = 2;", "select * @cond_a union all select * @cond_b"].join("\n");
+    expect(expandSqlVariables(sql).sql).toBe("select * from users\n  where id = 1 union all select * from orders\n  where id = 2");
+  });
+
+  it("terminates declaration at newline when followed by another @set declaration without semicolon", () => {
+    const sql = ["@set a = 1", "@set b = 2;", "select @a, @b"].join("\n");
+    expect(expandSqlVariables(sql).sql).toBe("select 1, 2");
+  });
 });
