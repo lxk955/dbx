@@ -5353,12 +5353,22 @@ watch(
   },
 );
 
-const columnHighlightMatches = computed(() => {
+function columnHighlightMatchesFor(rules: ReadonlyMap<number, ColumnHighlightRule>) {
   return computeColumnHighlightMatchKeys({
     rows: displayItems.value,
-    rules: columnHighlightRules.value,
+    rules,
     isNullValue: (value) => value === null || (usesMongoDocumentGridValues.value && value === MONGO_DOCUMENT_GRID_NULL),
   });
+}
+
+const columnHighlightMatches = computed(() => {
+  // Empty rules must short-circuit before displayItems: the derived key sets are
+  // read on every canvas draw, and row materialization is paid per invalidation
+  // (#8524 precedent).
+  if (columnHighlightRules.value.size === 0) {
+    return { duplicateKeys: new Set<number>(), nullKeys: new Set<number>() };
+  }
+  return columnHighlightMatchesFor(columnHighlightRules.value);
 });
 
 const duplicateHighlightKeys = computed(() => columnHighlightMatches.value.duplicateKeys);
@@ -12559,7 +12569,14 @@ function toggleTargetColumnDuplicateHighlight() {
   }
   columnHighlightRules.value = newRules;
   if (!anyActive) {
-    const count = columnHighlightMatches.value.duplicateKeys.size;
+    // Count only the toggled columns so a toast does not report matches that
+    // belong to other columns' active highlight rules.
+    const targetRules = new Map<number, ColumnHighlightRule>();
+    for (const idx of indexes) {
+      const rule = newRules.get(idx);
+      if (rule) targetRules.set(idx, rule);
+    }
+    const count = columnHighlightMatchesFor(targetRules).duplicateKeys.size;
     if (count > 0) {
       toast(t("grid.highlightDuplicatesFound", { count }));
     } else {
@@ -12578,7 +12595,13 @@ function toggleTargetColumnNullHighlight() {
   }
   columnHighlightRules.value = newRules;
   if (!anyActive) {
-    const count = columnHighlightMatches.value.nullKeys.size;
+    // Scope the toast count to the toggled columns, mirroring the duplicates toast.
+    const targetRules = new Map<number, ColumnHighlightRule>();
+    for (const idx of indexes) {
+      const rule = newRules.get(idx);
+      if (rule) targetRules.set(idx, rule);
+    }
+    const count = columnHighlightMatchesFor(targetRules).nullKeys.size;
     if (count > 0) {
       toast(t("grid.highlightNullsFound", { count }));
     } else {
