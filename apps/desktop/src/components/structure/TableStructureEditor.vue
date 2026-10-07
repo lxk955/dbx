@@ -5890,6 +5890,7 @@ watch(
                             type="checkbox"
                             :class="structureCheckboxClass"
                             :disabled="isPrimaryKeyDisabled(column)"
+                            :aria-label="t('structureEditor.primaryKey')"
                             @change="
                               () => {
                                 if (column.isPrimaryKey) column.isNullable = false;
