@@ -2745,12 +2745,14 @@ function showAllColumns() {
 }
 
 function getComparisonRows(): ReadonlyArray<ReadonlyArray<unknown>> {
+  // 比较行必须取全宽 data：identicalValueColumnIndexes 的候选索引是原始列索引，
+  // 不能用经过可见列投影（visibleRowData 重排）后的行。
   const affected = affectedRowIds();
   if (affected.length > 1) {
     const affectedSet = new Set(affected);
-    return visibleDisplayItems.value.filter((item) => affectedSet.has(item.id) && !item.isDraft).map((item) => item.data);
+    return displayItems.value.filter((item) => affectedSet.has(item.id) && !item.isDraft).map((item) => item.data);
   }
-  const displayRows = visibleDisplayItems.value.filter((item) => !item.isDraft).map((item) => item.data);
+  const displayRows = displayItems.value.filter((item) => !item.isDraft).map((item) => item.data);
   return displayRows.length > 0 ? displayRows : props.result.rows;
 }
 

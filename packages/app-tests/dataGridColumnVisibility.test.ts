@@ -263,6 +263,16 @@ test("returns empty array when no columns have identical values", () => {
   assert.deepEqual(identicalValueColumnIndexes(rows, [0, 1]), []);
 });
 
+test("detects identical values by original index when middle column is hidden", () => {
+  // 行保持全宽、候选是原始列索引（模拟第 1 列被隐藏后只剩 [0, 2, 3] 可见）
+  const rows = [
+    [1, "hidden_a", "same", 100],
+    [2, "hidden_b", "same", 101],
+    [3, "hidden_c", "same", 102],
+  ];
+  assert.deepEqual(identicalValueColumnIndexes(rows, [0, 2, 3]), [2]);
+});
+
 test("identifies identical columns with null and json objects", () => {
   const rows = [
     [null, { k: 1 }, "x"],
