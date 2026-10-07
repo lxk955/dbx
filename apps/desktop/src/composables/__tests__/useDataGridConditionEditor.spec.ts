@@ -638,8 +638,12 @@ describe("useDataGridConditionEditor", () => {
 
     expect(supportsConditionRegexp(undefined)).toBe(true);
     expect(supportsConditionRegexp("mysql")).toBe(true);
-    expect(supportsConditionRegexp("sqlite")).toBe(true);
     expect(supportsConditionRegexp("doris")).toBe(true);
+    // SQLite parses REGEXP but needs a driver-registered regexp() function DBX does not provide
+    expect(supportsConditionRegexp("sqlite")).toBe(false);
+    expect(supportsConditionRegexp("turso")).toBe(false);
+    expect(supportsConditionRegexp("hive")).toBe(true);
+    expect(supportsConditionRegexp("impala")).toBe(true);
     expect(supportsConditionRegexp("postgres")).toBe(false);
     expect(supportsConditionRegexp("sqlserver")).toBe(false);
     expect(supportsConditionRegexp("oracle")).toBe(false);
@@ -734,12 +738,7 @@ describe("useDataGridConditionEditor", () => {
     await nextTick();
     await vi.waitFor(() => expect(pgEditor.suggestions.value).toEqual([{ value: "ILIKE", kind: "keyword" }]));
 
-    // NOT ILIKE is offered when typing `not_` prefix on PostgreSQL
-    pgValue.value = "score not_il";
-    // wait, token is not_il, but keyword is "NOT ILIKE" which has a space
-    // Let's test `score not`:
-    pgValue.value = "score not ";
-    // after "score not ", it is role "after_not", typing "il" yields ILIKE
+    // NOT ILIKE is offered after NOT on PostgreSQL
     pgValue.value = "score not il";
     await nextTick();
     await vi.waitFor(() => expect(pgEditor.suggestions.value).toEqual([{ value: "ILIKE", kind: "keyword" }]));
