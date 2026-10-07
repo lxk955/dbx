@@ -7835,6 +7835,7 @@ export default withEnglishFallback({
     shortcutAddNextSelectionOccurrence: "Adicionar próxima ocorrência",
     shortcutSelectAllSelectionOccurrences: "Selecionar todas as ocorrências",
     shortcutExtendSelection: "Expandir seleção",
+    shortcutEditCell: "Editar célula",
     shortcutEditTableStructure: "Editar estrutura da tabela",
     shortcutCopyCurrentRow: "Copiar linha de dados atual",
     shortcutDeleteCurrentRow: "Excluir linha de dados atual",

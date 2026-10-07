@@ -206,6 +206,7 @@ import {
   isCancelSearchShortcut,
   isCopyCurrentRowShortcut,
   isDeleteCurrentRowShortcut,
+  isEditCellShortcut,
   isEditTableStructureShortcut,
   isFocusSearchShortcut,
   isFocusWhereShortcut,
@@ -10047,7 +10048,7 @@ async function onGridKeydown(event: KeyboardEvent) {
     event.stopPropagation();
     return;
   }
-  if (event.key === "Enter" && editSelectedCell()) {
+  if ((isEditCellShortcut(event, settingsStore.editorSettings.shortcuts) || (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key === "Enter")) && editSelectedCell()) {
     event.preventDefault();
     return;
   }
@@ -12428,6 +12429,8 @@ defineExpose({
   toggleMultiRowTranspose,
   focusSearch,
   focusWhere,
+  editSelectedCell,
+  selectSingleCell,
   openGoToColumn,
   visibleColumnCount,
   displayableColumnCount,
