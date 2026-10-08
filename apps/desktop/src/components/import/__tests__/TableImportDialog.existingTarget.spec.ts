@@ -569,4 +569,13 @@ describe("TableImportDialog existing targets", () => {
 
     expect(document.body.querySelector("select.existing-schema-select-stub")).toBeNull();
   });
+
+  it("does not repeat the database as schema in the target label", async () => {
+    i18n.global.locale.value = "en";
+    await mountDialog({ connectionId: "connection-1", database: "main", prefillTable: "existing_target" });
+    await selectWorkbook();
+
+    expect(document.body.textContent).toContain("SQLite / main / existing_target");
+    expect(document.body.textContent).not.toContain("main / main");
+  });
 });

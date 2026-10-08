@@ -274,7 +274,10 @@ const progressPercentFloor = ref(0);
 const progressPercent = computed(() => Math.max(rawProgressPercent.value, progressPercentFloor.value));
 const currentStepIndex = computed(() => wizardSteps.findIndex((step) => step.value === wizardStep.value));
 const targetLabel = computed(() => {
-  const pieces = [selectedConnection.value?.name, props.prefillDatabase, targetSchema.value, targetTableName.value].filter(Boolean);
+  // Database-as-schema engines (MySQL/SQLite family) resolve targetSchema to
+  // the database name; keep it out of the label so it does not render twice.
+  const schemaPiece = targetSchema.value && targetSchema.value !== props.prefillDatabase ? targetSchema.value : "";
+  const pieces = [selectedConnection.value?.name, props.prefillDatabase, schemaPiece, targetTableName.value].filter(Boolean);
   return pieces.join(" / ");
 });
 const selectedSourceName = computed(() => {
