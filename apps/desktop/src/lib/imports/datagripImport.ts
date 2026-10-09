@@ -174,9 +174,9 @@ function parseJdbcUrl(jdbcUrl: string): {
   let oracleUrl = url;
   const oracleAuthMatch = url.match(/^oracle:thin:([^/@:]+)(?::([^@]+)|\/([^@]+))?@/i);
   if (oracleAuthMatch) {
-    result.username = decodeURIComponent(oracleAuthMatch[1]);
+    result.username = safeDecodeURIComponent(oracleAuthMatch[1]);
     const pass = oracleAuthMatch[2] || oracleAuthMatch[3];
-    if (pass) result.password = decodeURIComponent(pass);
+    if (pass) result.password = safeDecodeURIComponent(pass);
     oracleUrl = "oracle:thin:@" + url.slice(oracleAuthMatch[0].length);
   }
 
@@ -244,10 +244,10 @@ function parseJdbcUrl(jdbcUrl: string): {
     authority = authorityWithAuth.slice(atIndex + 1);
     const colonIndex = authPart.indexOf(":");
     if (colonIndex >= 0) {
-      result.username = decodeURIComponent(authPart.slice(0, colonIndex));
-      result.password = decodeURIComponent(authPart.slice(colonIndex + 1));
+      result.username = safeDecodeURIComponent(authPart.slice(0, colonIndex));
+      result.password = safeDecodeURIComponent(authPart.slice(colonIndex + 1));
     } else {
-      result.username = decodeURIComponent(authPart);
+      result.username = safeDecodeURIComponent(authPart);
     }
   }
 
@@ -373,24 +373,14 @@ function extractUserName(element: Element): string {
   return "";
 }
 
-function extractPassword(element: Element): string {
-  for (const tag of ["password", "user-password"]) {
-    const val = getText(element, tag);
-    if (val) return val;
+// Real DataGrip passwords can contain literal `%` sequences that are not valid
+// percent-encoding; decoding must never abort the whole import for those.
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
   }
-  for (const attr of ["password", "user-password"]) {
-    const val = element.getAttribute(attr)?.trim();
-    if (val) return val;
-  }
-  const properties = element.getElementsByTagName("property");
-  for (const prop of Array.from(properties)) {
-    const name = prop.getAttribute("name")?.toLowerCase().trim();
-    if (name === "password" || name === "user-password") {
-      const val = prop.getAttribute("value")?.trim() || prop.textContent?.trim();
-      if (val) return val;
-    }
-  }
-  return "";
 }
 
 function parseDataSourcesXml(xml: string): Map<string, Partial<DataSourceFragment>> {
@@ -421,9 +411,6 @@ function parseDataSourcesXml(xml: string): Map<string, Partial<DataSourceFragmen
     const userName = extractUserName(element);
     if (userName) fragment.username = userName;
 
-    const password = extractPassword(element);
-    if (password) fragment.password = password;
-
     // DataGrip stores the folder grouping as a `group` attribute on each
     // <data-source>. `group-name` is kept as a legacy fallback for older exports.
     const groupName = element.getAttribute("group") || element.getAttribute("group-name") || undefined;
@@ -453,9 +440,6 @@ function parseDataSourcesLocalXml(xml: string): Map<string, Partial<DataSourceFr
 
     const userName = extractUserName(element);
     if (userName) fragment.username = userName;
-
-    const password = extractPassword(element);
-    if (password) fragment.password = password;
 
     // Extract product from <database-info product="...">
     const dbInfo = element.getElementsByTagName("database-info")[0];

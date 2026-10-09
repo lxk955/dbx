@@ -279,7 +279,28 @@ describe("DataGrip connection import", () => {
     expect(oraConn?.password).toBe("tiger");
   });
 
-  it("extracts username and password from XML properties and tags in shared and local XML", () => {
+  it("keeps a literal percent sequence in URL credentials instead of aborting the import", () => {
+    const result = parseDataGripImport(
+      payload(`
+        <project>
+          <component name="DataSourceManagerImpl">
+            <data-source name="Literal Percent" uuid="pct-1">
+              <driver-ref>mysql</driver-ref>
+              <jdbc-url>jdbc:mysql://myuser:p%40ss%zz@127.0.0.1:3306/appdb</jdbc-url>
+            </data-source>
+          </component>
+        </project>
+      `),
+    );
+
+    expect(result.connections).toHaveLength(1);
+    const conn = result.connections.find((c) => c.name === "Literal Percent");
+    expect(conn?.username).toBe("myuser");
+    // Any invalid `%` sequence keeps the credential verbatim rather than throwing URIError.
+    expect(conn?.password).toBe("p%40ss%zz");
+  });
+
+  it("extracts usernames from XML properties and tags without importing encrypted passwords", () => {
     const result = parseDataGripImport(
       payload(
         `
@@ -314,11 +335,13 @@ describe("DataGrip connection import", () => {
     expect(result.fallbackUsernamesCount).toBe(0);
     const propConn = result.connections.find((c) => c.name === "Prop User");
     expect(propConn?.username).toBe("xml_user");
-    expect(propConn?.password).toBe("xml_pass");
+    // DataGrip XML always stores encrypted ciphertext; importing it as the working password
+    // would break auth, so XML passwords are ignored (URL-embedded credentials still apply).
+    expect(propConn?.password).toBe("");
 
     const tagConn = result.connections.find((c) => c.name === "Tag Username");
     expect(tagConn?.username).toBe("local_user");
-    expect(tagConn?.password).toBe("local_pass");
+    expect(tagConn?.password).toBe("");
   });
 
   it("tracks fallback usernames count when no username is provided", () => {
