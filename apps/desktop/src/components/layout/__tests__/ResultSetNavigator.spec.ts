@@ -12,7 +12,7 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-async function mountNavigator(inputResults?: QueryResult[], canExportXlsx = true) {
+async function mountNavigator(inputResults?: QueryResult[], canExportXlsx = true, displayMode: "tabs" | "list" = "tabs") {
   // Include a non-tabular result so ordinal and storage index are different.
   const results = inputResults ?? ([{ columns: [], rows: [] }, ...Array.from({ length: 100 }, (_, i) => ({ columns: ["value"], rows: [[i + 1]], sourceStatement: `SELECT ${i + 1} AS value` }))] as QueryResult[]);
   const select = vi.fn();
@@ -21,7 +21,7 @@ async function mountNavigator(inputResults?: QueryResult[], canExportXlsx = true
   const exportXlsx = vi.fn();
   const container = document.createElement("div");
   document.body.append(container);
-  app = createApp(ResultSetNavigator, { items: tabularResultItems(results), activeIndex: 1, active: true, canExportXlsx, onSelect: select, onCopySql: copySql, onCopyQuerySql: copyQuerySql, onExportXlsx: exportXlsx });
+  app = createApp(ResultSetNavigator, { items: tabularResultItems(results), activeIndex: 1, active: true, canExportXlsx, displayMode, onSelect: select, onCopySql: copySql, onCopyQuerySql: copyQuerySql, onExportXlsx: exportXlsx });
   app.use(
     createI18n({
       legacy: false,
@@ -188,5 +188,36 @@ describe("large result-set navigation", () => {
     await filter("no matching result");
     expect(popup.querySelector('[role="status"]')?.textContent).toBe("No matches");
     expect([...popup.querySelectorAll("button")].filter((button) => button.textContent?.includes("Select all") || button.textContent?.includes("Clear")).every((button) => button.disabled)).toBe(true);
+  });
+
+  it("renders a dropdown selector instead of horizontal tabs when displayMode is list", async () => {
+    const { container, select } = await mountNavigator(undefined, true, "list");
+    expect(container.querySelector(".result-set-scroll")).toBeNull();
+    const trigger = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("Result 1"))!;
+    expect(trigger).toBeTruthy();
+    expect(trigger.querySelector("svg")).toBeTruthy();
+    // No separate "All results (100)" button in list mode
+    expect([...container.querySelectorAll("button")].some((button) => button.textContent?.includes("All results"))).toBe(false);
+
+    trigger.click();
+    await nextTick();
+    await nextTick();
+    const popup = document.querySelector('[data-slot="popover-content"]')!;
+    expect(popup).toBeTruthy();
+    const itemButton = [...popup.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("Result 5"))!;
+    expect(itemButton).toBeTruthy();
+    itemButton.click();
+    expect(select).toHaveBeenCalledOnce();
+    expect(select.mock.calls[0]![0]).toMatchObject({ n: 5, index: 5 });
+  });
+
+  it("renders a single result item without dropdown chevron in list mode when there is only one result", async () => {
+    const single: QueryResult = { columns: ["id"], rows: [[1]], sourceStatement: "SELECT 1" };
+    const { container } = await mountNavigator([single], true, "list");
+    expect(container.querySelector(".result-set-scroll")).toBeNull();
+    const button = container.querySelector<HTMLButtonElement>("button")!;
+    expect(button.textContent?.trim()).toBe("Result 1");
+    // No dropdown chevron
+    expect(button.querySelector("svg")).toBeNull();
   });
 });
