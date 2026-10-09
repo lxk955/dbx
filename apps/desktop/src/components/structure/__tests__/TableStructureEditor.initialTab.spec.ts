@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 
 import { createApp, nextTick, type App } from "vue";
-import { EditorView } from "@codemirror/view";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const TABLE_DDL = "CREATE TABLE `users` (\n  `id` bigint NOT NULL AUTO_INCREMENT,\n  `email` varchar(255) DEFAULT NULL,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB";
@@ -400,5 +399,61 @@ describe("TableStructureEditor initial tab", () => {
     const root = await mountStructureEditor({ initialTab: "foreignKeys", initialTabRequestId: 1 });
 
     expect(root.textContent).toContain("structureEditor.addForeignKey");
+  });
+
+  it("restores the horizontal scrollbar when switching from triggers back to columns (#11581)", async () => {
+    const originalClientWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");
+    const originalScrollWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollWidth");
+
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get() {
+        if (this.classList?.contains("structure-table-scroller")) return 400;
+        return originalClientWidth?.get?.call(this) ?? 0;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
+      configurable: true,
+      get() {
+        if (this.classList?.contains("structure-table-scroller")) return 1200;
+        return originalScrollWidth?.get?.call(this) ?? 0;
+      },
+    });
+
+    try {
+      const root = await mountStructureEditor({
+        initialTab: "columns",
+      });
+
+      expect(root.querySelector(".structure-horizontal-scrollbar")).not.toBeNull();
+
+      const initialScroller = root.querySelector<HTMLElement>(".structure-table-scroller");
+      expect(initialScroller).not.toBeNull();
+      initialScroller!.scrollLeft = 120;
+      initialScroller!.dispatchEvent(new Event("scroll"));
+      await settle();
+
+      // Switch to triggers tab
+      const triggersBtn = root.querySelector<HTMLElement>('[data-tab-trigger="triggers"]');
+      triggersBtn?.click();
+      await settle();
+
+      expect(root.querySelector(".structure-horizontal-scrollbar")).toBeNull();
+
+      // Switch back to columns tab
+      const columnsBtn = root.querySelector<HTMLElement>('[data-tab-trigger="columns"]');
+      columnsBtn?.click();
+      await settle();
+
+      const remountedScroller = root.querySelector<HTMLElement>(".structure-table-scroller");
+      expect(remountedScroller).not.toBeNull();
+      expect(remountedScroller?.scrollLeft).toBe(120);
+      expect(root.querySelector(".structure-horizontal-scrollbar")).not.toBeNull();
+    } finally {
+      if (originalClientWidth) Object.defineProperty(HTMLElement.prototype, "clientWidth", originalClientWidth);
+      else Reflect.deleteProperty(HTMLElement.prototype, "clientWidth");
+      if (originalScrollWidth) Object.defineProperty(HTMLElement.prototype, "scrollWidth", originalScrollWidth);
+      else Reflect.deleteProperty(HTMLElement.prototype, "scrollWidth");
+    }
   });
 });

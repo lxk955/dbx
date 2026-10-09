@@ -2058,6 +2058,8 @@ function activeStructureHorizontalScroller(): HTMLElement | undefined {
   return structureScrollerForTab(activeTab.value);
 }
 
+const activeStructureHorizontalScrollerRef = computed<HTMLElement | null>(() => activeStructureHorizontalScroller() ?? null);
+
 function applyStructureHorizontalScrollbarThumbStyle(): boolean {
   const thumb = structureHorizontalScrollbarThumbRef.value;
   if (!thumb) return false;
@@ -2085,16 +2087,33 @@ function observeStructureHorizontalScroller() {
   structureHorizontalScrollbarResizeObserver?.disconnect();
   structureHorizontalScrollbarResizeObserver = null;
   const tab = activeTab.value;
-  void nextTick(() => {
-    if (generation !== structureHorizontalScrollbarObserverGeneration || tab !== activeTab.value) return;
-    const scroller = activeStructureHorizontalScroller();
+
+  const attachScrollerObserver = (scroller: HTMLElement) => {
     updateStructureHorizontalScrollbar(scroller);
-    if (!scroller || typeof ResizeObserver === "undefined") return;
+    if (typeof ResizeObserver === "undefined") return;
+    structureHorizontalScrollbarResizeObserver?.disconnect();
     structureHorizontalScrollbarResizeObserver = new ResizeObserver(() => {
       updateStructureHorizontalScrollbar(scroller);
     });
     structureHorizontalScrollbarResizeObserver.observe(scroller);
     for (const child of Array.from(scroller.children)) structureHorizontalScrollbarResizeObserver.observe(child);
+  };
+
+  void nextTick(() => {
+    if (generation !== structureHorizontalScrollbarObserverGeneration || tab !== activeTab.value) return;
+    const scroller = activeStructureHorizontalScroller();
+    if (scroller) {
+      attachScrollerObserver(scroller);
+    } else {
+      updateStructureHorizontalScrollbar(undefined);
+      if (tab === "columns" || tab === "indexes") {
+        void nextTick(() => {
+          if (generation !== structureHorizontalScrollbarObserverGeneration || tab !== activeTab.value) return;
+          const retryScroller = activeStructureHorizontalScroller();
+          if (retryScroller) attachScrollerObserver(retryScroller);
+        });
+      }
+    }
   });
 }
 
@@ -2155,18 +2174,27 @@ function startStructureHorizontalScrollbarDrag(event: PointerEvent) {
 function restoreStructureScrollPosition(tab = activeTab.value) {
   const position = structureScrollPositions[tab];
   if (!position) return;
-  nextTick(() => {
+  const applyPosition = () => {
+    if (tab !== activeTab.value) return false;
     if (tab === "ddl" && ddlEditorView.value) {
       ddlEditorView.value.scrollDOM.scrollTop = Math.max(0, position.scrollTop);
       ddlEditorView.value.scrollDOM.scrollLeft = Math.max(0, position.scrollLeft);
-      return;
+      return true;
     }
     const scroller = structureScrollerForTab(tab);
-    if (!scroller) return;
+    if (!scroller) return false;
     scroller.scrollTop = Math.max(0, position.scrollTop);
     scroller.scrollLeft = Math.max(0, position.scrollLeft);
     if (tab === "columns" || tab === "indexes") updateStructureHorizontalScrollbar(scroller);
-  });
+    return true;
+  };
+  if (!applyPosition()) {
+    nextTick(() => {
+      if (!applyPosition() && tab !== "ddl") {
+        void nextTick(applyPosition);
+      }
+    });
+  }
 }
 
 function scheduleStructureScrollDraftSync() {
@@ -2204,7 +2232,10 @@ function updateExtendedPropertiesContentWidth() {
 
 function onColumnVirtualRowsUpdated() {
   const scroller = structureScrollerElement(columnsScrollerRef.value);
-  if (scroller) lastColumnVirtualRenderScrollTop = scroller.scrollTop;
+  if (scroller) {
+    lastColumnVirtualRenderScrollTop = scroller.scrollTop;
+    if (activeTab.value === "columns") updateStructureHorizontalScrollbar(scroller);
+  }
   void nextTick(updateExtendedPropertiesContentWidth);
 }
 
@@ -5440,7 +5471,15 @@ watch(activeTab, () => {
   syncDraftToParent();
 });
 
-watch([activeTab, loading, indexesLoading, visibleColWidths, indexColWidths], observeStructureHorizontalScroller, { deep: true, flush: "post", immediate: true });
+watch([activeTab, activeStructureHorizontalScrollerRef, loading, indexesLoading, visibleColWidths, indexColWidths], observeStructureHorizontalScroller, { deep: true, flush: "post", immediate: true });
+
+watch(
+  activeStructureHorizontalScrollerRef,
+  (scroller) => {
+    if (scroller) restoreStructureScrollPosition(activeTab.value);
+  },
+  { flush: "post" },
+);
 
 // Font sizes change with density, so start measuring again instead of keeping a stale maximum.
 watch(localStructureDensity, () => {
