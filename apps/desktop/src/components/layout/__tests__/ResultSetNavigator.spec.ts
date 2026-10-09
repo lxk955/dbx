@@ -12,7 +12,7 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-async function mountNavigator(inputResults?: QueryResult[], canExportXlsx = true, displayMode: "tabs" | "list" = "tabs") {
+async function mountNavigator(inputResults?: QueryResult[], canExportXlsx = true, displayMode: "tabs" | "list" = "tabs", activeIndex = 1) {
   // Include a non-tabular result so ordinal and storage index are different.
   const results = inputResults ?? ([{ columns: [], rows: [] }, ...Array.from({ length: 100 }, (_, i) => ({ columns: ["value"], rows: [[i + 1]], sourceStatement: `SELECT ${i + 1} AS value` }))] as QueryResult[]);
   const select = vi.fn();
@@ -21,7 +21,7 @@ async function mountNavigator(inputResults?: QueryResult[], canExportXlsx = true
   const exportXlsx = vi.fn();
   const container = document.createElement("div");
   document.body.append(container);
-  app = createApp(ResultSetNavigator, { items: tabularResultItems(results), activeIndex: 1, active: true, canExportXlsx, displayMode, onSelect: select, onCopySql: copySql, onCopyQuerySql: copyQuerySql, onExportXlsx: exportXlsx });
+  app = createApp(ResultSetNavigator, { items: tabularResultItems(results), activeIndex, active: true, canExportXlsx, displayMode, onSelect: select, onCopySql: copySql, onCopyQuerySql: copyQuerySql, onExportXlsx: exportXlsx });
   app.use(
     createI18n({
       legacy: false,
@@ -213,11 +213,30 @@ describe("large result-set navigation", () => {
 
   it("renders a single result item without dropdown chevron in list mode when there is only one result", async () => {
     const single: QueryResult = { columns: ["id"], rows: [[1]], sourceStatement: "SELECT 1" };
-    const { container } = await mountNavigator([single], true, "list");
+    const { container } = await mountNavigator([single], true, "list", 0);
     expect(container.querySelector(".result-set-scroll")).toBeNull();
     const button = container.querySelector<HTMLButtonElement>("button")!;
     expect(button.textContent?.trim()).toBe("Result 1");
     // No dropdown chevron
+    expect(button.querySelector("svg")).toBeNull();
+  });
+
+  it("falls back to the generic label in list mode when the active result is a filtered-out message", async () => {
+    // activeIndex 0 is the storage index of the non-tabular server message.
+    const { container } = await mountNavigator(undefined, true, "list", 0);
+    const trigger = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("Result sets"))!;
+    expect(trigger).toBeTruthy();
+    expect(trigger.textContent).not.toContain("Result 1");
+    // The dropdown stays usable and batch actions remain reachable.
+    expect([...container.querySelectorAll("button")].some((button) => button.textContent?.includes("Batch actions"))).toBe(true);
+  });
+
+  it("falls back to the generic label for a single result whose storage index is not active", async () => {
+    const single: QueryResult = { columns: ["id"], rows: [[1]], sourceStatement: "SELECT 1" };
+    const message: QueryResult = { columns: ["Message"], rows: [["notice"]], server_message: true };
+    const { container } = await mountNavigator([message, single], true, "list", 0);
+    const button = container.querySelector<HTMLButtonElement>("button")!;
+    expect(button.textContent?.trim()).toBe("Result sets");
     expect(button.querySelector("svg")).toBeNull();
   });
 });

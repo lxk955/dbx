@@ -55,7 +55,10 @@ const filteredBatchItems = computed(() => {
   return filterResultItems(props.items, batchSearch.value);
 });
 const selectedBatchItems = computed(() => props.items.filter((item) => selectedIndexes.value.has(item.index)));
-const activeItem = computed(() => props.items.find((item) => item.index === props.activeIndex) ?? props.items[0]);
+// The active result may be a server message that tabularResultItems filters out;
+// in that case no tabular item is active and the triggers fall back to the
+// generic "result sets" label instead of faking the first item as active.
+const activeItem = computed(() => props.items.find((item) => item.index === props.activeIndex));
 
 function revealActive() {
   const container = scroller.value;
@@ -207,16 +210,16 @@ function onListKeydown(event: KeyboardEvent, index: number) {
           </PopoverContent>
         </Popover>
         <Button
-          v-else-if="activeItem"
+          v-else
           variant="ghost"
           size="sm"
           class="h-6 max-w-56 shrink-0 px-2 text-xs"
           :class="{ 'font-semibold text-foreground': active }"
           :data-active="active ? 'true' : undefined"
-          :title="activeItem.label || activeItem.title || t('tabs.resultN', { n: activeItem.n })"
-          :aria-label="activeItem.displayLabel || activeItem.label || t('tabs.resultN', { n: activeItem.n })"
+          :title="activeItem?.label || activeItem?.title || (activeItem ? t('tabs.resultN', { n: activeItem.n }) : t('tabs.resultSets'))"
+          :aria-label="activeItem?.displayLabel || activeItem?.label || (activeItem ? t('tabs.resultN', { n: activeItem.n }) : t('tabs.resultSets'))"
         >
-          <span class="truncate">{{ activeItem.displayLabel || activeItem.label || t("tabs.resultN", { n: activeItem.n }) }}</span>
+          <span class="truncate">{{ activeItem?.displayLabel || activeItem?.label || (activeItem ? t("tabs.resultN", { n: activeItem.n }) : t("tabs.resultSets")) }}</span>
         </Button>
       </div>
     </template>
