@@ -3967,7 +3967,7 @@ impl XlsxStreamRowsState {
                 if !self.has_expected_columns && !self.columns.is_empty() {
                     let mut shifted_columns: Vec<String> = (1..=shift).map(|index| format!("column_{index}")).collect();
                     shifted_columns.append(&mut self.columns);
-                    self.columns = unique_import_headers(shifted_columns.into_iter());
+                    self.columns = unique_import_headers(shifted_columns);
                 }
                 if let Some(count) = self.declared_column_count.as_mut() {
                     *count = count.saturating_add(shift);
