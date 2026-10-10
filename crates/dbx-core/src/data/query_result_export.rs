@@ -3240,6 +3240,7 @@ mod tests {
 
         // The decimal value must be exported as a numeric cell (<v>123.45</v>) rather than text
         assert!(sheet_xml.contains("<v>123.45</v>"), "expected numeric cell in sheet XML, got: {sheet_xml}");
-        assert!(!sheet_xml.contains(r#"t="inlineStr""#), "did not expect inlineStr in sheet XML, got: {sheet_xml}");
+        assert!(!sheet_xml.contains(r#"<c r="A2" t="inlineStr""#), "did not expect cell A2 to be inlineStr, got: {sheet_xml}");
+        assert!(!sheet_xml.contains("<t>123.45</t>"), "did not expect 123.45 to be exported as text, got: {sheet_xml}");
     }
 }
