@@ -364,14 +364,8 @@ const SQLITE_TYPE_MAP: &[TypeMapEntry] = &[
 ];
 
 const POSTGRES_TYPE_MAP: &[TypeMapEntry] = &[
-    TypeMapEntry {
-        source_base: "UNIQUEIDENTIFIER",
-        target_template: "UUID",
-    },
-    TypeMapEntry {
-        source_base: "GUID",
-        target_template: "UUID",
-    },
+    TypeMapEntry { source_base: "UNIQUEIDENTIFIER", target_template: "UUID" },
+    TypeMapEntry { source_base: "GUID", target_template: "UUID" },
 ];
 
 // ---------------------------------------------------------------------------
