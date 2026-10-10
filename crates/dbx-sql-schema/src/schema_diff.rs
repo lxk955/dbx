@@ -3220,15 +3220,15 @@ fn column_types_equal_for_dialects(
         return true;
     }
     match (source_dialect, target_dialect) {
-        (Some(DialectKind::SqlServer), Some(DialectKind::Postgres)) => {
-            if source_type.eq_ignore_ascii_case("uniqueidentifier") && target_type.eq_ignore_ascii_case("uuid") {
-                return true;
-            }
+        (Some(DialectKind::SqlServer), Some(DialectKind::Postgres))
+            if source_type.eq_ignore_ascii_case("uniqueidentifier") && target_type.eq_ignore_ascii_case("uuid") =>
+        {
+            return true;
         }
-        (Some(DialectKind::Postgres), Some(DialectKind::SqlServer)) => {
-            if source_type.eq_ignore_ascii_case("uuid") && target_type.eq_ignore_ascii_case("uniqueidentifier") {
-                return true;
-            }
+        (Some(DialectKind::Postgres), Some(DialectKind::SqlServer))
+            if source_type.eq_ignore_ascii_case("uuid") && target_type.eq_ignore_ascii_case("uniqueidentifier") =>
+        {
+            return true;
         }
         _ => {}
     }
