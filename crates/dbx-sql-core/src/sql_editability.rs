@@ -163,6 +163,9 @@ pub fn analyze_editable_query_editability(sql: &str) -> QueryEditability {
         (raw_select_body, false)
     };
     let select_body = strip_sql_server_top_clause(select_body);
+    if contains_top_level_aggregate(select_body) {
+        return not_editable(QueryEditabilityReason::Aggregation);
+    }
 
     let group_index = find_top_level_keyword(&normalized, "GROUP", from_index + "FROM".len());
     let having_index = find_top_level_keyword(&normalized, "HAVING", from_index + "FROM".len());
@@ -179,7 +182,7 @@ pub fn analyze_editable_query_editability(sql: &str) -> QueryEditability {
     }
     let from_end = first_top_level_keyword_index(
         &normalized,
-        &["WHERE", "ORDER", "LIMIT", "OFFSET", "FETCH", "FOR"],
+        &["WHERE", "GROUP", "HAVING", "ORDER", "LIMIT", "OFFSET", "FETCH", "FOR"],
         from_body_start,
     )
     .unwrap_or(normalized.len());
@@ -958,32 +961,98 @@ fn skip_whitespace(text: &str, pos: usize) -> usize {
     current
 }
 
+fn contains_top_level_aggregate(expression: &str) -> bool {
+    let mut quote: Option<char> = None;
+    let mut cleaned = String::new();
+    let mut chars = expression.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if let Some(close) = quote {
+            if ch == close {
+                if close == '\'' && chars.peek() == Some(&'\'') {
+                    chars.next();
+                    continue;
+                }
+                quote = None;
+            }
+            continue;
+        }
+        match ch {
+            '\'' | '"' | '`' => quote = Some(ch),
+            '[' => quote = Some(']'),
+            _ => cleaned.push(ch),
+        }
+    }
+    const AGGREGATE_FUNCTIONS: &[&str] = &[
+        "COUNT", "SUM", "AVG", "MIN", "MAX", "EVERY", "ANY", "SOME",
+        "STDDEV", "STDDEV_POP", "STDDEV_SAMP", "VARIANCE", "VAR_POP", "VAR_SAMP",
+        "GROUP_CONCAT", "STRING_AGG", "LISTAGG", "ARRAY_AGG",
+        "JSON_ARRAYAGG", "JSON_OBJECTAGG", "XMLAGG", "APPROX_COUNT_DISTINCT",
+    ];
+    let upper = cleaned.to_ascii_uppercase();
+    for agg in AGGREGATE_FUNCTIONS {
+        let mut search_from = 0;
+        while let Some(pos) = upper[search_from..].find(agg) {
+            let idx = search_from + pos;
+            search_from = idx + agg.len();
+            let before = previous_char(&upper, idx);
+            if before.is_some_and(is_identifier_char) {
+                continue;
+            }
+            let tail = skip_whitespace(&upper, idx + agg.len());
+            if upper[tail..].starts_with('(') {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 fn strip_sql_comments(sql: &str) -> String {
     let mut result = String::new();
+    let mut quote: Option<char> = None;
     let mut chars = sql.chars().peekable();
     while let Some(ch) = chars.next() {
-        if ch == '-' && chars.peek() == Some(&'-') {
-            chars.next();
-            for next in chars.by_ref() {
-                if next == '\n' {
-                    result.push('\n');
-                    break;
+        if let Some(close) = quote {
+            result.push(ch);
+            if ch == close {
+                if close == '\'' && chars.peek() == Some(&'\'') {
+                    result.push(chars.next().unwrap());
+                    continue;
                 }
+                quote = None;
             }
             continue;
         }
-        if ch == '/' && chars.peek() == Some(&'*') {
-            chars.next();
-            let mut previous = '\0';
-            for next in chars.by_ref() {
-                if previous == '*' && next == '/' {
-                    break;
-                }
-                previous = next;
+        match ch {
+            '\'' | '"' | '`' => {
+                quote = Some(ch);
+                result.push(ch);
             }
-            continue;
+            '[' => {
+                quote = Some(']');
+                result.push(ch);
+            }
+            '-' if chars.peek() == Some(&'-') => {
+                chars.next();
+                for next in chars.by_ref() {
+                    if next == '\n' {
+                        result.push('\n');
+                        break;
+                    }
+                }
+            }
+            '/' if chars.peek() == Some(&'*') => {
+                chars.next();
+                let mut previous = '\0';
+                for next in chars.by_ref() {
+                    if previous == '*' && next == '/' {
+                        break;
+                    }
+                    previous = next;
+                }
+            }
+            _ => result.push(ch),
         }
-        result.push(ch);
     }
     result
 }
@@ -995,9 +1064,14 @@ fn has_top_level_keyword(sql: &str, keywords: &[&str]) -> bool {
 fn has_top_level_semicolon(sql: &str) -> bool {
     let mut depth = 0i32;
     let mut quote: Option<char> = None;
-    for ch in sql.chars() {
+    let mut chars = sql.chars().peekable();
+    while let Some(ch) = chars.next() {
         if let Some(close) = quote {
             if ch == close {
+                if close == '\'' && chars.peek() == Some(&'\'') {
+                    chars.next();
+                    continue;
+                }
                 quote = None;
             }
             continue;
@@ -1023,9 +1097,14 @@ fn find_top_level_keyword(sql: &str, keyword: &str, start: usize) -> Option<usiz
     let mut quote: Option<char> = None;
     let upper_keyword = keyword.to_ascii_uppercase();
 
-    for (index, ch) in sql.char_indices().filter(|(index, _)| *index >= start) {
+    let mut iter = sql.char_indices().filter(|(index, _)| *index >= start).peekable();
+    while let Some((index, ch)) = iter.next() {
         if let Some(close) = quote {
             if ch == close {
+                if close == '\'' && iter.peek().map(|(_, next_ch)| *next_ch) == Some('\'') {
+                    iter.next();
+                    continue;
+                }
                 quote = None;
             }
             continue;
@@ -1536,6 +1615,27 @@ mod tests {
 
         assert!(!result.editable);
         assert_eq!(result.reason, Some(QueryEditabilityReason::Aggregation));
+    }
+
+    #[test]
+    fn reports_aggregate_and_grouped_queries_per_issue_11672() {
+        let result = analyze_editable_query_editability("select count(*) from users");
+        assert!(!result.editable);
+        assert_eq!(result.reason, Some(QueryEditabilityReason::Aggregation));
+
+        let sql = "SELECT \n  R.P_ID, \n  R.SUBJECT, \n  COUNT(0) AS CNT_NUM\n  FROM COMMON.RECORD R\n WHERE R.CREATE_TIME >= SYSDATE - INTERVAL '1' DAY\n   AND R.SUBJECT = '邮件提醒'\n   AND R.P_ID = '123214512'\n GROUP BY R.P_ID, R.SUBJECT";
+        let result = analyze_editable_query_editability(sql);
+        assert!(!result.editable);
+        assert_eq!(result.reason, Some(QueryEditabilityReason::Aggregation));
+
+        let with_doubled_quote = "SELECT id, name FROM users WHERE name = 'don''t stop' GROUP BY id, name";
+        let result = analyze_editable_query_editability(with_doubled_quote);
+        assert!(!result.editable);
+        assert_eq!(result.reason, Some(QueryEditabilityReason::Aggregation));
+
+        let comment_in_string = "SELECT id, name FROM users WHERE name = 'hello -- world' AND active = 1";
+        let result = analyze_editable_query_editability(comment_in_string);
+        assert!(result.editable);
     }
 
     #[test]

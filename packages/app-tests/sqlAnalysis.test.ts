@@ -411,3 +411,31 @@ test("recognizes binary type declarations with lengths", () => {
   assert.equal(isBinaryType("VARBINARY(255)"), true);
   assert.equal(isBinaryType("varchar(255)"), false);
 });
+
+test("rejects aggregate queries with aggregation reason (#11672)", () => {
+  assert.deepEqual(analyzeEditableQueryEditability("SELECT COUNT(*) FROM users"), { editable: false, reason: "aggregation" });
+  assert.deepEqual(analyzeEditableQueryEditability("SELECT id, COUNT(0) AS cnt FROM users"), { editable: false, reason: "aggregation" });
+  assert.deepEqual(analyzeEditableQueryEditability("SELECT id, SUM(amount) AS total FROM orders GROUP BY id"), { editable: false, reason: "aggregation" });
+  assert.deepEqual(
+    analyzeEditableQueryEditability(`SELECT 
+  R.P_ID, 
+  R.SUBJECT, 
+  COUNT(0) AS CNT_NUM
+  FROM COMMON.RECORD R
+ WHERE R.CREATE_TIME >= SYSDATE - INTERVAL '1' DAY
+   AND R.SUBJECT = '邮件提醒'
+   AND R.P_ID = '123214512'
+ GROUP BY R.P_ID, R.SUBJECT`),
+    { editable: false, reason: "aggregation" },
+  );
+});
+
+test("handles comments and escaped quotes without quote desync (#11672)", () => {
+  // String literal containing comment markers
+  const withCommentInString = analyzeEditableQueryEditability("SELECT id, name FROM users WHERE name = 'hello -- world' AND active = 1");
+  assert.equal(withCommentInString.editable, true);
+
+  // Doubled single quote inside string literal
+  const withDoubledQuote = analyzeEditableQueryEditability("SELECT id, name FROM users WHERE name = 'don''t stop' GROUP BY id, name");
+  assert.deepEqual(withDoubledQuote, { editable: false, reason: "aggregation" });
+});

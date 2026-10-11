@@ -177,6 +177,55 @@ describe("editable query hidden primary keys", () => {
     ).toBe("SELECT name, `id` AS `__DBX_PK_0` -- visible user name\nFROM users");
   });
 
+  it("rejects queries with GROUP BY, HAVING, or set operations", () => {
+    expect(
+      buildQueryWithHiddenPrimaryKeys({
+        sql: "SELECT department, COUNT(*) AS total FROM users GROUP BY department",
+        databaseType: "oracle",
+        primaryKeys: ["__DBX_ROWID"],
+        existingResultNames: ["department", "total"],
+        sourceExpressions: { __DBX_ROWID: "ROWIDTOCHAR(ROWID)" },
+      }),
+    ).toBeUndefined();
+
+    expect(
+      buildQueryWithHiddenPrimaryKeys({
+        sql: "SELECT department FROM users HAVING COUNT(*) > 1",
+        databaseType: "oracle",
+        primaryKeys: ["__DBX_ROWID"],
+        existingResultNames: ["department"],
+        sourceExpressions: { __DBX_ROWID: "ROWIDTOCHAR(ROWID)" },
+      }),
+    ).toBeUndefined();
+
+    expect(
+      buildQueryWithHiddenPrimaryKeys({
+        sql: `SELECT 
+  R.P_ID, 
+  R.SUBJECT, 
+  COUNT(0) AS CNT_NUM
+  FROM COMMON.RECORD R
+ WHERE R.CREATE_TIME >= SYSDATE - INTERVAL '1' DAY
+   AND R.SUBJECT = '邮件提醒'
+   AND R.P_ID = '123214512'
+ GROUP BY R.P_ID, R.SUBJECT`,
+        databaseType: "oracle",
+        primaryKeys: ["__DBX_ROWID"],
+        existingResultNames: ["P_ID", "SUBJECT", "CNT_NUM"],
+        sourceExpressions: { __DBX_ROWID: "ROWIDTOCHAR(ROWID)" },
+      }),
+    ).toBeUndefined();
+
+    expect(
+      buildQueryWithHiddenPrimaryKeys({
+        sql: "SELECT id, name FROM users UNION SELECT id, name FROM archived_users",
+        databaseType: "mysql",
+        primaryKeys: ["id"],
+        existingResultNames: ["id", "name"],
+      }),
+    ).toBeUndefined();
+  });
+
   it("analyzes SQL Server TOP projections as ordinary source columns", () => {
     for (const sql of [
       "SELECT TOP 2 name, note FROM dbo.users ORDER BY name",

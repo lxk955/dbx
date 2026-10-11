@@ -544,6 +544,62 @@ describe("queryStore hidden primary key editing", () => {
     expect(tab.queryEditabilityReason).toBeUndefined();
   });
 
+  it("never rewrites an Oracle GROUP BY query with hidden ROWID", async () => {
+    getConnectionConfig.mockReturnValue({
+      id: "oracle-1",
+      name: "Oracle",
+      db_type: "oracle",
+      database: "ORCL",
+      query_timeout_secs: 30,
+    });
+    getColumns.mockResolvedValue([
+      { name: "P_ID", type_name: "VARCHAR2", nullable: true },
+      { name: "SUBJECT", type_name: "VARCHAR2", nullable: true },
+      { name: "CREATE_TIME", type_name: "DATE", nullable: true },
+    ]);
+    listTables.mockResolvedValue([{ name: "RECORD", table_type: "TABLE" }]);
+    listIndexes.mockResolvedValue([]);
+    analyzeEditableQueryEditability.mockResolvedValue({
+      editable: false,
+      reason: "aggregation",
+    });
+    executeMulti.mockResolvedValue([
+      {
+        columns: ["P_ID", "SUBJECT", "CNT_NUM"],
+        rows: [["123214512", "邮件提醒", 1]],
+        affected_rows: 0,
+        execution_time_ms: 1,
+      },
+    ]);
+
+    const { useQueryStore } = await import("@/stores/queryStore");
+    const store = useQueryStore();
+    const tabId = store.createTab("oracle-1", "ORCL", "Query");
+    store.setAutoCommit(tabId, true);
+
+    const sql = `SELECT 
+  R.P_ID, 
+  R.SUBJECT, 
+  COUNT(0) AS CNT_NUM
+  FROM COMMON.RECORD R
+ WHERE R.CREATE_TIME >= SYSDATE - INTERVAL '1' DAY
+   AND R.SUBJECT = '邮件提醒'
+   AND R.P_ID = '123214512'
+ GROUP BY R.P_ID, R.SUBJECT`;
+
+    // Execute first time (populates metadata cache)
+    await store.executeTabSql(tabId, sql);
+    expect(executeMulti).toHaveBeenLastCalledWith("oracle-1", "ORCL", sql, undefined, expect.any(String), expect.objectContaining({ timeoutSecs: 30 }));
+
+    // Execute second time (cache hit within 30s)
+    await store.executeTabSql(tabId, sql);
+    expect(executeMulti).toHaveBeenLastCalledWith("oracle-1", "ORCL", sql, undefined, expect.any(String), expect.objectContaining({ timeoutSecs: 30 }));
+    expect(executeMulti).not.toHaveBeenCalledWith("oracle-1", "ORCL", expect.stringContaining("ROWIDTOCHAR"), undefined, expect.any(String), expect.any(Object));
+
+    const tab = store.tabs.find((item) => item.id === tabId)!;
+    expect(tab.result?.hidden_column_indexes).toBeUndefined();
+  });
+
   it.each([
     {
       connection: { id: "oracle-1", name: "Oracle", db_type: "oracle", database: "ORCL", query_timeout_secs: 30 },
