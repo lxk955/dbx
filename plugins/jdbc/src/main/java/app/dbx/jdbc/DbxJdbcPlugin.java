@@ -2455,7 +2455,7 @@ public final class DbxJdbcPlugin {
             if (quirks.mergeEmptyCatalogSchemas() && catalog != null && !catalog.isEmpty()) {
                 try (ResultSet rs = meta.getSchemas("", null)) {
                     appendSchemas(result, rs, false);
-                } catch (SQLException | UnsupportedOperationException ignored) {
+                } catch (SQLException | UnsupportedOperationException | AbstractMethodError ignored) {
                 }
             }
             if (result.isEmpty() && catalog != null) {

@@ -2439,6 +2439,59 @@ final class DbxJdbcPluginTest {
     }
 
     @Test
+    void listSchemasPreservesJtdsFallbackWhenEmptyCatalogOverloadIsUnimplemented() throws Exception {
+        String url = "jdbc:jtds:sqlserver://sqlserver-legacy-mock.example.test:1433/appdb";
+        List<String> calls = new ArrayList<>();
+        DatabaseMetaData metadata = (DatabaseMetaData) Proxy.newProxyInstance(
+            DbxJdbcPluginTest.class.getClassLoader(),
+            new Class<?>[] { DatabaseMetaData.class },
+            (proxy, method, args) -> {
+                if ("getSchemas".equals(method.getName())) {
+                    if (args != null && args.length == 2) {
+                        calls.add((String) args[0]);
+                        throw new AbstractMethodError("getSchemas(String, String) is not implemented");
+                    }
+                    calls.add("getSchemas()");
+                    return rowsResultSet(
+                        new String[] { "TABLE_SCHEM" },
+                        new Object[][] { { "dbo" }, { "sales" } }
+                    );
+                }
+                return defaultValue(method.getReturnType());
+            }
+        );
+        Connection jdbcConnection = (Connection) Proxy.newProxyInstance(
+            DbxJdbcPluginTest.class.getClassLoader(),
+            new Class<?>[] { Connection.class },
+            (proxy, method, args) -> switch (method.getName()) {
+                case "getMetaData" -> metadata;
+                case "getAutoCommit" -> true;
+                case "isClosed" -> false;
+                default -> defaultValue(method.getReturnType());
+            }
+        );
+        Driver driver = testDriver(url, jdbcConnection);
+        String connection = """
+            { "connection_string": "%s" }
+            """.formatted(url);
+        DriverManager.registerDriver(driver);
+        try {
+            JsonNode response = request("listSchemas", """
+                {
+                  "connection": %s,
+                  "database": "appdb"
+                }
+                """.formatted(connection));
+
+            assertFalse(response.has("error"), response.toString());
+            assertEquals(MAPPER.readTree("[\"dbo\", \"sales\"]"), response.path("result"));
+            assertEquals(List.of("appdb", "getSchemas()", ""), calls);
+        } finally {
+            closeAndDeregister(connection, driver);
+        }
+    }
+
+    @Test
     void connectUsesRegisteredDriverWhenOtherDriversThrowUnsupportedOperationException() throws Exception {
         String url = "jdbc:hive2://hive2-connect-test:10000/default";
         String driverClass = Hive2ConnectGoodDriver.class.getName();
