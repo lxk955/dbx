@@ -1,3 +1,4 @@
+import { sidebarMenuTr as sidebarMenu } from "./sidebarMenuMessages";
 import { withEnglishFallback } from "./fallback";
 import docs from "./docs/tr";
 import { dataDictionaryTr as dataDictionary } from "./dataDictionaryMessages";
@@ -60,6 +61,7 @@ const consul = {
 };
 
 export default withEnglishFallback({
+  sidebarMenu,
   pluginPlatform: {
     dataAccessConsent: '"{name}", "{connection}" bağlantısındaki verileri okumak istiyor. Bu bağlantı açık olduğu sürece eklenti, Eklenti Merkezi\'nden erişimi iptal edene kadar bağlantıda salt okunur sorgular çalıştırabilir. İzin verilsin mi?',
     dataAccessConsentTitle: "Veri Erişim İsteği",
@@ -1772,6 +1774,8 @@ export default withEnglishFallback({
     rows: "{count} satır",
     totalRows: "Toplam {count} satır",
     loadedRows: "{count} satır yüklendi",
+    copyPartialRowsHintWithTotal: "Yüklenen {loaded} satır kopyalandı (toplam {total} satır; sonuç kümesi tamamen yüklenmedi)",
+    copyPartialRowsHint: "Yüklenen {loaded} satır kopyalandı (sonuç kümesi tamamen yüklenmedi)",
     totalRowCount: "(toplam {count})",
     totalRowCountWithAction: "({button}toplam {count})",
     totalRowCountAtLeast: "(en az {count} toplam)",
@@ -2590,6 +2594,26 @@ export default withEnglishFallback({
     statementsCount: "{done} başarılı, {failed} başarısız",
     elapsed: "Geçen süre: {duration}",
     showFailureDetails: "Hata ayrıntıları ({count})",
+    failureLog: {
+      selectAll: "Tümünü seç",
+      selectedCount: "{count} seçili",
+      copySelected: "Seçileni kopyala",
+      copySelectedDone: "{count} hata ayrıntısı kopyalandı",
+      copyTooLarge: "Seçim {limit} sınırını aşıyor; dosyaya aktarın",
+      copySummaryFallback: "Tam hata günlüğü kullanılamıyor; yalnızca listede görünen özetler kopyalandı",
+      exportTxt: "TXT olarak aktar",
+      exportCsv: "CSV olarak aktar",
+      exportSelected: "Seçileni aktar",
+      exportedRecords: "{count} hata ayrıntısı aktarıldı",
+      exportStarted: "Günlük indirme başladı",
+      exportSelectionTooLarge: "Seçilen hata ayrıntıları çok büyük; tam günlük için TXT olarak aktarın",
+      actionFailed: "İşlem başarısız: {message}",
+      unavailable: "Hata günlüğü kullanılamıyor: {reason}",
+      degraded: "Hata günlüğü yazma sorunu: {reason}",
+      listTruncated: "İlk {visible} kayıt gösteriliyor; aktarım {total} kaydın tamamını içerir",
+      sensitiveWarning: "Hata günlükleri başarısız ifadelerin tamamını ve veritabanının ham hatalarını içerir; hassas veriler barındırabilir. Paylaşırken dikkatli olun.",
+      openFolder: "Günlük klasörünü aç",
+    },
     hideFailureDetails: "Hata ayrıntılarını gizle",
     failureDetailTruncated: "Hata ayrıntıları kısaltıldı",
     failureDetailsOmitted: "Gösterilmeyen {count} ek hata ayrıntısı var",
@@ -7694,6 +7718,9 @@ export default withEnglishFallback({
     selectFirstCompletionOnOpen: "İlk tamamlamayı otomatik seç",
     selectFirstCompletionOnOpenDescription: "Etkinleştirildiğinde liste açıldığında ilk aday seçilir ve Enter ya da Tab bunu kabul eder. Kapatıldığında Enter yeni satır ekler, Tab ilk adayı kabul eder.",
     completionTriggerMode: "SQL tamamlama tetikleme modu",
+    excludedCompletionItems: "Hariç tutulan tamamlama ögeleri",
+    excludedCompletionItemsPlaceholder: "WIDTH_BUCKET\nGET_LOCK",
+    excludedCompletionItemsDescription: "Adı listedeki bir giriyle eşleşen tamamlama önerileri (satır başına bir, büyük/küçük harf duyarsız) SQL düzenleyicide gösterilmez.",
     completionTriggerModeDescription: "SQL tamamlama adaylarının nasıl gösterileceğini seçin.",
     completionTriggerModeManual: "Yalnızca elle",
     completionTriggerModeManualDescription: "Adayları yalnızca {shortcut} tamamlama kısayolu kullanıldığında göster.",
@@ -8113,6 +8140,11 @@ export default withEnglishFallback({
     mcpAuthPreviousStep: "Geri",
     mcpAuthNextStep: "İleri",
     mcpAuthStepProgress: "{total} adımdan {current}. adım",
+    mcpPolicyExceptionsTitle: "Kaydedilen izin istisnaları",
+    mcpPolicyExceptionsDescription: "Bağlantı kapsamını değiştirmek izin istisnalarını korur. Kapsamdaki istisnalar geçerli kalır; kapsam dışındakiler bağlantı kapsama döndüğünde uygulanır. Burada yürütme izinlerini düzenleyebilir veya devralınan izinleri geri yükleyebilirsiniz.",
+    mcpPolicyExceptionInScope: "Geçerli kapsam içinde",
+    mcpPolicyExceptionOutsideScope: "Geçerli kapsam dışında (kaydedildi)",
+    mcpPolicyExceptionInherit: "Üst düzey izinleri devral",
     mcpResourceScopeTitle: "MCP'ye görünür bağlantılar",
     mcpResourceScopeDescription: "Dinamik kapsam için grupları, hassas istisnalar için tek tek bağlantıları seçin.",
     mcpResourceScopeModeCustom: "Özel kapsam",

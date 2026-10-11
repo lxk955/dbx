@@ -7080,7 +7080,12 @@ mod tests {
                                     (b'n', Vec::new())
                                 }
                                 b'E' => {
-                                    commands.lock().unwrap().push(statement.clone());
+                                    // The driver resolves the connection identity once per
+                                    // physical connection at checkout; it is driver plumbing,
+                                    // not part of the session statement history under test.
+                                    if !statement.starts_with("SELECT pg_backend_pid") {
+                                        commands.lock().unwrap().push(statement.clone());
+                                    }
                                     if fail_once == Some(statement.as_str()) {
                                         fail_once = None;
                                         (b'E', b"SERROR\0CXX000\0Mtest statement failed\0\0".to_vec())
@@ -11807,6 +11812,7 @@ for line in sys.stdin:
             selected_tables: None,
             part_cooldown_ms: 0,
             skip_relational_constraints: false,
+            failure_log_enabled: true,
         }
     }
 

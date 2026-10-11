@@ -1,3 +1,4 @@
+import { sidebarMenuAz as sidebarMenu } from "./sidebarMenuMessages";
 import { withEnglishFallback } from "./fallback";
 import docs from "./docs/az";
 import { dataDictionaryAz as dataDictionary } from "./dataDictionaryMessages";
@@ -60,6 +61,7 @@ const consul = {
 };
 
 export default withEnglishFallback({
+  sidebarMenu,
   pluginPlatform: {
     dataAccessConsent: '"{name}" "{connection}" bağlantısındakı məlumatları oxumaq istəyir. Bu bağlantı açıq olduqca plagin, Plagin Mərkəzində girişi ləğv edənə qədər orada yalnız oxuma sorğuları icra edə bilər. İcazə verilsin?',
     dataAccessConsentTitle: "Məlumat girişi sorğusu",
@@ -1773,6 +1775,8 @@ export default withEnglishFallback({
     rows: "{count} sətir",
     totalRows: "Cəmi {count} sətir",
     loadedRows: "{count} sətir yükləndi",
+    copyPartialRowsHintWithTotal: "Yüklənmiş {loaded} sətir kopyalandı (cəmi {total} sətir; nəticə tam yüklənməyib)",
+    copyPartialRowsHint: "Yüklənmiş {loaded} sətir kopyalandı (nəticə tam yüklənməyib)",
     totalRowCount: "(cəmi {count})",
     totalRowCountWithAction: "({button}cəmi {count})",
     totalRowCountAtLeast: "(cəmi ən azı {count})",
@@ -2614,6 +2618,26 @@ export default withEnglishFallback({
     statementsCount: "{done} uğurlu, {failed} uğursuz",
     elapsed: "Keçən vaxt: {duration}",
     showFailureDetails: "Uğursuzluq təfərrüatları ({count})",
+    failureLog: {
+      selectAll: "Hamısını seç",
+      selectedCount: "{count} seçildi",
+      copySelected: "Seçiləni kopyala",
+      copySelectedDone: "{count} uğursuzluq təfərrüatı kopyalandı",
+      copyTooLarge: "Seçim {limit} həddini aşır; fayla eksport edin",
+      copySummaryFallback: "Tam uğursuzluq jurnalı mövcud deyil; yalnız görünən xülasələr kopyalandı",
+      exportTxt: "TXT eksport et",
+      exportCsv: "CSV eksport et",
+      exportSelected: "Seçiləni eksport et",
+      exportedRecords: "{count} uğursuzluq təfərrüatı eksport edildi",
+      exportStarted: "Jurnalın yüklənməsi başladı",
+      exportSelectionTooLarge: "Seçilmiş uğursuzluq təfərrüatları çox böyükdür; tam jurnal üçün TXT eksportundan istifadə edin",
+      actionFailed: "Əməliyyat alınmadı: {message}",
+      unavailable: "Uğursuzluq jurnalı mövcud deyil: {reason}",
+      degraded: "Uğursuzluq jurnalının yazılması problemi: {reason}",
+      listTruncated: "İlk {visible} göstərilir; eksport bütün {total} qeydi əhatə edir",
+      sensitiveWarning: "Uğursuzluq jurnalları uğursuz ifadələrin tam mətnini və verilənlər bazasının xam xətalarını ehtiva edir; həssas məlumat ola bilər. Paylaşarkən diqqətli olun.",
+      openFolder: "Jurnal qovluğunu aç",
+    },
     hideFailureDetails: "Uğursuzluq təfərrüatlarını gizlət",
     failureDetailTruncated: "Xəta təfərrüatları kəsildi",
     failureDetailsOmitted: "Əlavə {count} uğursuzluq təfərrüatı göstərilmir",
@@ -7795,6 +7819,9 @@ export default withEnglishFallback({
     selectFirstCompletionOnOpen: "İlk tamamlamanı avtomatik seç",
     selectFirstCompletionOnOpenDescription: "Aktiv olduqda siyahı açılarkən ilk namizəd seçilir və Enter və ya Tab onu qəbul edir. Deaktiv olduqda Enter yeni sətir daxil edir, Tab isə ilk namizədi qəbul edir.",
     completionTriggerMode: "SQL tamamlamasının işə düşmə rejimi",
+    excludedCompletionItems: "İstisna edilən tamamlama elementləri",
+    excludedCompletionItemsPlaceholder: "WIDTH_BUCKET\nGET_LOCK",
+    excludedCompletionItemsDescription: "Adı siyahıdakı giriylərdən biri ilə uyğun gələn tamamlama təklifləri (hər sətirdə bir, böyük/kiçik hərf fərqi olmadan) SQL redaktorunda göstərilmir.",
     completionTriggerModeDescription: "SQL tamamlama namizədlərinin necə göstəriləcəyini seçin.",
     completionTriggerModeManual: "Yalnız əl ilə",
     completionTriggerModeManualDescription: "Namizədləri yalnız {shortcut} tamamlama qısayolu istifadə edildikdə göstər.",
@@ -8213,6 +8240,11 @@ export default withEnglishFallback({
     mcpAuthPreviousStep: "Əvvəlki",
     mcpAuthNextStep: "Növbəti",
     mcpAuthStepProgress: "Addım {current}/{total}",
+    mcpPolicyExceptionsTitle: "Saxlanılmış icazə istisnaları",
+    mcpPolicyExceptionsDescription: "Bağlantı əhatəsinin dəyişdirilməsi icazə istisnalarını saxlayır. Əhatə daxilindəki istisnalar qüvvədə qalır; əhatədən kənardakı istisnalar bağlantı əhatəyə qayıtdıqda tətbiq olunur. Burada icra icazələrini dəyişə və ya irsi icazələri bərpa edə bilərsiniz.",
+    mcpPolicyExceptionInScope: "Cari əhatə daxilində",
+    mcpPolicyExceptionOutsideScope: "Cari əhatədən kənarda (saxlanılıb)",
+    mcpPolicyExceptionInherit: "Üst səviyyənin icazələrini miras al",
     mcpResourceScopeTitle: "MCP-yə görünən əlaqələr",
     mcpResourceScopeDescription: "Dinamik əhatə üçün qrupları, dəqiq istisnalar üçün isə ayrıca əlaqələri seçin.",
     mcpResourceScopeModeCustom: "Fərdi əhatə",

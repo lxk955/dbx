@@ -1,3 +1,4 @@
+import { sidebarMenuId as sidebarMenu } from "./sidebarMenuMessages";
 import { withEnglishFallback } from "./fallback";
 import docs from "./docs/id";
 import { dataDictionaryId as dataDictionary } from "./dataDictionaryMessages";
@@ -6,6 +7,7 @@ import { sqlServerTraceMessages as sqlServerTrace } from "./sqlServerTraceMessag
 import { meilisearchManagementId } from "./meilisearchManagement";
 
 export default withEnglishFallback({
+  sidebarMenu,
   cellTransform: {
     title: "Pratinjau konversi",
     description: "Konversi nilai saat ini untuk dilihat atau disalin. Nilai sumber dan draf editor tidak berubah.",
@@ -2013,6 +2015,8 @@ export default withEnglishFallback({
     rows: "{count} baris",
     totalRows: "Total {count} baris",
     loadedRows: "{count} baris dimuat",
+    copyPartialRowsHintWithTotal: "Mengcopy {loaded} baris yang dimuat (total {total} baris; hasil belum dimuat seluruhnya)",
+    copyPartialRowsHint: "Mengcopy {loaded} baris yang dimuat (hasil belum dimuat seluruhnya)",
     totalRowCount: "({count} total)",
     totalRowCountWithAction: "({button}{count} total)",
     totalRowCountAtLeast: "(minimal {count} total)",
@@ -2911,6 +2915,26 @@ export default withEnglishFallback({
     statementsCount: "{done} berhasil, {failed} gagal",
     elapsed: "Berlalu: {duration}",
     showFailureDetails: "Detail kegagalan ({count})",
+    failureLog: {
+      selectAll: "Pilih semua",
+      selectedCount: "{count} dipilih",
+      copySelected: "Salin yang dipilih",
+      copySelectedDone: "{count} detail kegagalan disalin",
+      copyTooLarge: "Pilihan melebihi {limit}; ekspor ke berkas",
+      copySummaryFallback: "Log kegagalan lengkap tidak tersedia; hanya ringkasan yang terlihat disalin",
+      exportTxt: "Ekspor TXT",
+      exportCsv: "Ekspor CSV",
+      exportSelected: "Ekspor yang dipilih",
+      exportedRecords: "{count} detail kegagalan diekspor",
+      exportStarted: "Unduhan log dimulai",
+      exportSelectionTooLarge: "Detail kegagalan yang dipilih terlalu besar; gunakan Ekspor TXT untuk log lengkap",
+      actionFailed: "Tindakan gagal: {message}",
+      unavailable: "Log kegagalan tidak tersedia: {reason}",
+      degraded: "Masalah penulisan log kegagalan: {reason}",
+      listTruncated: "Menampilkan {visible} pertama; ekspor memuat seluruh {total}",
+      sensitiveWarning: "Log kegagalan memuat pernyataan gagal secara lengkap dan error mentah basis data, yang dapat berisi data sensitif. Bagikan dengan hati-hati.",
+      openFolder: "Buka folder log",
+    },
     hideFailureDetails: "Sembunyikan detail kegagalan",
     failureDetailTruncated: "Detail galat dipotong",
     failureDetailsOmitted: "{count} detail kegagalan tambahan tidak ditampilkan",
@@ -8583,6 +8607,9 @@ export default withEnglishFallback({
     selectFirstCompletionOnOpen: "Pilih kandidat pertama secara otomatis",
     selectFirstCompletionOnOpenDescription: "Jika diaktifkan, kandidat pertama dipilih saat daftar terbuka, dan Enter atau Tab menerimanya. Jika dinonaktifkan, Enter menyisipkan baris baru dan Tab menerima kandidat pertama.",
     completionTriggerMode: "Mode pemicu pelengkapan SQL",
+    excludedCompletionItems: "Item lengkapi otomatis yang dikecualikan",
+    excludedCompletionItemsPlaceholder: "WIDTH_BUCKET\nGET_LOCK",
+    excludedCompletionItemsDescription: "Saran lengkapi otomatis yang namanya cocok dengan salah satu entri (satu per baris, tanpa membedakan huruf besar/kecil) tidak ditampilkan di editor SQL.",
     completionTriggerModeDescription: "Pilih bagaimana kandidat pelengkapan SQL ditampilkan.",
     completionTriggerModeManual: "Hanya manual",
     completionTriggerModeManualDescription: "Tampilkan kandidat hanya saat menggunakan pintasan pelengkapan {shortcut}.",
@@ -9009,6 +9036,11 @@ export default withEnglishFallback({
     mcpAuthPreviousStep: "Sebelumnya",
     mcpAuthNextStep: "Berikutnya",
     mcpAuthStepProgress: "Langkah {current} dari {total}",
+    mcpPolicyExceptionsTitle: "Pengecualian izin tersimpan",
+    mcpPolicyExceptionsDescription: "Mengubah cakupan koneksi mempertahankan pengecualian izin. Pengecualian dalam cakupan tetap berlaku; pengecualian di luar cakupan berlaku saat koneksi kembali ke cakupan. Anda dapat mengedit izin eksekusi atau memulihkan izin yang diwarisi di sini.",
+    mcpPolicyExceptionInScope: "Dalam cakupan saat ini",
+    mcpPolicyExceptionOutsideScope: "Di luar cakupan saat ini (tersimpan)",
+    mcpPolicyExceptionInherit: "Warisi izin induk",
     mcpResourceScopeTitle: "Koneksi yang terlihat oleh MCP",
     mcpResourceScopeDescription: "Pilih grup untuk cakupan dinamis dan koneksi tertentu untuk pengecualian yang tepat.",
     mcpResourceScopeModeCustom: "Cakupan kustom",
