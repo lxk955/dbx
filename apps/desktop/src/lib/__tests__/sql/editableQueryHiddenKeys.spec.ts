@@ -226,6 +226,22 @@ describe("editable query hidden primary keys", () => {
     ).toBeUndefined();
   });
 
+  it.each([
+    "SELECT name FROM users /* GROUP BY name HAVING COUNT(*) > 1 */",
+    "SELECT name FROM users -- GROUP BY name",
+    "SELECT name, 'GROUP BY name HAVING COUNT(*)' AS note FROM users",
+    'SELECT "GROUP", "HAVING", name FROM users',
+    "SELECT name, (SELECT COUNT(*) FROM orders GROUP BY user_id) AS total FROM users",
+  ])("appends hidden keys when grouping text is outside the outer query: %s", (sql) => {
+    const result = buildQueryWithHiddenPrimaryKeys({ sql, databaseType: "oracle", primaryKeys: ["id"], existingResultNames: ["name", "note", "total"] });
+    expect(result?.sql).toContain('"id" AS "__DBX_PK_0"');
+    expect(result?.projections).toEqual([{ sourceName: "id", alias: "__DBX_PK_0" }]);
+  });
+
+  it.each(["UNION", "UNION ALL", "INTERSECT", "EXCEPT", "MINUS"])("does not append hidden keys across %s", (operation) => {
+    expect(buildQueryWithHiddenPrimaryKeys({ sql: `SELECT name FROM users ${operation} SELECT name FROM archived_users`, databaseType: "oracle", primaryKeys: ["id"], existingResultNames: ["name"] })).toBeUndefined();
+  });
+
   it("analyzes SQL Server TOP projections as ordinary source columns", () => {
     for (const sql of [
       "SELECT TOP 2 name, note FROM dbo.users ORDER BY name",

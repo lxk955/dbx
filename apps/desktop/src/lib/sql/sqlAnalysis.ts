@@ -1,5 +1,7 @@
 import type { DatabaseType } from "@/types/database";
 import { DBX_ROWID_COLUMN } from "@/lib/table/tableEditing";
+import { sqlSemanticDialectFor } from "@/lib/sql/semantic/dialect";
+import { tokenizeSqlSemantic } from "@/lib/sql/semantic/tokens";
 
 // Binary column types that should not be edited inline
 export const BINARY_TYPES = new Set(["blob", "clob", "bytea", "varbinary", "binary", "image", "longblob", "mediumblob", "tinyblob", "blob sub_type 2004", "blob sub_type 2005"]);
@@ -805,6 +807,8 @@ const AGGREGATE_FUNCTION_PATTERN = /\b(?:COUNT|SUM|AVG|MIN|MAX|EVERY|ANY|SOME|ST
 function containsTopLevelAggregate(expression: string): boolean {
   let quote: string | null = null;
   let cleaned = "";
+  let depth = 0;
+  let subqueryDepth: number | undefined;
   for (let i = 0; i < expression.length; i++) {
     const ch = expression[i]!;
     if (quote) {
@@ -821,10 +825,23 @@ function containsTopLevelAggregate(expression: string): boolean {
     }
     if (ch === "'" || ch === '"' || ch === "`") {
       quote = ch;
+      cleaned += " ";
       continue;
     }
     if (ch === "[") {
       quote = "]";
+      cleaned += " ";
+      continue;
+    }
+    if (ch === "(") depth++;
+    if (ch === ")") {
+      depth--;
+      if (subqueryDepth !== undefined && depth < subqueryDepth) subqueryDepth = undefined;
+    }
+    if (subqueryDepth !== undefined) continue;
+    if (depth > 0 && (ch === "S" || ch === "s") && expression.slice(i, i + 6).toUpperCase() === "SELECT" && !isIdentifierChar(expression[i - 1] ?? "") && !isIdentifierChar(expression[i + 6] ?? "")) {
+      subqueryDepth = depth;
+      cleaned += " ";
       continue;
     }
     cleaned += ch;
@@ -884,8 +901,12 @@ function stripSqlComments(sql: string): string {
   return result;
 }
 
-export function hasTopLevelKeyword(sql: string, keywords: string[]): boolean {
-  return keywords.some((keyword) => findTopLevelKeyword(sql, keyword, 0) >= 0);
+export function hasTopLevelKeyword(sql: string, keywords: string[], databaseType?: DatabaseType): boolean {
+  const dialect = sqlSemanticDialectFor({ databaseType });
+  const mysqlFamily = dialect.id === "mysql" || dialect.id === "doris";
+  const tokens = tokenizeSqlSemantic(sql, dialect.id, { mysqlDashCommentRequiresWhitespace: mysqlFamily, mysqlBackslashEscape: mysqlFamily });
+  const normalizedKeywords = new Set(keywords.map((keyword) => keyword.toLowerCase()));
+  return tokens.some((token) => token.kind === "word" && token.depth === 0 && normalizedKeywords.has(token.normalized));
 }
 
 function hasTopLevelSemicolon(sql: string): boolean {

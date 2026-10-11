@@ -964,11 +964,13 @@ fn skip_whitespace(text: &str, pos: usize) -> usize {
 fn contains_top_level_aggregate(expression: &str) -> bool {
     let mut quote: Option<char> = None;
     let mut cleaned = String::new();
-    let mut chars = expression.chars().peekable();
-    while let Some(ch) = chars.next() {
+    let mut depth = 0i32;
+    let mut subquery_depth: Option<i32> = None;
+    let mut chars = expression.char_indices().peekable();
+    while let Some((index, ch)) = chars.next() {
         if let Some(close) = quote {
             if ch == close {
-                if close == '\'' && chars.peek() == Some(&'\'') {
+                if close == '\'' && chars.peek().is_some_and(|(_, next)| *next == '\'') {
                     chars.next();
                     continue;
                 }
@@ -977,16 +979,57 @@ fn contains_top_level_aggregate(expression: &str) -> bool {
             continue;
         }
         match ch {
-            '\'' | '"' | '`' => quote = Some(ch),
-            '[' => quote = Some(']'),
-            _ => cleaned.push(ch),
+            '\'' | '"' | '`' | '[' => {
+                quote = Some(if ch == '[' { ']' } else { ch });
+                cleaned.push(' ');
+                continue;
+            }
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if subquery_depth.is_some_and(|query_depth| depth < query_depth) {
+                    subquery_depth = None;
+                }
+            }
+            _ => {}
         }
+        if subquery_depth.is_some() {
+            continue;
+        }
+        if depth > 0
+            && (ch == 'S' || ch == 's')
+            && starts_with_keyword(&expression[index..], "SELECT")
+            && !previous_char(expression, index).is_some_and(is_identifier_char)
+        {
+            subquery_depth = Some(depth);
+            cleaned.push(' ');
+            continue;
+        }
+        cleaned.push(ch);
     }
     const AGGREGATE_FUNCTIONS: &[&str] = &[
-        "COUNT", "SUM", "AVG", "MIN", "MAX", "EVERY", "ANY", "SOME",
-        "STDDEV", "STDDEV_POP", "STDDEV_SAMP", "VARIANCE", "VAR_POP", "VAR_SAMP",
-        "GROUP_CONCAT", "STRING_AGG", "LISTAGG", "ARRAY_AGG",
-        "JSON_ARRAYAGG", "JSON_OBJECTAGG", "XMLAGG", "APPROX_COUNT_DISTINCT",
+        "COUNT",
+        "SUM",
+        "AVG",
+        "MIN",
+        "MAX",
+        "EVERY",
+        "ANY",
+        "SOME",
+        "STDDEV",
+        "STDDEV_POP",
+        "STDDEV_SAMP",
+        "VARIANCE",
+        "VAR_POP",
+        "VAR_SAMP",
+        "GROUP_CONCAT",
+        "STRING_AGG",
+        "LISTAGG",
+        "ARRAY_AGG",
+        "JSON_ARRAYAGG",
+        "JSON_OBJECTAGG",
+        "XMLAGG",
+        "APPROX_COUNT_DISTINCT",
     ];
     let upper = cleaned.to_ascii_uppercase();
     for agg in AGGREGATE_FUNCTIONS {
@@ -1636,6 +1679,59 @@ mod tests {
         let comment_in_string = "SELECT id, name FROM users WHERE name = 'hello -- world' AND active = 1";
         let result = analyze_editable_query_editability(comment_in_string);
         assert!(result.editable);
+    }
+
+    #[test]
+    fn keeps_scalar_subquery_aggregates_separate_from_outer_rows() {
+        for expression in [
+            "(SELECT COUNT(*) FROM orders)",
+            "(SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id)",
+            "COALESCE((SELECT SUM(amount) FROM orders o WHERE o.user_id = u.id), 0)",
+            "((SELECT COUNT(*) FROM orders))",
+            "(SELECT COUNT(*) FROM orders UNION SELECT COUNT(*) FROM archived_orders)",
+            "(SELECT MAX(amount) FROM orders WHERE amount > (SELECT AVG(amount) FROM orders))",
+            "CASE WHEN (SELECT COUNT(*) FROM orders) > 0 THEN 1 ELSE 0 END",
+            "(SELECT COUNT(*) FROM orders WHERE note = 'don''t stop')",
+        ] {
+            let result =
+                analyze_editable_query_editability(&format!("SELECT u.id, u.name, {expression} AS total FROM users u"));
+            assert!(result.editable, "{expression}: {:?}", result.reason);
+            let analysis = result.analysis.unwrap();
+            assert_eq!(analysis.table_name, "users");
+            assert_eq!(analysis.columns[0].source_name.as_deref(), Some("id"));
+            assert_eq!(analysis.columns[1].source_name.as_deref(), Some("name"));
+            assert!(analysis.columns[2].source_name.is_none());
+        }
+    }
+
+    #[test]
+    fn rejects_outer_aggregates_inside_scalar_expressions() {
+        for expression in [
+            "COUNT(*)",
+            "COALESCE(SUM(amount), 0)",
+            "ABS(MAX(amount)) + 1",
+            "(SUM(amount))",
+            "COALESCE((SELECT COUNT(*) FROM orders), SUM(amount))",
+            "SUM((SELECT COUNT(*) FROM orders))",
+            "CASE WHEN amount > 0 THEN SUM(amount) ELSE 0 END",
+        ] {
+            let result = analyze_editable_query_editability(&format!("SELECT {expression} AS total FROM users"));
+            assert!(!result.editable, "{expression}");
+            assert_eq!(result.reason, Some(QueryEditabilityReason::Aggregation), "{expression}");
+        }
+        for sql in ["SELECT name FROM users GROUP BY name", "SELECT name FROM users HAVING COUNT(*) > 1"] {
+            let result = analyze_editable_query_editability(sql);
+            assert!(!result.editable, "{sql}");
+            assert_eq!(result.reason, Some(QueryEditabilityReason::Aggregation));
+        }
+        for sql in [
+            "SELECT DISTINCT id, name FROM users",
+            "SELECT id, name, 'COUNT(*)' AS note FROM users",
+            "SELECT id, \"COUNT\", name FROM users",
+            "SELECT id, name FROM users /* GROUP BY name */",
+        ] {
+            assert!(analyze_editable_query_editability(sql).editable, "{sql}");
+        }
     }
 
     #[test]
