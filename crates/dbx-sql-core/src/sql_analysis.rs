@@ -1990,7 +1990,7 @@ mod sql_text_span_tests {
         // The GROUP BY column reference "user_name" directly before ';' at column 60:
         // "user_name" starts at column 50, length 9 (50..=58).
         // It must NOT overshoot to column 59 (which is ';').
-        let group_col = analysis.columns.iter().filter(|col| col.name == "user_name").last().unwrap();
+        let group_col = analysis.columns.iter().rfind(|col| col.name == "user_name").unwrap();
         assert_eq!(group_col.span.start_column, 50);
         assert_eq!(group_col.span.end_column, 58);
     }
