@@ -1299,7 +1299,7 @@ fn format_xugu_spatial_export_literal_with_srid(
 pub(crate) fn is_sqlserver_spatial_export_type(column_type: &str) -> Option<&'static str> {
     let lower = column_type.trim().trim_matches(['[', ']']).to_ascii_lowercase();
     let base = lower.split(['(', ':', ' ', '\t', '\n']).next().unwrap_or("").trim();
-    let base = base.split('.').last().unwrap_or(base).trim_matches(['[', ']']).trim();
+    let base = base.split('.').next_back().unwrap_or(base).trim_matches(['[', ']']).trim();
     if base == "geometry" {
         Some("geometry")
     } else if base == "geography" {

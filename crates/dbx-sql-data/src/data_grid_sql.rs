@@ -3095,7 +3095,7 @@ fn is_geometry_column_type(data_type: &str) -> bool {
 fn sqlserver_spatial_column_type(data_type: &str) -> Option<&'static str> {
     let lower = data_type.trim().trim_matches(['[', ']']).to_ascii_lowercase();
     let base = lower.split(['(', ':', ' ', '\t', '\n']).next().unwrap_or("").trim();
-    let base = base.split('.').last().unwrap_or(base).trim_matches(['[', ']']).trim();
+    let base = base.split('.').next_back().unwrap_or(base).trim_matches(['[', ']']).trim();
     if base == "geometry" {
         Some("geometry")
     } else if base == "geography" {
