@@ -110,12 +110,7 @@ impl From<Span> for SqlTextSpan {
         } else {
             0
         };
-        Self {
-            start_line,
-            start_column,
-            end_line,
-            end_column,
-        }
+        Self { start_line, start_column, end_line, end_column }
     }
 }
 
@@ -1951,64 +1946,23 @@ mod sql_text_span_tests {
     #[test]
     fn span_conversion_produces_inclusive_end_column() {
         // sqlparser's exclusive column 15 for 7-char token starting at 8 maps to inclusive 14.
-        let span = Span {
-            start: Location { line: 1, column: 8 },
-            end: Location { line: 1, column: 15 },
-        };
+        let span = Span { start: Location { line: 1, column: 8 }, end: Location { line: 1, column: 15 } };
         let text_span: SqlTextSpan = span.into();
-        assert_eq!(
-            text_span,
-            SqlTextSpan {
-                start_line: 1,
-                start_column: 8,
-                end_line: 1,
-                end_column: 14,
-            }
-        );
+        assert_eq!(text_span, SqlTextSpan { start_line: 1, start_column: 8, end_line: 1, end_column: 14 });
 
         // 1-character token at column 5: start 5, exclusive end 6 maps to inclusive 5.
-        let single_char = Span {
-            start: Location { line: 1, column: 5 },
-            end: Location { line: 1, column: 6 },
-        };
+        let single_char = Span { start: Location { line: 1, column: 5 }, end: Location { line: 1, column: 6 } };
         let single_span: SqlTextSpan = single_char.into();
-        assert_eq!(
-            single_span,
-            SqlTextSpan {
-                start_line: 1,
-                start_column: 5,
-                end_line: 1,
-                end_column: 5,
-            }
-        );
+        assert_eq!(single_span, SqlTextSpan { start_line: 1, start_column: 5, end_line: 1, end_column: 5 });
 
         // Multi-line span: end column 10 maps to inclusive 9 on line 2.
-        let multiline = Span {
-            start: Location { line: 1, column: 1 },
-            end: Location { line: 2, column: 10 },
-        };
+        let multiline = Span { start: Location { line: 1, column: 1 }, end: Location { line: 2, column: 10 } };
         let multiline_span: SqlTextSpan = multiline.into();
-        assert_eq!(
-            multiline_span,
-            SqlTextSpan {
-                start_line: 1,
-                start_column: 1,
-                end_line: 2,
-                end_column: 9,
-            }
-        );
+        assert_eq!(multiline_span, SqlTextSpan { start_line: 1, start_column: 1, end_line: 2, end_column: 9 });
 
         // Empty span stays zeroed.
         let empty_span: SqlTextSpan = Span::empty().into();
-        assert_eq!(
-            empty_span,
-            SqlTextSpan {
-                start_line: 0,
-                start_column: 0,
-                end_line: 0,
-                end_column: 0,
-            }
-        );
+        assert_eq!(empty_span, SqlTextSpan { start_line: 0, start_column: 0, end_line: 0, end_column: 0 });
     }
 
     #[test]
