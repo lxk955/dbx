@@ -109,8 +109,9 @@ export function useDataGridExtractor(options: UseDataGridExtractorOptions) {
     return (dbType === "oracle" || dbType === "oceanbase-oracle") && isTemporalColumnType(columnType);
   }
 
-  // 除 SQL 外的剪贴板展示格式都可把文本型 MySQL VARBINARY 从 `0x<hex>` 还原为原始字符串。
-  // SQL 必须继续持有 hex 才能保证 round-trip；rawRows 则始终保存原值，供 DBX 内部网格回粘使用。
+  // 除 SQL 外的剪贴板展示格式都可把文本型 MySQL VARBINARY 从 `0x<hex>` 还原为原始字符串，
+  // 并把 Oracle temporal 单元格渲染为与网格一致的显示文本；SQL 必须继续持有 hex / 原始时间值
+  // （display 格式化会丢时区与高精度小数秒）才能保证 round-trip；rawRows 则始终保存原值，供 DBX 内部网格回粘使用。
   function extractorCellValue(value: unknown, columnType: string | undefined, normalizeValues: boolean, keepUnsafeJsonText: boolean, presentBinaryText: boolean, columnIndex: number, sourceIndex?: number): unknown {
     if (presentBinaryText) {
       const text = binaryCellClipboardText(value, columnType, options.databaseType.value);
@@ -119,7 +120,7 @@ export function useDataGridExtractor(options: UseDataGridExtractorOptions) {
     const normalized = normalizeValues ? normalizeCellValue(value, columnType, keepUnsafeJsonText) : value;
     const externalValue = options.externalCellValue?.(normalized, columnIndex);
     const resolvedValue = externalValue === undefined ? normalized : externalValue;
-    if (resolvedValue !== null && resolvedValue !== undefined && options.displayValue && isOracleTemporal(columnType)) {
+    if (presentBinaryText && resolvedValue !== null && resolvedValue !== undefined && options.displayValue && isOracleTemporal(columnType)) {
       return options.displayValue(resolvedValue as CellValue, sourceIndex ?? columnIndex);
     }
     return resolvedValue;
