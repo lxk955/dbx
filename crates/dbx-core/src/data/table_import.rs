@@ -2689,7 +2689,7 @@ fn xlsx_cell_value_with_temporal_kind(
     empty_string_as_null: bool,
 ) -> serde_json::Value {
     match cell {
-        Data::Empty => serde_json::Value::Null,
+        Data::Empty => xlsx_string_value("", empty_string_as_null),
         Data::String(s) => xlsx_string_value(s, empty_string_as_null),
         Data::Float(n) => xlsx_number_value(*n),
         Data::Int(n) => serde_json::Value::Number((*n).into()),
@@ -2768,7 +2768,7 @@ fn xlsx_cell_ref_value_with_temporal_kind(
     empty_string_as_null: bool,
 ) -> serde_json::Value {
     match cell {
-        DataRef::Empty => serde_json::Value::Null,
+        DataRef::Empty => xlsx_string_value("", empty_string_as_null),
         DataRef::String(s) => xlsx_string_value(s, empty_string_as_null),
         DataRef::SharedString(s) => xlsx_string_value(s, empty_string_as_null),
         DataRef::Float(n) => xlsx_number_value(*n),
@@ -3391,21 +3391,23 @@ fn xlsx_preview_cell_value(
 ) -> serde_json::Value {
     let cell_type = cell.cell_type.as_deref().unwrap_or_default();
     match cell_type {
-        "s" => cell
-            .value
-            .parse::<usize>()
-            .ok()
-            .and_then(|index| shared_strings.get(&index))
-            .map_or(serde_json::Value::Null, |value| xlsx_string_value(value, empty_string_as_null)),
+        "s" => cell.value.parse::<usize>().ok().and_then(|index| shared_strings.get(&index)).map_or_else(
+            || xlsx_string_value("", empty_string_as_null),
+            |value| xlsx_string_value(value, empty_string_as_null),
+        ),
         "inlineStr" if cell.has_inline_value => xlsx_string_value(&cell.inline_value, empty_string_as_null),
-        "inlineStr" => serde_json::Value::Null,
+        "inlineStr" => xlsx_string_value("", empty_string_as_null),
         "str" if cell.has_value => xlsx_string_value(&cell.value, empty_string_as_null),
-        "str" => serde_json::Value::Null,
+        "str" => xlsx_string_value("", empty_string_as_null),
         "d" | "e" => csv_value(&cell.value),
         "b" => serde_json::Value::Bool(matches!(cell.value.trim(), "1" | "true" | "TRUE")),
         _ => {
             let Some(number) = cell.value.trim().parse::<f64>().ok() else {
-                return if cell.value.is_empty() { serde_json::Value::Null } else { csv_value(&cell.value) };
+                return if cell.value.is_empty() {
+                    xlsx_string_value("", empty_string_as_null)
+                } else {
+                    csv_value(&cell.value)
+                };
             };
             let temporal_kind = cell.style_id.and_then(|style| styles.get(style)?.temporal_kind);
             if let Some(kind) = temporal_kind {
@@ -3672,7 +3674,7 @@ fn parse_xlsx_preview_file_with_options(
                         .map(|cell| {
                             xlsx_preview_cell_value(cell, &shared_strings, &styles, date_1904, empty_string_as_null)
                         })
-                        .unwrap_or(serde_json::Value::Null)
+                        .unwrap_or_else(|| xlsx_string_value("", empty_string_as_null))
                 })
                 .collect::<Vec<_>>()
         })
@@ -3852,11 +3854,12 @@ fn xlsx_stream_cell_value(
         return Ok(xlsx_preview_cell_value(cell, &HashMap::new(), styles, date_1904, empty_string_as_null));
     }
     let Some(index) = cell.value.parse::<usize>().ok() else {
-        return Ok(serde_json::Value::Null);
+        return Ok(xlsx_string_value("", empty_string_as_null));
     };
-    Ok(shared_strings
-        .get(index)?
-        .map_or(serde_json::Value::Null, |value| xlsx_string_value(&value, empty_string_as_null)))
+    Ok(shared_strings.get(index)?.map_or_else(
+        || xlsx_string_value("", empty_string_as_null),
+        |value| xlsx_string_value(&value, empty_string_as_null),
+    ))
 }
 
 fn xlsx_cell_ref_text_value(cell: &DataRef<'_>, style: Option<&XlsxCellStyle>) -> Option<String> {
@@ -3894,6 +3897,7 @@ struct XlsxStreamRowsState {
     current_values: Vec<serde_json::Value>,
     current_row_has_content: bool,
     batch_size: usize,
+    empty_string_as_null: bool,
 }
 
 impl XlsxStreamRowsState {
@@ -3903,6 +3907,7 @@ impl XlsxStreamRowsState {
         dimension: Option<((usize, usize), (usize, usize))>,
         expected_columns: Option<Vec<String>>,
         batch_size: usize,
+        empty_string_as_null: bool,
     ) -> Self {
         let batch_size = batch_size.max(1);
         let has_expected_columns = expected_columns.is_some();
@@ -3922,6 +3927,7 @@ impl XlsxStreamRowsState {
             current_values: Vec::new(),
             current_row_has_content: false,
             batch_size,
+            empty_string_as_null,
         }
     }
 
@@ -3959,7 +3965,7 @@ impl XlsxStreamRowsState {
             let shift = self.start_column.saturating_sub(absolute_column);
             self.start_column = absolute_column;
             if shift > 0 {
-                let mut shifted = vec![serde_json::Value::Null; shift];
+                let mut shifted = vec![xlsx_string_value("", self.empty_string_as_null); shift];
                 shifted.append(&mut self.current_values);
                 self.current_values = shifted;
                 if !self.has_expected_columns && !self.columns.is_empty() {
@@ -4011,7 +4017,7 @@ impl XlsxStreamRowsState {
             return Err(format!("Excel import column {} exceeds the safety limit", column_offset + 1));
         }
         if column_offset >= self.current_values.len() {
-            self.current_values.resize(column_offset + 1, serde_json::Value::Null);
+            self.current_values.resize(column_offset + 1, xlsx_string_value("", self.empty_string_as_null));
         }
         self.current_values[column_offset] = value;
         Ok(())
@@ -4067,13 +4073,17 @@ impl XlsxStreamRowsState {
                 .map_err(|_| "Excel import consumer closed before the stream started".to_string())?;
             self.header_sent = true;
         }
-        if values.len() > self.columns.len() && values[self.columns.len()..].iter().any(|value| !value.is_null()) {
+        if values.len() > self.columns.len()
+            && values[self.columns.len()..]
+                .iter()
+                .any(|value| !value.is_null() && !value.as_str().is_some_and(|s| s.is_empty()))
+        {
             return Err(format!(
                 "Excel row {absolute_row} contains data beyond the {} columns confirmed by the preview",
                 self.columns.len()
             ));
         }
-        values.resize(self.columns.len(), serde_json::Value::Null);
+        values.resize(self.columns.len(), xlsx_string_value("", self.empty_string_as_null));
         values.truncate(self.columns.len());
         self.pending_rows.push(values);
         self.rows_seen = self.rows_seen.saturating_add(1);
@@ -4202,7 +4212,8 @@ fn stream_xlsx_rows_to_channel_with_control(
     let uncompressed_sheet_bytes = sheet.size().max(1);
     let mut reader = XmlReader::from_reader(BufReader::new(sheet));
     reader.config_mut().trim_text(false);
-    let mut rows = XlsxStreamRowsState::new(sender, row_range, None, expected_columns, batch_size);
+    let mut rows =
+        XlsxStreamRowsState::new(sender, row_range, None, expected_columns, batch_size, empty_string_as_null);
     let mut buffer = Vec::new();
     let mut current_row = 0usize;
     let mut current_column = 0usize;
@@ -4249,7 +4260,13 @@ fn stream_xlsx_rows_to_channel_with_control(
                 current_row = position.0;
                 current_column = position.1;
                 if current_row >= min_import_row && !rows.selected_range_finished(current_row) {
-                    rows.push_cell(position.0, position.1, serde_json::Value::Null, false, progress)?;
+                    rows.push_cell(
+                        position.0,
+                        position.1,
+                        xlsx_string_value("", empty_string_as_null),
+                        false,
+                        progress,
+                    )?;
                 }
             }
             Ok(Event::Start(element)) if xml_local_name_eq(element.name().as_ref(), b"c") => {
@@ -4489,7 +4506,7 @@ where
                     Ok(cell_value(cell, style.and_then(|style| style.temporal_kind), empty_string_as_null))
                 })
                 .transpose()?
-                .unwrap_or(serde_json::Value::Null);
+                .unwrap_or_else(|| xlsx_string_value("", empty_string_as_null));
             row.push(value);
         }
         rows.push(row);
@@ -9092,7 +9109,7 @@ mod tests {
         };
         let (sender, _receiver) = tokio::sync::mpsc::channel(16);
         let mut state =
-            XlsxStreamRowsState::new(sender, effective_import_row_range(&options).unwrap(), None, None, 500);
+            XlsxStreamRowsState::new(sender, effective_import_row_range(&options).unwrap(), None, None, 500, true);
         state.initialize_range(7, 3);
         assert!(!state.selected_range_finished(10));
         assert!(state.selected_range_finished(11));
@@ -9204,7 +9221,7 @@ mod tests {
         // 1. Dimension ((1, 1), (10, 5)) starts at column 1, but first cell is at column 2 (B).
         // Since column axis requires equality (*start_column == first_column), the dimension
         // is rejected so streaming start_column matches first_column without being pulled left.
-        let mut state = XlsxStreamRowsState::new(sender.clone(), row_range, Some(((1, 1), (10, 5))), None, 500);
+        let mut state = XlsxStreamRowsState::new(sender.clone(), row_range, Some(((1, 1), (10, 5))), None, 500, true);
         state.initialize_range(2, 2);
         assert_eq!(state.start_row, Some(2));
         assert_eq!(state.start_column, 2);
@@ -9213,7 +9230,7 @@ mod tests {
         // 2. Dimension ((1, 2), (10, 5)) starts at column 2, and first cell is at row 3, column 2.
         // Row axis containment (*start_row <= first_row <= *end_row) holds and column axis matches (*start_column == first_column).
         // Dimension is accepted: declared_column_count = 5 - 2 + 1 = 4.
-        let mut state = XlsxStreamRowsState::new(sender, row_range, Some(((1, 2), (10, 5))), None, 500);
+        let mut state = XlsxStreamRowsState::new(sender, row_range, Some(((1, 2), (10, 5))), None, 500, true);
         state.initialize_range(3, 2);
         assert_eq!(state.start_row, Some(3));
         assert_eq!(state.start_column, 2);
@@ -9431,7 +9448,7 @@ mod tests {
     }
 
     #[test]
-    fn xlsx_preserves_explicit_empty_strings_when_configured() {
+    fn xlsx_preserves_empty_strings_when_configured() {
         let options =
             TableImportParseOptions { empty_string_as_null: Some(false), ..TableImportParseOptions::default() };
 
@@ -9441,15 +9458,93 @@ mod tests {
                 serde_json::json!(""),
                 serde_json::json!(""),
                 serde_json::json!(""),
-                serde_json::Value::Null,
-                serde_json::Value::Null,
+                serde_json::json!(""),
+                serde_json::json!(""),
             ],
         );
     }
 
     #[test]
-    fn xlsx_defaults_explicit_empty_strings_to_null() {
+    fn xlsx_defaults_empty_strings_to_null() {
         assert_xlsx_empty_string_option(TableImportParseOptions::default(), vec![serde_json::Value::Null; 5]);
+    }
+
+    #[test]
+    fn xlsx_import_empty_cells_preserved_as_empty_string_for_not_null_column_scenario() {
+        // Issue #11870: When importing an xlsx file where columns contain empty cells
+        // (e.g. icon varchar(255) NOT NULL DEFAULT ''), with empty_string_as_null: false
+        // (the default setting in the import UI), empty cells must be preserved as empty strings
+        // instead of being converted to NULL, avoiding NOT NULL constraint violation.
+        let path = std::env::temp_dir().join(format!("dbx-table-import-issue-11870-{}.xlsx", uuid::Uuid::new_v4()));
+        let sheet_xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <dimension ref="A1:D2"/>
+  <sheetData>
+    <row r="1">
+      <c r="A1" t="inlineStr"><is><t>id</t></is></c>
+      <c r="B1" t="inlineStr"><is><t>name</t></is></c>
+      <c r="C1" t="inlineStr"><is><t>code</t></is></c>
+      <c r="D1" t="inlineStr"><is><t>icon</t></is></c>
+    </row>
+    <row r="2">
+      <c r="A2"><v>1</v></c>
+      <c r="B2" t="inlineStr"><is><t>wechat</t></is></c>
+      <c r="C2" t="inlineStr"><is><t>wx</t></is></c>
+      <c r="D2"/>
+    </row>
+  </sheetData>
+</worksheet>"#;
+        std::fs::write(&path, build_preview_test_xlsx(sheet_xml, None)).unwrap();
+
+        // 1. With empty_string_as_null = false: icon is preserved as ""
+        let options_empty_as_str =
+            TableImportParseOptions { empty_string_as_null: Some(false), ..TableImportParseOptions::default() };
+        let parsed = parse_xlsx_file_with_options(&path.to_string_lossy(), &options_empty_as_str, 10).unwrap();
+        let (preview, _) =
+            parse_xlsx_preview_file_with_options(&path.to_string_lossy(), &options_empty_as_str, 10).unwrap();
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(16);
+        stream_xlsx_rows_to_channel(
+            &path.to_string_lossy(),
+            &options_empty_as_str,
+            500,
+            None,
+            HashSet::new(),
+            false,
+            sender,
+        )
+        .unwrap();
+        let mut streamed_rows = Vec::new();
+        while let Some(message) = receiver.blocking_recv() {
+            if let XlsxStreamMessage::Rows(rows) = message.unwrap() {
+                streamed_rows.extend(rows);
+            }
+        }
+        let expected_empty_str = vec![vec![
+            serde_json::json!(1),
+            serde_json::json!("wechat"),
+            serde_json::json!("wx"),
+            serde_json::json!(""),
+        ]];
+        assert_eq!(parsed.rows, expected_empty_str);
+        assert_eq!(preview.rows, expected_empty_str);
+        assert_eq!(streamed_rows, expected_empty_str);
+
+        // 2. With empty_string_as_null = true: icon is converted to NULL
+        let options_empty_as_null =
+            TableImportParseOptions { empty_string_as_null: Some(true), ..TableImportParseOptions::default() };
+        let parsed_null = parse_xlsx_file_with_options(&path.to_string_lossy(), &options_empty_as_null, 10).unwrap();
+        let (preview_null, _) =
+            parse_xlsx_preview_file_with_options(&path.to_string_lossy(), &options_empty_as_null, 10).unwrap();
+        let expected_null = vec![vec![
+            serde_json::json!(1),
+            serde_json::json!("wechat"),
+            serde_json::json!("wx"),
+            serde_json::Value::Null,
+        ]];
+        assert_eq!(parsed_null.rows, expected_null);
+        assert_eq!(preview_null.rows, expected_null);
+
+        let _ = std::fs::remove_file(path);
     }
 
     /// Excel/LibreOffice keep style-only cells behind when a user inserts a row and leaves it
@@ -9550,10 +9645,21 @@ mod tests {
             }
         }
 
-        let expected = vec![vec![serde_json::json!(""), serde_json::Value::Null]];
+        let expected = vec![vec![serde_json::json!(""), serde_json::json!("")]];
         assert_eq!(parsed.rows, expected);
         assert_eq!(preview.rows, parsed.rows);
         assert_eq!(streamed_rows, parsed.rows);
+
+        // When empty_string_as_null is true, empty cells are converted to NULL
+        let options_null =
+            TableImportParseOptions { empty_string_as_null: Some(true), ..TableImportParseOptions::default() };
+        let parsed_null = parse_xlsx_file_with_options(&path.to_string_lossy(), &options_null, 10).unwrap();
+        let (preview_null, _) =
+            parse_xlsx_preview_file_with_options(&path.to_string_lossy(), &options_null, 10).unwrap();
+        let expected_null = vec![vec![serde_json::Value::Null, serde_json::Value::Null]];
+        assert_eq!(parsed_null.rows, expected_null);
+        assert_eq!(preview_null.rows, expected_null);
+
         let _ = std::fs::remove_file(path);
     }
 
