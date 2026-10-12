@@ -556,4 +556,38 @@ describe("QueryEditor completion provider ownership", () => {
     expect(store.listMongoCompletionCollections).not.toHaveBeenCalled();
     expect(store.listRedisCompletionCommandDocs).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [
+      "multi-table join with where clause",
+      `select SUM(heating_area)
+from hd_self_managed_vacant v
+  inner join hd_self_managed_vacant_task t on v.self_task_id = t.id
+where v.hi_status = 1
+  and v.\`year\` = '2026-2027'
+  and v.status = 3
+
+sf`,
+    ],
+    [
+      "select query with limit",
+      `select * from users limit 10
+
+sf`,
+    ],
+    [
+      "select query with where clause and trailing comment",
+      `select * from users where id = 1
+-- check users
+sf`,
+    ],
+  ])("suggests custom snippets immediately when preceding SQL lacks semicolon (%s) (issue #11886)", async (_name, doc) => {
+    const { settings, provide, store } = createHarness({ databaseType: "mysql", modelValue: doc });
+    settings.editorSettings.snippets = [{ id: "custom-sf", label: "select * from $table", prefix: "sf", body: "select * from ${1:table_name};" }];
+    // When typing (explicit: false), snippets should pop up immediately without waiting for async column fetching
+    const result = await provide(false);
+    expect(result).not.toBeNull();
+    expect(result?.options.some((opt) => opt.type === "snippet" && (opt.displayLabel === "select * from $table" || opt.label.includes("select * from $table")))).toBe(true);
+    expect(store.listCompletionColumns).not.toHaveBeenCalled();
+  });
 });

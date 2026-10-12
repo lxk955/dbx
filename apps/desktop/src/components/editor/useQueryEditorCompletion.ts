@@ -933,7 +933,8 @@ export function useQueryEditorCompletion(options: QueryEditorCompletionOptions) 
       if (localResult) {
         scheduleCompletionMetadataRefresh(completionContext, fullDoc, position, completionScope);
         const hasLocalColumnResult = localResult.options.some((option) => option.type === "column");
-        if ((!explicit || typedActivation) && (!shouldResolveColumnCompletion || hasLocalColumnResult)) return localResult;
+        const hasLocalSnippetResult = localResult.options.some((option) => option.type === "snippet");
+        if ((!explicit || typedActivation) && (!shouldResolveColumnCompletion || hasLocalColumnResult || hasLocalSnippetResult)) return localResult;
       }
       if ((!explicit || typedActivation) && !shouldResolveAsyncCompletion) {
         scheduleCompletionMetadataRefresh(completionContext, fullDoc, position, completionScope);
