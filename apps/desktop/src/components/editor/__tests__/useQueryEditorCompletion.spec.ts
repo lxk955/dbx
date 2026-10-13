@@ -590,4 +590,26 @@ sf`,
     expect(result?.options.some((opt) => opt.type === "snippet" && (opt.displayLabel === "select * from $table" || opt.label.includes("select * from $table")))).toBe(true);
     expect(store.listCompletionColumns).not.toHaveBeenCalled();
   });
+
+  it("does not let a local snippet hit suppress the async column fetch on on-demand-only metadata databases", async () => {
+    // trino uses on-demand-only column metadata: the async fetch is never re-triggered
+    // from the metadata cache, so the snippet short-circuit must not skip it. The prefix
+    // sits in a column-resolution context (after WHERE) and also matches the snippet,
+    // with the preceding statement left without a semicolon (issue #11886 shape).
+    // This suite defaults to fake timers (the debounce never fires); switch to real
+    // timers just for this case so the debounced async flow actually runs.
+    vi.useRealTimers();
+    try {
+      const { settings, provide, store } = createHarness({ databaseType: "trino", dialect: "trino", modelValue: "select * from users limit 10\n\nselect * from users where sf" });
+      settings.editorSettings.snippets = [{ id: "custom-sf", label: "select * from $table", prefix: "sf", body: "select * from ${1:table_name};" }];
+      // With the guard, the typed call falls through to the debounced async flow (30ms),
+      // which must request columns for the referenced table instead of settling on the
+      // synchronous snippet-only localResult.
+      await provide(false);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(store.listCompletionColumns).toHaveBeenCalled();
+    } finally {
+      vi.useFakeTimers();
+    }
+  }, 8000);
 });
