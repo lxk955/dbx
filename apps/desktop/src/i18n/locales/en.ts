@@ -10358,6 +10358,7 @@ export default {
     nextRun: "Next: {time}",
     nextRunPreview: "Next run: {time}",
     keepRuns: "Keep {count}",
+    keepForever: "Keep forever",
     everyHours: "Every {count} hours",
     dailyAt: "Daily at {time}",
     weeklyAt: "{weekday} at {time}",

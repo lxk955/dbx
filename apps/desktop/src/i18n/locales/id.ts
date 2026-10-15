@@ -9779,6 +9779,7 @@ export default withEnglishFallback({
     nextRun: "Berikutnya: {time}",
     nextRunPreview: "Proses berikutnya: {time}",
     keepRuns: "Simpan {count}",
+    keepForever: "Simpan selamanya",
     everyHours: "Setiap {count} jam",
     dailyAt: "Harian pada {time}",
     weeklyAt: "{weekday} pada {time}",

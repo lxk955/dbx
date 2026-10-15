@@ -8829,6 +8829,7 @@ export default withEnglishFallback({
     nextRun: "Sonraki: {time}",
     nextRunPreview: "Sonraki çalıştırma: {time}",
     keepRuns: "{count} tanesini sakla",
+    keepForever: "Süresiz sakla",
     everyHours: "Her {count} saatte bir",
     dailyAt: "Her gün {time}",
     weeklyAt: "{weekday} günü {time}",

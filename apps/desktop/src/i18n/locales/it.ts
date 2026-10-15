@@ -10809,6 +10809,7 @@ export default withEnglishFallback({
     nextRun: "Prossima: {time}",
     nextRunPreview: "Prossima esecuzione: {time}",
     keepRuns: "Conserva {count} esecuzioni",
+    keepForever: "Conserva per sempre",
     everyHours: "Ogni {count} ore",
     dailyAt: "Ogni giorno alle {time}",
     weeklyAt: "{weekday} alle {time}",

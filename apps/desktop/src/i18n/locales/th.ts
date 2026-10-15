@@ -10990,6 +10990,7 @@ export default withEnglishFallback({
     nextRun: "ถัดไป: {time}",
     nextRunPreview: "การเรียกใช้ถัดไป: {time}",
     keepRuns: "เก็บ {count} รายการล่าสุด",
+    keepForever: "เก็บไว้อย่างถาวร",
     everyHours: "ทุก {count} ชั่วโมง",
     dailyAt: "ทุกวันเวลา {time}",
     weeklyAt: "{weekday} เวลา {time}",
