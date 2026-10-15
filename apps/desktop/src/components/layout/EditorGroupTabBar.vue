@@ -1408,9 +1408,6 @@ function hasTabsToLeft(tab: QueryTab) {
 }
 
 function handleSaveAllTabs() {
-  if (toolbar?.saveAllTabs) {
-    void toolbar.saveAllTabs();
-  }
   emit("save-all-tabs");
 }
 
