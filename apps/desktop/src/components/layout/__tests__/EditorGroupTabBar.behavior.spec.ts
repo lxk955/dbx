@@ -110,6 +110,7 @@ function mountBar(
             closeLeftTabs: "Close left tabs",
             closeRightTabs: "Close right tabs",
             closeAllTabs: "Close all tabs",
+            saveAllTabs: "Save all tabs",
             pinTab: "Pin",
             unpinTab: "Unpin",
             fullTabTitle: "Full title",
@@ -647,6 +648,33 @@ describe("EditorGroupTabBar behavior", () => {
 
     // Second tab: a tab exists to its left — the action becomes enabled.
     expect(menuFor(secondId).find((item: { label: string }) => item.label === "Close left tabs")).toMatchObject({ disabled: false });
+
+    app.unmount();
+    host.remove();
+  });
+
+  it("offers save all tabs in tab context menu, disabled when clean and enabled when dirty", async () => {
+    const store = useQueryStore();
+    const firstId = store.createTab("pg-1", "app", "Query 1", "query");
+    const mainGroup = store.groups[0];
+    const actions = createNoopEditorToolbarActions();
+    actions.saveAllTabs = vi.fn();
+    const { app, host } = mountBar(mainGroup.id, [firstId], firstId, pinia, undefined, undefined, actions);
+    await settle();
+
+    const menuFor = (tabId: string) => {
+      const pill = tabPill(host, tabId);
+      const stub = pill.closest<HTMLElement>(".ctx-menu-stub");
+      return JSON.parse(stub!.dataset.menuItems ?? "[]");
+    };
+
+    // Clean tab -> save all tabs is disabled
+    expect(menuFor(firstId).find((item: { label: string }) => item.label === "Save all tabs")).toMatchObject({ disabled: true });
+
+    // Mark tab dirty -> save all tabs is enabled
+    store.tabs[0].sql = "SELECT 1;";
+    await settle();
+    expect(menuFor(firstId).find((item: { label: string }) => item.label === "Save all tabs")).toMatchObject({ disabled: false });
 
     app.unmount();
     host.remove();
