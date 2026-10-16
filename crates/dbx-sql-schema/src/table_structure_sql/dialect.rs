@@ -394,7 +394,7 @@ pub(super) fn capabilities_for(
             drop_column: true,
             ..base
         },
-        Some(DatabaseType::Informix) => TableStructureCapabilities {
+        Some(DatabaseType::Informix | DatabaseType::Gbase8s) => TableStructureCapabilities {
             dialect: StructureDialect::Informix,
             add_column: true,
             drop_column: true,
