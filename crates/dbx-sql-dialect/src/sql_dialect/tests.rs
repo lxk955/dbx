@@ -736,10 +736,7 @@ fn builds_table_data_where_and_schema_queries() {
         build_count_table_sql(Some(DatabaseType::Gbase8s), Some("gbasedbt"), "v_orders"),
         "SELECT COUNT(*) AS row_count FROM v_orders"
     );
-    assert_eq!(
-        qualified_table_name(Some(DatabaseType::Gbase8s), Some("gbasedbt"), "v_orders"),
-        "v_orders"
-    );
+    assert_eq!(qualified_table_name(Some(DatabaseType::Gbase8s), Some("gbasedbt"), "v_orders"), "v_orders");
     assert_eq!(
         build_table_data_select_sql(TableDataSelectSqlOptions {
             database_type: Some(DatabaseType::Gaussdb),
