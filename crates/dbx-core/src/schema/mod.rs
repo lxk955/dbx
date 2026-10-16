@@ -11740,21 +11740,20 @@ async fn enrich_ddl_with_oracle_style_comments(
     ddl: &str,
     client_session_id: Option<&str>,
 ) -> String {
-    let columns = match get_columns_core_for_session(state, connection_id, database, schema, table, client_session_id)
-        .await
-    {
-        Ok(columns) => columns,
-        Err(error) => {
-            log::debug!(
+    let columns =
+        match get_columns_core_for_session(state, connection_id, database, schema, table, client_session_id).await {
+            Ok(columns) => columns,
+            Err(error) => {
+                log::debug!(
                 "[schema][oracle:display-ddl:columns-for-comments-failed] connection_id={} schema={} table={} error={}",
                 connection_id,
                 schema,
                 table,
                 error
             );
-            Vec::new()
-        }
-    };
+                Vec::new()
+            }
+        };
     let table_comment = match get_table_comment_core_for_session(
         state,
         connection_id,
