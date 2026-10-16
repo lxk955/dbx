@@ -336,3 +336,57 @@ test("formats SQL preserving original keyword case when keywordCase is preserve 
   assert.doesNotMatch(formatted, /\bFROM\b/);
   assert.doesNotMatch(formatted, /\bWHERE\b/);
 });
+
+test("formats SQL placing semicolons on their own line when newlineBeforeSemicolon is true (#12440)", async () => {
+  const selectSql = "SELECT id, name FROM users WHERE id = 1;";
+  const formattedSelect = await formatSqlText(selectSql, "mysql", {
+    layoutStyle: "dbx",
+    newlineBeforeSemicolon: true,
+  });
+  assert.match(formattedSelect, /\n;$/);
+
+  const updateSql = "UPDATE users SET name = 'Alice' WHERE id = 1;";
+  const formattedUpdate = await formatSqlText(updateSql, "mysql", {
+    layoutStyle: "dbx",
+    newlineBeforeSemicolon: true,
+  });
+  assert.match(formattedUpdate, /\n;$/);
+
+  const collapsedSql = "SELECT 1;";
+  const formattedCollapsed = await formatSqlText(collapsedSql, "mysql", {
+    layoutStyle: "dbx",
+    newlineBeforeSemicolon: true,
+  });
+  assert.equal(formattedCollapsed, "SELECT 1\n;");
+
+  const ddlSql = "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50));";
+  const formattedDdl = await formatSqlText(ddlSql, "mysql", {
+    layoutStyle: "dbx",
+    newlineBeforeSemicolon: true,
+  });
+  assert.match(formattedDdl, /\n;$/);
+
+  const multiSql = "SELECT 1; SELECT 2;";
+  const formattedMulti = await formatSqlText(multiSql, "mysql", {
+    layoutStyle: "dbx",
+    newlineBeforeSemicolon: true,
+  });
+  assert.match(formattedMulti, /SELECT 1\n;\n\nSELECT 2\n;/);
+});
+
+test("formats SQL with semicolons on same line by default when newlineBeforeSemicolon is false (#12440)", async () => {
+  const selectSql = "SELECT id, name FROM users WHERE id = 1;";
+  const formattedSelect = await formatSqlText(selectSql, "mysql", {
+    layoutStyle: "dbx",
+    newlineBeforeSemicolon: false,
+  });
+  assert.match(formattedSelect, /1;$/);
+  assert.doesNotMatch(formattedSelect, /\n;$/);
+
+  const collapsedSql = "SELECT 1;";
+  const formattedCollapsed = await formatSqlText(collapsedSql, "mysql", {
+    layoutStyle: "dbx",
+    newlineBeforeSemicolon: false,
+  });
+  assert.equal(formattedCollapsed, "SELECT 1;");
+});
