@@ -9717,7 +9717,16 @@ async fn get_table_ddl_core_with_options(
         // Oracle-family comments live in dictionary tables, not inside CREATE VIEW.
         // Append COMMENT ON so table-properties DDL / hover match the structure editor.
         if append_oracle_comments {
-            return Ok(enrich_ddl_with_oracle_style_comments(state, connection_id, database, schema, table, &ddl).await);
+            return Ok(enrich_ddl_with_oracle_style_comments(
+                state,
+                connection_id,
+                database,
+                schema,
+                table,
+                &ddl,
+                client_session_id,
+            )
+            .await);
         }
         return Ok(ddl);
     }
@@ -9752,10 +9761,26 @@ async fn get_table_ddl_core_with_options(
         }
     }
 
-    retry_metadata_connection_for_session(state, connection_id, Some(database), client_session_id, || {
+    let ddl = retry_metadata_connection_for_session(state, connection_id, Some(database), client_session_id, || {
         get_table_ddl_once(state, connection_id, database, schema, table, options, client_session_id)
     })
-    .await
+    .await?;
+
+    let db_config = connection_config(state, connection_id).await;
+    if should_append_oracle_style_comment_ddl(db_config.as_ref()) {
+        Ok(enrich_ddl_with_oracle_style_comments(
+            state,
+            connection_id,
+            database,
+            schema,
+            table,
+            &ddl,
+            client_session_id,
+        )
+        .await)
+    } else {
+        Ok(ddl)
+    }
 }
 
 /// Whether the DDL of this object kind is its own definition, rather than the
@@ -11713,8 +11738,11 @@ async fn enrich_ddl_with_oracle_style_comments(
     schema: &str,
     table: &str,
     ddl: &str,
+    client_session_id: Option<&str>,
 ) -> String {
-    let columns = match get_columns_core(state, connection_id, database, schema, table).await {
+    let columns = match get_columns_core_for_session(state, connection_id, database, schema, table, client_session_id)
+        .await
+    {
         Ok(columns) => columns,
         Err(error) => {
             log::debug!(
@@ -11727,7 +11755,16 @@ async fn enrich_ddl_with_oracle_style_comments(
             Vec::new()
         }
     };
-    let table_comment = match get_table_comment_core(state, connection_id, database, schema, table).await {
+    let table_comment = match get_table_comment_core_for_session(
+        state,
+        connection_id,
+        database,
+        schema,
+        table,
+        client_session_id,
+    )
+    .await
+    {
         Ok(comment) => comment,
         Err(error) => {
             log::debug!(
@@ -12774,6 +12811,32 @@ mod object_source_tests {
         assert_eq!(ddl.matches("COMMENT ON COLUMN").count(), 1);
         assert!(!ddl.contains("New table comment"));
         assert!(!ddl.contains("New column comment"));
+    }
+
+    #[test]
+    fn appends_oracle_comments_to_table_ddl_when_missing() {
+        let column = db::ColumnInfo {
+            name: "USER_NAME".to_string(),
+            data_type: "VARCHAR2(50)".to_string(),
+            is_nullable: true,
+            column_default: None,
+            is_primary_key: false,
+            extra: None,
+            comment: Some("User name comment".to_string()),
+            ..Default::default()
+        };
+
+        let ddl = append_oracle_comments_to_ddl(
+            "CREATE TABLE \"SYSDBA\".\"USERS\" (\n  \"USER_NAME\" VARCHAR(50)\n);",
+            "SYSDBA",
+            "USERS",
+            Some("Users table"),
+            &[column],
+        );
+
+        assert!(ddl.contains("CREATE TABLE \"SYSDBA\".\"USERS\""));
+        assert!(ddl.contains("COMMENT ON TABLE \"SYSDBA\".\"USERS\" IS 'Users table';"));
+        assert!(ddl.contains("COMMENT ON COLUMN \"SYSDBA\".\"USERS\".\"USER_NAME\" IS 'User name comment';"));
     }
 }
 

@@ -1851,6 +1851,22 @@ public final class DamengAgent extends AbstractJdbcAgent {
             case "TYPE_BODY", "TYPE BODY" -> "TYPE BODY";
             default -> throw new IllegalArgumentException("Unsupported object type: " + objectType);
         };
+    @Override
+    protected boolean includeColumnCommentsInTableDdl() {
+        return true;
+    }
+
+    @Override
+    public String getTableComment(String rawSchema, String table) {
+        final String schema = normalizeSchema(rawSchema);
+        try {
+            String comment = tableComment(schema, table);
+            if (notBlank(comment)) {
+                return comment;
+            }
+        } catch (Exception ignored) {
+        }
+        return super.getTableComment(schema, table);
     }
 
     @Override
@@ -3130,8 +3146,61 @@ public final class DamengAgent extends AbstractJdbcAgent {
                     }
                 }
             }
+        } catch (Exception ignored) {
+        }
+        if (result.isEmpty()) {
+            queryTableColumnComments(
+                result,
+                "SELECT /*+ PARALLEL(1) */ COLUMN_NAME, COMMENTS FROM USER_COL_COMMENTS WHERE TABLE_NAME = ?",
+                table
+            );
+        }
+        if (result.isEmpty()) {
+            queryTableColumnComments(
+                result,
+                "SELECT /*+ PARALLEL(1) */ COLNAME, COMMENT$ FROM SYS.SYSCOLUMNCOMMENTS WHERE SCHNAME = ? AND TVNAME = ?",
+                schema,
+                table
+            );
+        }
+        if (result.isEmpty()) {
+            queryTableColumnComments(
+                result,
+                "SELECT /*+ PARALLEL(1) */ COLUMN_NAME, COMMENTS FROM ALL_COL_COMMENTS WHERE UPPER(OWNER) = UPPER(?) AND UPPER(TABLE_NAME) = UPPER(?)",
+                schema,
+                table
+            );
+        }
+        if (result.isEmpty()) {
+            try {
+                for (ColumnInfo column : getColumns(schema, table)) {
+                    if (notBlank(column.getName()) && notBlank(column.getComment())) {
+                        result.put(column.getName(), column.getComment());
+                    }
+                }
+            } catch (Exception ignored) {
+            }
         }
         return result;
+    }
+
+    private void queryTableColumnComments(Map<String, String> comments, String sql, String... params) {
+        try (PreparedStatement stmt = requireConnected().prepareStatement(sql)) {
+            for (int i = 0; i < params.length; i++) {
+                stmt.setString(i + 1, params[i]);
+            }
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    String column = rs.getString(1);
+                    String comment = rs.getString(2);
+                    if (notBlank(column) && notBlank(comment)) {
+                        comments.putIfAbsent(column, comment);
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // Some Dameng versions or users do not expose every comment view.
+        }
     }
 
     private String appendIndependentIndexDdl(String ddl, String schema, String table) throws Exception {
