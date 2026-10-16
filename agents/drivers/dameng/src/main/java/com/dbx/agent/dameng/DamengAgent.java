@@ -1851,6 +1851,8 @@ public final class DamengAgent extends AbstractJdbcAgent {
             case "TYPE_BODY", "TYPE BODY" -> "TYPE BODY";
             default -> throw new IllegalArgumentException("Unsupported object type: " + objectType);
         };
+    }
+
     @Override
     protected boolean includeColumnCommentsInTableDdl() {
         return true;
