@@ -15821,7 +15821,10 @@ CREATE TABLE "Other"."prefix""Source"."NAME" ("ID" INT);"#;
             &[String::from("id"), String::from("name")],
             &[Some(String::from("identity")), None],
         ));
-        assert!(selected_columns_include_identity_extras(
+        // Dameng AUTO_INCREMENT columns are not true identity columns (issue #12124):
+        // they must not trigger IDENTITY_INSERT wrappers, so auto_increment no
+        // longer counts as an identity extra.
+        assert!(!selected_columns_include_identity_extras(
             &[String::from("id")],
             &[Some(String::from("auto_increment"))],
         ));
