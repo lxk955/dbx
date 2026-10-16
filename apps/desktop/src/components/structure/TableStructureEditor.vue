@@ -5265,34 +5265,38 @@ function columnIndexContextMenuItems(targets: EditableStructureColumn[]): Contex
       disabled: () => disabled() || primaryColumns.length > 0 || targets.some(isPrimaryKeyDisabled),
       action: () => setColumnsPrimaryKey(targets),
     },
-    ...([false, true] as const).map((unique): ContextMenuItem => ({
-      label: t(unique ? "structureEditor.createUniqueIndex" : "structureEditor.createNormalIndex"),
-      icon: KeyRound,
-      iconClass: indexIconClass(unique ? "unique" : "index"),
-      disabled: () =>
-        disabled() ||
-        !structureCapabilities.value.createIndex ||
-        indexes.value.some(
-          (index) =>
-            !index.markedForDrop &&
-            !index.isPrimary &&
-            index.isUnique === unique &&
-            !index.filter &&
-            (!index.indexType || index.indexType.toUpperCase() === "BTREE") &&
-            index.columns.length === targets.length &&
-            index.columns.every((name, position) => structureColumnComparisonKey(name) === structureColumnComparisonKey(targets[position].name)),
-        ),
-      action: () => createIndexFromColumns(targets, unique),
-    })),
+    ...([false, true] as const).map(
+      (unique): ContextMenuItem => ({
+        label: t(unique ? "structureEditor.createUniqueIndex" : "structureEditor.createNormalIndex"),
+        icon: KeyRound,
+        iconClass: indexIconClass(unique ? "unique" : "index"),
+        disabled: () =>
+          disabled() ||
+          !structureCapabilities.value.createIndex ||
+          indexes.value.some(
+            (index) =>
+              !index.markedForDrop &&
+              !index.isPrimary &&
+              index.isUnique === unique &&
+              !index.filter &&
+              (!index.indexType || index.indexType.toUpperCase() === "BTREE") &&
+              index.columns.length === targets.length &&
+              index.columns.every((name, position) => structureColumnComparisonKey(name) === structureColumnComparisonKey(targets[position].name)),
+          ),
+        action: () => createIndexFromColumns(targets, unique),
+      }),
+    ),
     ...["FULLTEXT", "SPATIAL"]
       .filter((type) => indexTypeOptions.value.includes(type))
-      .map((type): ContextMenuItem => ({
-        label: t(type === "FULLTEXT" ? "structureEditor.createFulltextIndex" : "structureEditor.createSpatialIndex"),
-        icon: KeyRound,
-        iconClass: indexIconClass(type === "FULLTEXT" ? "fulltext" : "spatial"),
-        disabled: () => disabled() || !structureCapabilities.value.createIndex || !!specialIndexColumnIssue(structureDialect.value, type, targets),
-        action: () => createIndexFromColumns(targets, false, type),
-      })),
+      .map(
+        (type): ContextMenuItem => ({
+          label: t(type === "FULLTEXT" ? "structureEditor.createFulltextIndex" : "structureEditor.createSpatialIndex"),
+          icon: KeyRound,
+          iconClass: indexIconClass(type === "FULLTEXT" ? "fulltext" : "spatial"),
+          disabled: () => disabled() || !structureCapabilities.value.createIndex || !!specialIndexColumnIssue(structureDialect.value, type, targets),
+          action: () => createIndexFromColumns(targets, false, type),
+        }),
+      ),
   ];
   const addItems: ContextMenuItem[] = indexes.value
     .filter((index) => !index.markedForDrop && !index.isPrimary)
@@ -5668,6 +5672,7 @@ const canEditForeignKeys = computed(() => (isOracleForeignKeyEditor.value ? true
 const canEditTriggers = computed(() => structureDialect.value === "mysql" || structureDialect.value === "oracle" || structureDialect.value === "sqlserver");
 const isOracleTriggerEditor = computed(() => structureDialect.value === "oracle");
 const isSqlServerTriggerEditor = computed(() => structureDialect.value === "sqlserver");
+const supportsTriggerEnableToggle = computed(() => isOracleTriggerEditor.value || isSqlServerTriggerEditor.value);
 
 function generatedForeignKeyName(column = ""): string {
   const table = structureIndexTableName() || "table";
@@ -8656,7 +8661,7 @@ watch(
                     </SelectContent>
                   </Select>
                   <Button
-                    v-if="isOracleTriggerEditor && trigger.enabled !== undefined"
+                    v-if="supportsTriggerEnableToggle && trigger.enabled !== undefined"
                     variant="outline"
                     size="sm"
                     :class="['h-[var(--structure-control-height)] shrink-0 px-[var(--structure-control-px)] text-[length:var(--structure-font-size)]', !trigger.enabled ? 'text-muted-foreground' : '']"
