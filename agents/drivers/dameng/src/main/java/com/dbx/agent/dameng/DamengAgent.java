@@ -3060,16 +3060,25 @@ public final class DamengAgent extends AbstractJdbcAgent {
         return value == null ? "" : value;
     }
 
+    private boolean schemaMatchesConnectedUserOrCurrent(String schema) {
+        if (schema == null || schema.isBlank()) {
+            return true;
+        }
+        if (schemaMatchesConnectedUser(schema)) {
+            return true;
+        }
+        String currentSchema = currentSchemaOrBlank();
+        if (!currentSchema.isBlank()) {
+            return schema.equalsIgnoreCase(currentSchema);
+        }
+        return connectedUsername == null || connectedUsername.isBlank();
+    }
+
     private void fillMissingColumnComments(String schema, String table, List<ColumnInfo> columns) {
         if (columns.stream().noneMatch(column -> !notBlank(column.getComment()))) {
             return;
         }
         Map<String, String> comments = new HashMap<>();
-        queryColumnComments(
-            comments,
-            "SELECT /*+ PARALLEL(1) */ COLUMN_NAME, COMMENTS FROM USER_COL_COMMENTS WHERE TABLE_NAME = ?",
-            table
-        );
         queryColumnComments(
             comments,
             "SELECT /*+ PARALLEL(1) */ COLNAME, COMMENT$ FROM SYS.SYSCOLUMNCOMMENTS WHERE SCHNAME = ? AND TVNAME = ?",
@@ -3082,6 +3091,13 @@ public final class DamengAgent extends AbstractJdbcAgent {
             schema,
             table
         );
+        if (schemaMatchesConnectedUserOrCurrent(schema)) {
+            queryColumnComments(
+                comments,
+                "SELECT /*+ PARALLEL(1) */ COLUMN_NAME, COMMENTS FROM USER_COL_COMMENTS WHERE TABLE_NAME = ?",
+                table
+            );
+        }
         for (ColumnInfo column : columns) {
             if (notBlank(column.getComment())) {
                 continue;
@@ -3153,13 +3169,6 @@ public final class DamengAgent extends AbstractJdbcAgent {
         if (result.isEmpty()) {
             queryTableColumnComments(
                 result,
-                "SELECT /*+ PARALLEL(1) */ COLUMN_NAME, COMMENTS FROM USER_COL_COMMENTS WHERE TABLE_NAME = ?",
-                table
-            );
-        }
-        if (result.isEmpty()) {
-            queryTableColumnComments(
-                result,
                 "SELECT /*+ PARALLEL(1) */ COLNAME, COMMENT$ FROM SYS.SYSCOLUMNCOMMENTS WHERE SCHNAME = ? AND TVNAME = ?",
                 schema,
                 table
@@ -3170,6 +3179,13 @@ public final class DamengAgent extends AbstractJdbcAgent {
                 result,
                 "SELECT /*+ PARALLEL(1) */ COLUMN_NAME, COMMENTS FROM ALL_COL_COMMENTS WHERE UPPER(OWNER) = UPPER(?) AND UPPER(TABLE_NAME) = UPPER(?)",
                 schema,
+                table
+            );
+        }
+        if (result.isEmpty() && schemaMatchesConnectedUserOrCurrent(schema)) {
+            queryTableColumnComments(
+                result,
+                "SELECT /*+ PARALLEL(1) */ COLUMN_NAME, COMMENTS FROM USER_COL_COMMENTS WHERE TABLE_NAME = ?",
                 table
             );
         }

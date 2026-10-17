@@ -2130,6 +2130,25 @@ class DamengAgentMetadataTest {
     }
 
     @Test
+    void doesNotQueryUserColCommentsWhenSchemaDiffersFromConnectedUser() {
+        DamengAgent agent = new DamengAgent();
+        setConnectedUsername(agent, "SYSDBA");
+        List<String> sqls = new ArrayList<>();
+        TestSupport.setPrivateConnection(agent, metadataConnection(
+            null,
+            "fallback id comment",
+            false,
+            List.of(),
+            sqls
+        ));
+
+        String ddl = agent.getTableDdl("APP", "USERS");
+
+        Assertions.assertFalse(sqls.stream().anyMatch(sql -> sql.contains("USER_COL_COMMENTS")), String.join("\n", sqls));
+        Assertions.assertFalse(ddl.contains("fallback id comment"), ddl);
+    }
+
+    @Test
     void propagatesNonPermissionDbmsMetadataErrorsWithoutFallback() {
         DamengAgent agent = new DamengAgent();
         List<String> sqls = new ArrayList<>();
