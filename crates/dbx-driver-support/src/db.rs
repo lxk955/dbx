@@ -112,14 +112,12 @@ pub fn apply_tls_certificates_for_driver(
     driver_label: &str,
 ) -> Result<ClientBuilder, String> {
     builder = builder.use_rustls_tls();
-    let effective_ca = ca_cert_path
-        .map(str::trim)
-        .filter(|path| !path.is_empty())
-        .map(ToOwned::to_owned)
-        .or_else(|| {
-            std::env::var("SSL_CERT_FILE").ok().map(|s| s.trim().to_string()).filter(|path| {
-                !path.is_empty() && std::path::Path::new(&expand_tilde(path)).exists()
-            })
+    let effective_ca =
+        ca_cert_path.map(str::trim).filter(|path| !path.is_empty()).map(ToOwned::to_owned).or_else(|| {
+            std::env::var("SSL_CERT_FILE")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|path| !path.is_empty() && std::path::Path::new(&expand_tilde(path)).exists())
         });
 
     if let Some(ca) = effective_ca {
@@ -206,8 +204,8 @@ pub fn resolve_http_proxy(
             return Ok(None);
         }
         if !matches!(explicit.to_ascii_lowercase().as_str(), "env" | "auto" | "system") {
-            let mut proxy = reqwest::Proxy::all(explicit)
-                .map_err(|e| format!("Invalid proxy URL '{explicit}': {e}"))?;
+            let mut proxy =
+                reqwest::Proxy::all(explicit).map_err(|e| format!("Invalid proxy URL '{explicit}': {e}"))?;
             if let Some(no_proxy_val) = no_proxy.map(str::trim).filter(|s| !s.is_empty()) {
                 proxy = proxy.no_proxy(reqwest::NoProxy::from_string(no_proxy_val));
             }
@@ -226,8 +224,7 @@ pub fn resolve_http_proxy(
     let effective_no_proxy = no_proxy.map(str::trim).filter(|s| !s.is_empty()).or(env_no_proxy.as_deref());
 
     if let Some(url) = proxy_url {
-        let mut proxy = reqwest::Proxy::all(&url)
-            .map_err(|e| format!("Invalid environment proxy URL '{url}': {e}"))?;
+        let mut proxy = reqwest::Proxy::all(&url).map_err(|e| format!("Invalid environment proxy URL '{url}': {e}"))?;
         if let Some(no_proxy_val) = effective_no_proxy {
             proxy = proxy.no_proxy(reqwest::NoProxy::from_string(no_proxy_val));
         }
@@ -277,7 +274,6 @@ pub fn parse_proxy_url_params(params: Option<&str>) -> (Option<String>, Option<S
     }
     (proxy, no_proxy)
 }
-
 
 pub use dbx_types::json::JS_MAX_SAFE_INTEGER;
 pub use dbx_types::json::{json_value_for_js, safe_i64_to_json, safe_u64_to_json};
@@ -362,8 +358,8 @@ mod tests {
 #[cfg(test)]
 mod tls_tests {
     use super::{
-        apply_tls_certificates, apply_tls_certificates_for_driver, http_client_builder,
-        parse_proxy_url_params, resolve_http_proxy,
+        apply_tls_certificates, apply_tls_certificates_for_driver, http_client_builder, parse_proxy_url_params,
+        resolve_http_proxy,
     };
     use std::path::Path;
     use std::process::Command;
@@ -480,7 +476,8 @@ mod tls_tests {
 
     #[test]
     fn parse_proxy_url_params_extracts_proxy_and_no_proxy() {
-        let (proxy, no_proxy) = parse_proxy_url_params(Some("?proxy=http://127.0.0.1:8080&no_proxy=localhost,127.0.0.1"));
+        let (proxy, no_proxy) =
+            parse_proxy_url_params(Some("?proxy=http://127.0.0.1:8080&no_proxy=localhost,127.0.0.1"));
         assert_eq!(proxy.as_deref(), Some("http://127.0.0.1:8080"));
         assert_eq!(no_proxy.as_deref(), Some("localhost,127.0.0.1"));
 
@@ -504,8 +501,9 @@ mod tls_tests {
 
     #[test]
     fn resolve_http_proxy_parses_explicit_url() {
-        let proxy = resolve_http_proxy("https://api.cloudflare.com/raw", Some("http://proxy.test:8080"), Some("localhost")).unwrap();
+        let proxy =
+            resolve_http_proxy("https://api.cloudflare.com/raw", Some("http://proxy.test:8080"), Some("localhost"))
+                .unwrap();
         assert!(proxy.is_some());
     }
 }
-

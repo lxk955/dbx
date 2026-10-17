@@ -41,13 +41,7 @@ impl TursoClient {
             builder = builder.danger_accept_invalid_certs(true);
         }
         builder = apply_http_proxy(builder, url, proxy, None, None)?;
-        builder = apply_tls_certificates_for_driver(
-            builder,
-            ca_cert_path,
-            client_cert_path,
-            client_key_path,
-            "Turso",
-        )?;
+        builder = apply_tls_certificates_for_driver(builder, ca_cert_path, client_cert_path, client_key_path, "Turso")?;
         let http = builder.build().map_err(|e| format!("Failed to configure Turso HTTP client: {e}"))?;
         Ok(Self { http, base_url: url.trim_end_matches('/').to_string(), auth_token: auth_token.to_string() })
     }

@@ -86,9 +86,8 @@ impl CloudflareD1Client {
             client_key_path,
             "Cloudflare D1",
         )?;
-        let http = builder
-            .build()
-            .map_err(|error| format!("Failed to configure Cloudflare D1 HTTP client: {error}"))?;
+        let http =
+            builder.build().map_err(|error| format!("Failed to configure Cloudflare D1 HTTP client: {error}"))?;
         Ok(Self { http, endpoint, api_token: api_token.to_string() })
     }
 
@@ -196,25 +195,14 @@ pub fn client_from_config(
         None => proxy_from_transport_layers(&config.transport_layers)?,
     };
     let (explicit_proxy_url, explicit_no_proxy) = parse_proxy_url_params(config.url_params.as_deref());
-    let ca_cert_path = if config.ca_cert_path.trim().is_empty() {
-        None
-    } else {
-        Some(config.ca_cert_path.as_str())
-    };
-    let client_cert_path = if config.client_cert_path.trim().is_empty() {
-        None
-    } else {
-        Some(config.client_cert_path.as_str())
-    };
-    let client_key_path = if config.client_key_path.trim().is_empty() {
-        None
-    } else {
-        Some(config.client_key_path.as_str())
-    };
+    let ca_cert_path = if config.ca_cert_path.trim().is_empty() { None } else { Some(config.ca_cert_path.as_str()) };
+    let client_cert_path =
+        if config.client_cert_path.trim().is_empty() { None } else { Some(config.client_cert_path.as_str()) };
+    let client_key_path =
+        if config.client_key_path.trim().is_empty() { None } else { Some(config.client_key_path.as_str()) };
 
     let account_id = required_identifier(&config.host, "Cloudflare Account ID")?;
-    let database_id =
-        required_identifier(config.database.as_deref().unwrap_or_default(), "Cloudflare D1 Database ID")?;
+    let database_id = required_identifier(config.database.as_deref().unwrap_or_default(), "Cloudflare D1 Database ID")?;
     let endpoint = format!("{CLOUDFLARE_API_BASE_URL}/accounts/{account_id}/d1/database/{database_id}/raw");
 
     CloudflareD1Client::with_endpoint_and_options(
@@ -229,7 +217,6 @@ pub fn client_from_config(
         explicit_no_proxy.as_deref(),
     )
 }
-
 
 pub async fn list_databases(_client: &CloudflareD1Client) -> Result<Vec<DatabaseInfo>, String> {
     Ok(vec![DatabaseInfo { name: "main".to_string(), ..Default::default() }])
@@ -835,7 +822,11 @@ mod tests {
         let proxy_handle = tokio::spawn(async move {
             let (mut socket, _) = proxy_listener.accept().await.unwrap();
             let request = read_http_request(&mut socket).await;
-            assert!(request.contains("POST http://test.d1.internal/raw") || request.contains("CONNECT test.d1.internal") || request.contains("POST /raw"));
+            assert!(
+                request.contains("POST http://test.d1.internal/raw")
+                    || request.contains("CONNECT test.d1.internal")
+                    || request.contains("POST /raw")
+            );
 
             let body = r#"{"success":true,"errors":[],"result":[{"success":true,"results":{"columns":["proxied"],"rows":[[1]]},"meta":{"changes":0}}]}"#;
             let response = format!(
@@ -865,4 +856,3 @@ mod tests {
         proxy_handle.await.unwrap();
     }
 }
-
