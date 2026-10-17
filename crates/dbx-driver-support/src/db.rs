@@ -89,50 +89,195 @@ pub fn http_client_builder(timeout: Duration) -> ClientBuilder {
 /// instead of silently falling back to the system trust store, so a typo in a
 /// cert path fails the connection loudly rather than being ignored.
 pub fn apply_tls_certificates(
-    mut builder: ClientBuilder,
+    builder: ClientBuilder,
     ca_cert_path: Option<&str>,
     client_cert_path: Option<&str>,
     client_key_path: Option<&str>,
 ) -> Result<ClientBuilder, String> {
-    // The desktop build unifies reqwest with both `default-tls` and `rustls-tls`,
-    // and `TlsBackend` defaults to native-tls there, which rejects the PEM identity
-    // below with `incompatible TLS identity type`. Pin rustls like the Consul and
-    // etcd-metrics clients so custom CA roots and PEM client identities work in
-    // every target.
+    apply_tls_certificates_for_driver(builder, ca_cert_path, client_cert_path, client_key_path, "Elasticsearch")
+}
+
+/// Augments an HTTP client builder with custom TLS material for a specific driver.
+///
+/// * `ca_cert_path`: adds an extra root certificate (PEM bundle or DER). If not provided
+///   or empty, falls back to `SSL_CERT_FILE` from the environment if present and pointing
+///   to an existing file.
+/// * `client_cert_path` + `client_key_path`: concatenated into a single PEM identity.
+/// * `driver_label`: included in descriptive error messages (e.g. "Cloudflare D1", "Turso").
+pub fn apply_tls_certificates_for_driver(
+    mut builder: ClientBuilder,
+    ca_cert_path: Option<&str>,
+    client_cert_path: Option<&str>,
+    client_key_path: Option<&str>,
+    driver_label: &str,
+) -> Result<ClientBuilder, String> {
     builder = builder.use_rustls_tls();
-    if let Some(ca) = ca_cert_path.filter(|path| !path.is_empty()) {
-        let ca = expand_tilde(ca);
+    let effective_ca = ca_cert_path
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            std::env::var("SSL_CERT_FILE").ok().map(|s| s.trim().to_string()).filter(|path| {
+                !path.is_empty() && std::path::Path::new(&expand_tilde(path)).exists()
+            })
+        });
+
+    if let Some(ca) = effective_ca {
+        let ca = expand_tilde(&ca);
         let contents = std::fs::read(&ca)
-            .map_err(|error| format!("Failed to read Elasticsearch CA certificate at {ca}: {error}"))?;
+            .map_err(|error| format!("Failed to read {driver_label} CA certificate at {ca}: {error}"))?;
         let certificates = Certificate::from_pem_bundle(&contents)
-            .map_err(|error| format!("Failed to parse Elasticsearch CA certificate at {ca}: {error}"))?;
+            .or_else(|_| Certificate::from_der(&contents).map(|cert| vec![cert]))
+            .map_err(|error| format!("Failed to parse {driver_label} CA certificate at {ca}: {error}"))?;
         for certificate in certificates {
             builder = builder.add_root_certificate(certificate);
         }
     }
-    if let (Some(cert_path), Some(key_path)) =
-        (client_cert_path.filter(|path| !path.is_empty()), client_key_path.filter(|path| !path.is_empty()))
-    {
+    if let (Some(cert_path), Some(key_path)) = (
+        client_cert_path.map(str::trim).filter(|path| !path.is_empty()),
+        client_key_path.map(str::trim).filter(|path| !path.is_empty()),
+    ) {
         let cert_path = expand_tilde(cert_path);
         let key_path = expand_tilde(key_path);
         let mut pem = std::fs::read(&cert_path)
-            .map_err(|error| format!("Failed to read Elasticsearch client certificate at {cert_path}: {error}"))?;
-        // reqwest's rustls backend concatenates the cert and key as two PEM
-        // blocks; ensure they are newline-separated so parsing succeeds even
-        // when the cert file does not end with a trailing newline.
+            .map_err(|error| format!("Failed to read {driver_label} client certificate at {cert_path}: {error}"))?;
         if !pem.ends_with(b"\n") {
             pem.push(b'\n');
         }
         pem.extend(
             std::fs::read(&key_path)
-                .map_err(|error| format!("Failed to read Elasticsearch client key at {key_path}: {error}"))?,
+                .map_err(|error| format!("Failed to read {driver_label} client key at {key_path}: {error}"))?,
         );
         let identity = Identity::from_pem(&pem)
-            .map_err(|error| format!("Failed to parse Elasticsearch client identity: {error}"))?;
+            .map_err(|error| format!("Failed to parse {driver_label} client identity: {error}"))?;
         builder = builder.identity(identity);
     }
     Ok(builder)
 }
+
+/// Extracts the lowercased URL scheme from a target URL or endpoint (defaults to "https" if unspecified).
+pub fn normalize_url_scheme(url: &str) -> String {
+    let trimmed = url.trim();
+    if let Some((scheme, _)) = trimmed.split_once("://") {
+        scheme.to_ascii_lowercase()
+    } else {
+        "https".to_string()
+    }
+}
+
+/// Resolves standard environment proxy settings (HTTPS_PROXY/HTTP_PROXY/ALL_PROXY and NO_PROXY).
+pub fn standard_env_proxy(scheme: &str) -> (Option<String>, Option<String>) {
+    let http_proxy = first_non_empty_env(&["HTTP_PROXY", "http_proxy"]);
+    let https_proxy = first_non_empty_env(&["HTTPS_PROXY", "https_proxy"]);
+    let all_proxy = first_non_empty_env(&["ALL_PROXY", "all_proxy"]);
+    let proxy_url = match scheme {
+        "https" => https_proxy.or(all_proxy),
+        "http" => http_proxy.or(all_proxy),
+        _ => https_proxy.or(http_proxy).or(all_proxy),
+    };
+    let no_proxy = first_non_empty_env(&["NO_PROXY", "no_proxy"]);
+    (proxy_url, no_proxy)
+}
+
+fn first_non_empty_env(names: &[&str]) -> Option<String> {
+    names.iter().find_map(|name| {
+        std::env::var(name).ok().map(|value| value.trim().to_string()).filter(|value| !value.is_empty())
+    })
+}
+
+/// Resolves an HTTP/HTTPS/SOCKS proxy for a given target URL.
+///
+/// Priority:
+/// 1. `explicit_proxy` (if provided):
+///    - "direct", "none", "off", "false": forces direct connection (no proxy).
+///    - "env", "auto", "system": forces lookup from environment variables.
+///    - Any other string: treated as proxy URL (e.g. "http://proxy:8080", "socks5://proxy:1080").
+/// 2. If no explicit proxy:
+///    - Checks `DBX_HTTP_PROXY_DISABLE`: if set to true/1/yes, skips proxy.
+///    - Resolves from environment (`HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY`).
+///    - Attaches `NO_PROXY` bypass rules if present.
+pub fn resolve_http_proxy(
+    target_url: &str,
+    explicit_proxy: Option<&str>,
+    no_proxy: Option<&str>,
+) -> Result<Option<reqwest::Proxy>, String> {
+    if let Some(explicit) = explicit_proxy.map(str::trim).filter(|s| !s.is_empty()) {
+        if matches!(explicit.to_ascii_lowercase().as_str(), "direct" | "none" | "off" | "false") {
+            return Ok(None);
+        }
+        if !matches!(explicit.to_ascii_lowercase().as_str(), "env" | "auto" | "system") {
+            let mut proxy = reqwest::Proxy::all(explicit)
+                .map_err(|e| format!("Invalid proxy URL '{explicit}': {e}"))?;
+            if let Some(no_proxy_val) = no_proxy.map(str::trim).filter(|s| !s.is_empty()) {
+                proxy = proxy.no_proxy(reqwest::NoProxy::from_string(no_proxy_val));
+            }
+            return Ok(Some(proxy));
+        }
+    }
+
+    if let Ok(val) = std::env::var("DBX_HTTP_PROXY_DISABLE") {
+        if matches!(val.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on") {
+            return Ok(None);
+        }
+    }
+
+    let scheme = normalize_url_scheme(target_url);
+    let (proxy_url, env_no_proxy) = standard_env_proxy(&scheme);
+    let effective_no_proxy = no_proxy.map(str::trim).filter(|s| !s.is_empty()).or(env_no_proxy.as_deref());
+
+    if let Some(url) = proxy_url {
+        let mut proxy = reqwest::Proxy::all(&url)
+            .map_err(|e| format!("Invalid environment proxy URL '{url}': {e}"))?;
+        if let Some(no_proxy_val) = effective_no_proxy {
+            proxy = proxy.no_proxy(reqwest::NoProxy::from_string(no_proxy_val));
+        }
+        Ok(Some(proxy))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Applies proxy configuration to a `ClientBuilder`.
+///
+/// If `explicit_proxy` is provided, it is attached directly.
+/// Otherwise, resolves the proxy from `proxy_url` (or environment) and `no_proxy`.
+/// If no proxy is applicable, preserves direct connection (`no_proxy()`).
+pub fn apply_http_proxy(
+    builder: ClientBuilder,
+    target_url: &str,
+    explicit_proxy: Option<reqwest::Proxy>,
+    proxy_url: Option<&str>,
+    no_proxy: Option<&str>,
+) -> Result<ClientBuilder, String> {
+    if let Some(proxy) = explicit_proxy {
+        return Ok(builder.proxy(proxy));
+    }
+    if let Some(proxy) = resolve_http_proxy(target_url, proxy_url, no_proxy)? {
+        return Ok(builder.proxy(proxy));
+    }
+    Ok(builder)
+}
+
+/// Parses `proxy` and `no_proxy` options from URL query parameters.
+pub fn parse_proxy_url_params(params: Option<&str>) -> (Option<String>, Option<String>) {
+    let mut proxy = None;
+    let mut no_proxy = None;
+    if let Some(params) = params {
+        for part in params.trim().trim_start_matches(['?', '&', ';']).split(['&', ';']) {
+            if let Some((k, v)) = part.split_once('=') {
+                let k = k.trim().to_ascii_lowercase();
+                let v = v.trim().to_string();
+                if k == "proxy" || k == "http_proxy" || k == "https_proxy" {
+                    proxy = Some(v);
+                } else if k == "no_proxy" {
+                    no_proxy = Some(v);
+                }
+            }
+        }
+    }
+    (proxy, no_proxy)
+}
+
 
 pub use dbx_types::json::JS_MAX_SAFE_INTEGER;
 pub use dbx_types::json::{json_value_for_js, safe_i64_to_json, safe_u64_to_json};
@@ -216,7 +361,10 @@ mod tests {
 
 #[cfg(test)]
 mod tls_tests {
-    use super::{apply_tls_certificates, http_client_builder};
+    use super::{
+        apply_tls_certificates, apply_tls_certificates_for_driver, http_client_builder,
+        parse_proxy_url_params, resolve_http_proxy,
+    };
     use std::path::Path;
     use std::process::Command;
     use std::time::Duration;
@@ -315,4 +463,49 @@ mod tls_tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn apply_tls_certificates_for_driver_formats_custom_label() {
+        let err = apply_tls_certificates_for_driver(
+            http_client_builder(Duration::from_secs(5)),
+            Some("/nonexistent/custom-ca.pem"),
+            None,
+            None,
+            "Cloudflare D1",
+        )
+        .err()
+        .unwrap();
+        assert!(err.contains("Failed to read Cloudflare D1 CA certificate at /nonexistent/custom-ca.pem"));
+    }
+
+    #[test]
+    fn parse_proxy_url_params_extracts_proxy_and_no_proxy() {
+        let (proxy, no_proxy) = parse_proxy_url_params(Some("?proxy=http://127.0.0.1:8080&no_proxy=localhost,127.0.0.1"));
+        assert_eq!(proxy.as_deref(), Some("http://127.0.0.1:8080"));
+        assert_eq!(no_proxy.as_deref(), Some("localhost,127.0.0.1"));
+
+        let (proxy, no_proxy) = parse_proxy_url_params(Some("proxy=direct;no_proxy=.internal"));
+        assert_eq!(proxy.as_deref(), Some("direct"));
+        assert_eq!(no_proxy.as_deref(), Some(".internal"));
+
+        let (proxy, no_proxy) = parse_proxy_url_params(None);
+        assert_eq!(proxy, None);
+        assert_eq!(no_proxy, None);
+    }
+
+    #[test]
+    fn resolve_http_proxy_honors_explicit_direct_directive() {
+        let result = resolve_http_proxy("https://api.cloudflare.com/raw", Some("direct"), None).unwrap();
+        assert!(result.is_none());
+
+        let result = resolve_http_proxy("https://api.cloudflare.com/raw", Some("none"), None).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn resolve_http_proxy_parses_explicit_url() {
+        let proxy = resolve_http_proxy("https://api.cloudflare.com/raw", Some("http://proxy.test:8080"), Some("localhost")).unwrap();
+        assert!(proxy.is_some());
+    }
 }
+
