@@ -204,6 +204,7 @@ const SETTINGS_TRANSFER_CATEGORY_KEYS: Record<SettingsTransferCategoryId, readon
     "applyColumnFormattersOnExport",
     "csvQuoteMode",
     "csvNullMode",
+    "queryResultExportFileNameSource",
     "exportRowLimitEnabled",
     "exportRowLimit",
     "queryExportKeysetOptimizationEnabled",
