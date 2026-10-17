@@ -94,31 +94,54 @@ pub fn apply_tls_certificates(
     client_cert_path: Option<&str>,
     client_key_path: Option<&str>,
 ) -> Result<ClientBuilder, String> {
-    apply_tls_certificates_for_driver(builder, ca_cert_path, client_cert_path, client_key_path, "Elasticsearch")
+    // No SSL_CERT_FILE environment fallback here: Elasticsearch/Solr/CouchDB keep
+    // their historical behavior (bundled roots only when no CA is configured).
+    apply_tls_certificates_impl(builder, ca_cert_path, client_cert_path, client_key_path, "Elasticsearch", false)
 }
 
 /// Augments an HTTP client builder with custom TLS material for a specific driver.
 ///
 /// * `ca_cert_path`: adds an extra root certificate (PEM bundle or DER). If not provided
 ///   or empty, falls back to `SSL_CERT_FILE` from the environment if present and pointing
-///   to an existing file.
+///   to an existing file. This environment fallback applies ONLY to drivers that call
+///   this function (Cloudflare D1, Turso), never to the `apply_tls_certificates`
+///   wrapper above.
 /// * `client_cert_path` + `client_key_path`: concatenated into a single PEM identity.
 /// * `driver_label`: included in descriptive error messages (e.g. "Cloudflare D1", "Turso").
 pub fn apply_tls_certificates_for_driver(
-    mut builder: ClientBuilder,
+    builder: ClientBuilder,
     ca_cert_path: Option<&str>,
     client_cert_path: Option<&str>,
     client_key_path: Option<&str>,
     driver_label: &str,
 ) -> Result<ClientBuilder, String> {
+    apply_tls_certificates_impl(builder, ca_cert_path, client_cert_path, client_key_path, driver_label, true)
+}
+
+fn apply_tls_certificates_impl(
+    mut builder: ClientBuilder,
+    ca_cert_path: Option<&str>,
+    client_cert_path: Option<&str>,
+    client_key_path: Option<&str>,
+    driver_label: &str,
+    env_ca_fallback: bool,
+) -> Result<ClientBuilder, String> {
+    // The desktop build unifies reqwest with both `default-tls` and `rustls-tls`,
+    // and `TlsBackend` defaults to native-tls there, which rejects the PEM identity
+    // below with `incompatible TLS identity type`. Pin rustls like the Consul and
+    // etcd-metrics clients so custom CA roots and PEM client identities work in
+    // every target.
     builder = builder.use_rustls_tls();
-    let effective_ca =
-        ca_cert_path.map(str::trim).filter(|path| !path.is_empty()).map(ToOwned::to_owned).or_else(|| {
-            std::env::var("SSL_CERT_FILE")
-                .ok()
-                .map(|s| s.trim().to_string())
-                .filter(|path| !path.is_empty() && std::path::Path::new(&expand_tilde(path)).exists())
-        });
+    let explicit_ca = ca_cert_path.map(str::trim).filter(|path| !path.is_empty()).map(ToOwned::to_owned);
+    let env_ca = if env_ca_fallback {
+        std::env::var("SSL_CERT_FILE")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|path| !path.is_empty() && std::path::Path::new(&expand_tilde(path)).exists())
+    } else {
+        None
+    };
+    let effective_ca = explicit_ca.or(env_ca);
 
     if let Some(ca) = effective_ca {
         let ca = expand_tilde(&ca);
@@ -204,8 +227,8 @@ pub fn resolve_http_proxy(
             return Ok(None);
         }
         if !matches!(explicit.to_ascii_lowercase().as_str(), "env" | "auto" | "system") {
-            let mut proxy =
-                reqwest::Proxy::all(explicit).map_err(|e| format!("Invalid proxy URL '{explicit}': {e}"))?;
+            let mut proxy = reqwest::Proxy::all(explicit)
+                .map_err(|e| format!("Invalid proxy URL '{}': {e}", redact_proxy_userinfo(explicit)))?;
             if let Some(no_proxy_val) = no_proxy.map(str::trim).filter(|s| !s.is_empty()) {
                 proxy = proxy.no_proxy(reqwest::NoProxy::from_string(no_proxy_val));
             }
@@ -224,13 +247,31 @@ pub fn resolve_http_proxy(
     let effective_no_proxy = no_proxy.map(str::trim).filter(|s| !s.is_empty()).or(env_no_proxy.as_deref());
 
     if let Some(url) = proxy_url {
-        let mut proxy = reqwest::Proxy::all(&url).map_err(|e| format!("Invalid environment proxy URL '{url}': {e}"))?;
+        let mut proxy = reqwest::Proxy::all(&url)
+            .map_err(|e| format!("Invalid environment proxy URL '{}': {e}", redact_proxy_userinfo(&url)))?;
         if let Some(no_proxy_val) = effective_no_proxy {
             proxy = proxy.no_proxy(reqwest::NoProxy::from_string(no_proxy_val));
         }
         Ok(Some(proxy))
     } else {
         Ok(None)
+    }
+}
+
+/// Redacts userinfo (credentials) from a proxy URL so error messages never leak
+/// them into logs: `http://user:pass@proxy:8080` -> `http://proxy:8080`.
+fn redact_proxy_userinfo(url: &str) -> String {
+    let (prefix, rest) = match url.split_once("://") {
+        Some((scheme, rest)) => (format!("{scheme}://"), rest),
+        None => (String::new(), url),
+    };
+    let (authority, path) = match rest.find('/') {
+        Some(idx) => rest.split_at(idx),
+        None => (rest, ""),
+    };
+    match authority.rfind('@') {
+        Some(at) => format!("{prefix}{}{path}", &authority[at + 1..]),
+        None => url.to_string(),
     }
 }
 
@@ -359,7 +400,7 @@ mod tests {
 mod tls_tests {
     use super::{
         apply_tls_certificates, apply_tls_certificates_for_driver, http_client_builder, parse_proxy_url_params,
-        resolve_http_proxy,
+        redact_proxy_userinfo, resolve_http_proxy,
     };
     use std::path::Path;
     use std::process::Command;
@@ -472,6 +513,49 @@ mod tls_tests {
         .err()
         .unwrap();
         assert!(err.contains("Failed to read Cloudflare D1 CA certificate at /nonexistent/custom-ca.pem"));
+    }
+
+    /// t8y2 review (PR #12534): the `SSL_CERT_FILE` environment fallback must stay
+    /// scoped to the per-driver helper — the legacy `apply_tls_certificates`
+    /// wrapper (Elasticsearch/Solr/CouchDB) keeps its bundled-roots-only behavior
+    /// when no CA is configured.
+    #[test]
+    fn ssl_cert_file_env_fallback_is_driver_scoped() {
+        let dir = std::env::temp_dir().join(format!("dbx-tls-env-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // Point SSL_CERT_FILE at a directory: it exists(), so the env fallback
+        // picks it up, but reading it fails — proving the fallback was honored.
+        let dir_ca = dir.join("ca-dir");
+        std::fs::create_dir_all(&dir_ca).unwrap();
+        std::env::set_var("SSL_CERT_FILE", &dir_ca);
+
+        // The per-driver variant honors the environment fallback: the directory
+        // is "read" and fails — proving SSL_CERT_FILE was picked up.
+        let err = apply_tls_certificates_for_driver(
+            http_client_builder(Duration::from_secs(5)),
+            None,
+            None,
+            None,
+            "Cloudflare D1",
+        )
+        .expect_err("driver-scoped helper must honor SSL_CERT_FILE");
+        assert!(err.contains("Failed to read Cloudflare D1 CA certificate"), "unexpected error: {err}");
+
+        // The legacy wrapper must ignore SSL_CERT_FILE entirely.
+        let ok = apply_tls_certificates(http_client_builder(Duration::from_secs(5)), None, None, None);
+        assert!(ok.is_ok(), "legacy wrapper must ignore SSL_CERT_FILE");
+
+        std::env::remove_var("SSL_CERT_FILE");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn redact_proxy_userinfo_strips_credentials() {
+        assert_eq!(redact_proxy_userinfo("http://user:pass@proxy:8080"), "http://proxy:8080");
+        assert_eq!(redact_proxy_userinfo("socks5://u:p@[::1]:1080/path"), "socks5://[::1]:1080/path");
+        assert_eq!(redact_proxy_userinfo("http://proxy:8080"), "http://proxy:8080");
+        assert_eq!(redact_proxy_userinfo("user@host:8080"), "host:8080");
+        assert_eq!(redact_proxy_userinfo(""), "");
     }
 
     #[test]

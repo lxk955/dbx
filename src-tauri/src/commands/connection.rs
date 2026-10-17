@@ -1879,6 +1879,10 @@ async fn test_connection_with_info_impl(
                         })
                         .unwrap_or_default()
                 };
+                // Route the test through the same transport-layer proxy resolution the
+                // real connect uses: a test that bypasses the proxy may succeed while
+                // the real connect fails through the proxy.
+                let proxy = clickhouse_http_proxy(runtime_proxy.as_ref())?;
                 let client = db::turso_driver::TursoClient::new_with_options(
                     &url,
                     &auth_token,
@@ -1887,7 +1891,7 @@ async fn test_connection_with_info_impl(
                     Some(config.ca_cert_path.as_str()),
                     Some(config.client_cert_path.as_str()),
                     Some(config.client_key_path.as_str()),
-                    None,
+                    proxy,
                 )?;
                 db::turso_driver::test_connection(&client, connect_timeout)
                     .await
@@ -2433,6 +2437,10 @@ async fn connect_db_inner(
                     })
                     .unwrap_or_default()
             };
+            // Same transport-layer proxy resolution as the test path and the real
+            // connect path in dbx-core: bypassing the proxy here would diverge from
+            // both.
+            let proxy = clickhouse_http_proxy(runtime_proxy.as_ref())?;
             let client = db::turso_driver::TursoClient::new_with_options(
                 &url,
                 &auth_token,
@@ -2441,7 +2449,7 @@ async fn connect_db_inner(
                 Some(db_config.ca_cert_path.as_str()),
                 Some(db_config.client_cert_path.as_str()),
                 Some(db_config.client_key_path.as_str()),
-                None,
+                proxy,
             )?;
             db::turso_driver::test_connection(&client, connect_timeout).await?;
             PoolKind::Turso(client)
