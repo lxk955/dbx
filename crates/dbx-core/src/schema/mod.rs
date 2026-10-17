@@ -1243,20 +1243,15 @@ async fn get_table_comment_core_with_pool_key(
         try_sqlserver!(pool_handle, get_table_comment, schema, table);
         if let Some(PoolKind::ExternalDriver { config, session, .. }) = pool_handle.as_ref() {
             if is_oracle_external_driver_config(config.as_ref()) {
-                return external_driver_oracle_table_comment(
-                    session.clone(),
-                    config.as_ref(),
-                    database,
-                    schema,
-                    table,
-                )
-                .await;
+                return external_driver_oracle_table_comment(session.clone(), config.as_ref(), database, schema, table)
+                    .await;
             }
         }
         if let Some(client) = extract_pool!(pool_handle.as_ref(), Agent) {
-            if db_config.as_ref().is_some_and(|config| {
-                matches!(config.db_type, DatabaseType::Oracle | DatabaseType::OceanbaseOracle)
-            }) {
+            if db_config
+                .as_ref()
+                .is_some_and(|config| matches!(config.db_type, DatabaseType::Oracle | DatabaseType::OceanbaseOracle))
+            {
                 let sql = oracle_table_comment_sql(schema, table);
                 let timeout = agent_metadata_timeout(db_config.as_ref());
                 let mut client = client.lock().await;
@@ -9784,10 +9779,8 @@ async fn get_table_ddl_core_with_options(
 
     let db_config = connection_config(state, connection_id).await;
     if should_append_oracle_style_comment_ddl(db_config.as_ref()) {
-        let pool_key = state
-            .get_or_create_metadata_pool_for_session(connection_id, Some(database), client_session_id)
-            .await
-            .ok();
+        let pool_key =
+            state.get_or_create_metadata_pool_for_session(connection_id, Some(database), client_session_id).await.ok();
         Ok(enrich_ddl_with_oracle_style_comments(
             state,
             connection_id,
@@ -11821,15 +11814,7 @@ async fn enrich_ddl_with_oracle_style_comments(
             }
         }
     } else {
-        match get_table_comment_core_for_session(
-            state,
-            connection_id,
-            database,
-            schema,
-            table,
-            client_session_id,
-        )
-        .await
+        match get_table_comment_core_for_session(state, connection_id, database, schema, table, client_session_id).await
         {
             Ok(comment) => comment,
             Err(error) => {
