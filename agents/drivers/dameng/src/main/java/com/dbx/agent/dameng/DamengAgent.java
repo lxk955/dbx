@@ -975,9 +975,11 @@ public final class DamengAgent extends AbstractJdbcAgent {
                     return current;
                 }
             }
-        } catch (SQLException error) {
-            // A server without SYS_CONTEXT support still resolves an unqualified name to the
-            // connected user, which is what the caller falls back to.
+        } catch (Exception error) {
+            // Current schema resolution is best-effort: any failure (including environments without
+            // SYS_CONTEXT support, query execution errors, or pathological drivers returning a null
+            // Statement) falls back to an empty string, allowing the caller to fall back to the
+            // connected username.
         }
         return "";
     }
