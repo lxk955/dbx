@@ -1879,7 +1879,16 @@ async fn test_connection_with_info_impl(
                         })
                         .unwrap_or_default()
                 };
-                let client = db::turso_driver::TursoClient::new(&url, &auth_token, config.ssl, connect_timeout)?;
+                let client = db::turso_driver::TursoClient::new_with_options(
+                    &url,
+                    &auth_token,
+                    config.ssl,
+                    connect_timeout,
+                    Some(config.ca_cert_path.as_str()),
+                    Some(config.client_cert_path.as_str()),
+                    Some(config.client_key_path.as_str()),
+                    None,
+                )?;
                 db::turso_driver::test_connection(&client, connect_timeout)
                     .await
                     .map(|_| "Connection successful".to_string())
@@ -2424,7 +2433,16 @@ async fn connect_db_inner(
                     })
                     .unwrap_or_default()
             };
-            let client = db::turso_driver::TursoClient::new(&url, &auth_token, db_config.ssl, connect_timeout)?;
+            let client = db::turso_driver::TursoClient::new_with_options(
+                &url,
+                &auth_token,
+                db_config.ssl,
+                connect_timeout,
+                Some(db_config.ca_cert_path.as_str()),
+                Some(db_config.client_cert_path.as_str()),
+                Some(db_config.client_key_path.as_str()),
+                None,
+            )?;
             db::turso_driver::test_connection(&client, connect_timeout).await?;
             PoolKind::Turso(client)
         }
