@@ -2595,6 +2595,7 @@ export default {
     copyExtractorJsonArray: "JSON Array",
     copyExtractorSqlInList: "SQL IN List",
     copyExtractorSqlInserts: "SQL Inserts",
+    copyExtractorSqlDeletesInserts: "SQL DELETEs/INSERTs",
     copyExtractorSqlInsertsWithPrimaryKeys: "SQL Inserts (with Primary Keys)",
     copyExtractorSqlInsertsWithoutPrimaryKeys: "SQL Inserts (without Generated Primary Keys)",
     copyExtractorSqlInsertsWithoutAllPrimaryKeys: "SQL Inserts (without Any Primary Keys)",
