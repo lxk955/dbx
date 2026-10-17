@@ -1353,8 +1353,7 @@ mod tests {
             Some("`dbx`.`t`")
         );
         assert_eq!(
-            database_qualified_table_name(Some(DatabaseType::ClickHouse), None, Some("default"), None, "t")
-                .as_deref(),
+            database_qualified_table_name(Some(DatabaseType::ClickHouse), None, Some("default"), None, "t").as_deref(),
             Some("`default`.`t`")
         );
         assert_eq!(
