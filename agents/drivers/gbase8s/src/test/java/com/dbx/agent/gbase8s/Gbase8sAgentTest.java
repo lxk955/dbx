@@ -354,9 +354,9 @@ class Gbase8sAgentTest {
 
         Assertions.assertEquals(2, objects.size());
         Assertions.assertEquals("users", objects.get(0).getName());
-        Assertions.assertEquals("TABLE", objects.get(0).getType());
+        Assertions.assertEquals("TABLE", objects.get(0).getObject_type());
         Assertions.assertEquals("v_active_users", objects.get(1).getName());
-        Assertions.assertEquals("VIEW", objects.get(1).getType());
+        Assertions.assertEquals("VIEW", objects.get(1).getObject_type());
         Assertions.assertTrue(sql.get(0).contains("FROM systables"));
     }
 
@@ -378,7 +378,7 @@ class Gbase8sAgentTest {
 
         Assertions.assertEquals(1, objects.size());
         Assertions.assertEquals("v_orders", objects.get(0).getName());
-        Assertions.assertEquals("VIEW", objects.get(0).getType());
+        Assertions.assertEquals("VIEW", objects.get(0).getObject_type());
         Assertions.assertTrue(sql.get(0).contains("FROM systables"));
         Assertions.assertTrue(sql.get(0).contains("tabtype IN ('V')"));
     }
