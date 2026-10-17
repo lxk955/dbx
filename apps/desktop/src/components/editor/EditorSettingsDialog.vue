@@ -508,12 +508,13 @@ function onLocaleOpenChange(open: boolean) {
   if (!open) restoreLocaleOptionPreview();
 }
 
-const appThemePaletteOptions = computed((): Array<{ value: AppThemePalette; label: string; previewColor: string }> =>
-  APP_THEME_PALETTES.map((palette) => ({
-    value: palette.value,
-    label: t(palette.labelKey),
-    previewColor: palette.previewColor,
-  })),
+const appThemePaletteOptions = computed(
+  (): Array<{ value: AppThemePalette; label: string; previewColor: string }> =>
+    APP_THEME_PALETTES.map((palette) => ({
+      value: palette.value,
+      label: t(palette.labelKey),
+      previewColor: palette.previewColor,
+    })),
 );
 const selectedThemePaletteOption = computed(() => appThemePaletteOptions.value.find((option) => option.value === themePalette.value) ?? appThemePaletteOptions.value[0]);
 const selectedLocaleOption = computed(() => LOCALE_OPTIONS.find((locale) => locale.value === currentLocale()) ?? LOCALE_OPTIONS[0]);
@@ -965,6 +966,7 @@ const tableHoverLookupModeDescription = computed(() => {
   return t(key);
 });
 const editClickTableNavigationTarget = ref<ClickTableNavigationTarget>(settingsStore.editorSettings.clickTableNavigationTarget);
+const editObjectBrowserAutoOpenDetailPanel = ref(settingsStore.editorSettings.objectBrowserAutoOpenDetailPanel);
 const editAutoUpdateApp = ref(settingsStore.editorSettings.autoUpdateApp);
 const editAutoUpdateDrivers = ref(settingsStore.editorSettings.autoUpdateDrivers);
 const editAutoUpdateJdbc = ref(settingsStore.editorSettings.autoUpdateJdbc);
@@ -1294,6 +1296,7 @@ function currentEditorSettingsDraft(): EditorSettingsDraft {
     sqlVariableSubstitutionEnabled: editSqlVariableSubstitutionEnabled.value,
     sqlVariableSyntaxOverrides: editSqlVariableSyntaxOverrides.value,
     clickTableNavigationTarget: editClickTableNavigationTarget.value,
+    objectBrowserAutoOpenDetailPanel: editObjectBrowserAutoOpenDetailPanel.value,
   };
 }
 
@@ -1985,6 +1988,7 @@ function syncEditorSettingsDraftFromStore() {
   editSqlVariableSubstitutionEnabled.value = settingsStore.editorSettings.sqlVariableSubstitutionEnabled;
   editSqlVariableSyntaxOverrides.value = normalizeSqlVariableSyntaxOverrides(settingsStore.editorSettings.sqlVariableSyntaxOverrides);
   editClickTableNavigationTarget.value = settingsStore.editorSettings.clickTableNavigationTarget;
+  editObjectBrowserAutoOpenDetailPanel.value = settingsStore.editorSettings.objectBrowserAutoOpenDetailPanel;
   editEditorSettingsBase.value = editorSettingsDraftFromSettings(settingsStore.editorSettings);
   hasImportedSettingsPendingApply.value = false;
 }
@@ -2149,6 +2153,7 @@ const editorSettingsDraftRefs: EditorSettingsDraftRefMap = {
   sqlVariableSyntaxOverrides: editSqlVariableSyntaxOverrides,
   continueOnErrorOnBatch: editContinueOnErrorOnBatch,
   clickTableNavigationTarget: editClickTableNavigationTarget,
+  objectBrowserAutoOpenDetailPanel: editObjectBrowserAutoOpenDetailPanel,
   completionTriggerMode: editCompletionTriggerMode,
   excludedCompletionItems: editExcludedCompletionItems,
   defaultTransactionMode: editDefaultTransactionMode,
@@ -2671,6 +2676,7 @@ function resetDefaultsForTab(tab: SettingsCategory) {
     editGenerateSqlQuoteIdentifiers.value = DEFAULT_EDITOR_SETTINGS.generateSqlQuoteIdentifiers;
     editFormatSqlOnSqlFileSave.value = DEFAULT_EDITOR_SETTINGS.formatSqlOnSqlFileSave;
     editClickTableNavigationTarget.value = DEFAULT_EDITOR_SETTINGS.clickTableNavigationTarget;
+    editObjectBrowserAutoOpenDetailPanel.value = DEFAULT_EDITOR_SETTINGS.objectBrowserAutoOpenDetailPanel;
     editSidebarObjectInfoMode.value = DEFAULT_EDITOR_SETTINGS.sidebarObjectInfoMode;
     editSidebarAllowHorizontalScroll.value = DEFAULT_EDITOR_SETTINGS.sidebarAllowHorizontalScroll;
     editSidebarShowTooltips.value = DEFAULT_EDITOR_SETTINGS.sidebarShowTooltips;
@@ -8961,6 +8967,16 @@ onUnmounted(() => {
 
                 <div class="settings-item flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">
                   <div class="space-y-1">
+                    <Label for="editor-object-browser-auto-open-detail">{{ t("settings.objectBrowserAutoOpenDetailPanel") }}</Label>
+                    <p class="text-xs text-muted-foreground">
+                      {{ t("settings.objectBrowserAutoOpenDetailPanelDescription") }}
+                    </p>
+                  </div>
+                  <Switch id="editor-object-browser-auto-open-detail" v-model="editObjectBrowserAutoOpenDetailPanel" class="mt-0.5" />
+                </div>
+
+                <div class="settings-item flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">
+                  <div class="space-y-1">
                     <Label for="editor-prefill-new-query">{{ t("settings.prefillNewQueryWithSelect") }}</Label>
                     <p class="text-xs text-muted-foreground">
                       {{ t("settings.prefillNewQueryWithSelectDescription") }}
@@ -10656,7 +10672,8 @@ onUnmounted(() => {
 SELECT t.*
 FROM ${1:table} t
 WHERE t.del_flag = 0
-LIMIT 100;</pre>
+LIMIT 100;</pre
+                >
               </div>
 
               <div class="overflow-x-auto rounded-md border">
