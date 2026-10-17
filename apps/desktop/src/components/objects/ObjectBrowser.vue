@@ -1186,13 +1186,13 @@ function onRowClick(row: ObjectBrowserRow, event: MouseEvent) {
       clearTimeout(singleClickTimer);
       singleClickTimer = null;
     }
-    const firstClickRan = settingsStore.editorSettings.objectBrowserAutoOpenDetailPanel;
+    const firstClickRan = settingsStore.editorSettings.objectBrowserAutoOpenDetailPanel !== false;
     if (!firstClickRan || action !== singleClickRowAction(row, effectiveDatabaseType.value)) {
       executeRowAction(row, action);
     }
     return;
   }
-  if (!settingsStore.editorSettings.objectBrowserAutoOpenDetailPanel) {
+  if (settingsStore.editorSettings.objectBrowserAutoOpenDetailPanel === false) {
     return;
   }
   // Single click: defer when the row has a distinct double-click action so a
@@ -1730,7 +1730,7 @@ function toggleSidePanel() {
 
 function toggleAutoOpenDetailPanel() {
   settingsStore.updateEditorSettings({
-    objectBrowserAutoOpenDetailPanel: !settingsStore.editorSettings.objectBrowserAutoOpenDetailPanel,
+    objectBrowserAutoOpenDetailPanel: settingsStore.editorSettings.objectBrowserAutoOpenDetailPanel === false,
   });
 }
 
@@ -4761,7 +4761,7 @@ function getObjectBrowserMenuItems(item: ObjectBrowserRow): ContextMenuItem[] {
           <PanelRight class="h-3.5 w-3.5" />
           {{ isSidePanelOpen ? t("objects.closeDetailPanel") : t("objects.openDetailPanel") }}
         </DropdownMenuItem>
-        <DropdownMenuCheckboxItem :model-value="settingsStore.editorSettings.objectBrowserAutoOpenDetailPanel" @select.prevent @update:model-value="toggleAutoOpenDetailPanel()">{{ t("objects.autoOpenDetailPanel") }}</DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem :model-value="settingsStore.editorSettings.objectBrowserAutoOpenDetailPanel !== false" @select.prevent @update:model-value="toggleAutoOpenDetailPanel()">{{ t("objects.autoOpenDetailPanel") }}</DropdownMenuCheckboxItem>
         <template v-if="showObjectFilter && toolbarTier >= 2">
           <DropdownMenuSeparator />
           <DropdownMenuCheckboxItem v-for="filter in objectFilters" :key="filter" :model-value="objectFilter === filter" @select.prevent @update:model-value="selectObjectFilter(filter)">{{ filterLabel(filter) }} </DropdownMenuCheckboxItem>
