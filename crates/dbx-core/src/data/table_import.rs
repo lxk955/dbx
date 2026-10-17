@@ -8633,9 +8633,17 @@ mod tests {
             },
             crate::db::ColumnInfo { name: "name".to_string(), ..Default::default() },
         ];
+        // The Doris unique-key column still has to be mapped, like any key column —
+        // only the key discovery itself differs (is_unique instead of is_primary_key).
+        let mut doris_mappings = mappings.clone();
+        doris_mappings.push(TableImportColumnMapping {
+            source_column: "uid".to_string(),
+            target_column: "id".to_string(),
+            target_data_type: None,
+        });
         let doris_keys = update_existing_primary_key_columns(
             TableImportConflictPolicy::UpdateExisting,
-            &mappings,
+            &doris_mappings,
             &doris_unique_columns,
             &DatabaseType::Doris,
         )
