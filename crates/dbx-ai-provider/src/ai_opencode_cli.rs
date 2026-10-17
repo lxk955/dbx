@@ -118,7 +118,8 @@ pub fn resolve_opencode_version_fast(config: &AiConfig) -> OpenCodeVersion {
 
 pub fn is_unrecognized_pure_flag(message: &str) -> bool {
     let lower = message.to_ascii_lowercase();
-    lower.contains("--pure") && (lower.contains("unrecognized") || lower.contains("unknown") || lower.contains("unexpected"))
+    lower.contains("--pure")
+        && (lower.contains("unrecognized") || lower.contains("unknown") || lower.contains("unexpected"))
 }
 
 struct OpenCodeIsolatedCwd {
@@ -332,7 +333,10 @@ pub fn resolved_models_command(config: &AiConfig) -> Result<OpenCodeCommandSpec,
     resolved_models_command_for_version(config, version)
 }
 
-pub fn resolved_models_command_for_version(config: &AiConfig, version: OpenCodeVersion) -> Result<OpenCodeCommandSpec, String> {
+pub fn resolved_models_command_for_version(
+    config: &AiConfig,
+    version: OpenCodeVersion,
+) -> Result<OpenCodeCommandSpec, String> {
     let mut command = resolve_opencode_command(config)?;
     command.args.extend(["models".to_string(), "--verbose".to_string()]);
     if version == OpenCodeVersion::V1 {
@@ -346,7 +350,10 @@ pub fn resolved_run_command(config: &AiConfig) -> Result<OpenCodeCommandSpec, St
     resolved_run_command_for_version(config, version)
 }
 
-pub fn resolved_run_command_for_version(config: &AiConfig, version: OpenCodeVersion) -> Result<OpenCodeCommandSpec, String> {
+pub fn resolved_run_command_for_version(
+    config: &AiConfig,
+    version: OpenCodeVersion,
+) -> Result<OpenCodeCommandSpec, String> {
     let resolved = resolve_opencode_command(config)?;
     let mut command = build_opencode_command_for_version(config, version);
     command.program = resolved.program;
