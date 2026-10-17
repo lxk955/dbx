@@ -1991,11 +1991,9 @@ fn sql_copy_reports_selected_opaque_aggregate_states_before_generic_builder_erro
         column_default: None,
         extra: None,
     };
-    for extractor in [
-        DataGridExtractorId::SqlInserts,
-        DataGridExtractorId::SqlDeletesInserts,
-        DataGridExtractorId::SqlUpdates,
-    ] {
+    for extractor in
+        [DataGridExtractorId::SqlInserts, DataGridExtractorId::SqlDeletesInserts, DataGridExtractorId::SqlUpdates]
+    {
         let mut request = request(extractor);
         request.columns = vec![column("v2", 0)];
         request.selected_column_indexes = vec![0];

@@ -5,16 +5,15 @@ use super::{
 };
 use crate::data_grid_sql::{
     build_column_predicate, build_data_grid_copy_insert_statement_with_formatters,
-    build_data_grid_copy_insert_statements_with_formatters, build_data_grid_copy_update_statements,
-    column_info_for, data_grid_delete_sql, data_grid_generated_table_name, data_grid_statement,
-    format_grid_copy_insert_sql_literal, format_grid_sql_literal_with_identifier_quote,
-    is_auto_generated_column, is_grid_insert_omitted_column, is_non_identity_generated_column,
-    is_primary_key_column, supports_relational_copy_predicates, DataGridColumnInfo,
+    build_data_grid_copy_insert_statements_with_formatters, build_data_grid_copy_update_statements, column_info_for,
+    data_grid_delete_sql, data_grid_generated_table_name, data_grid_statement, format_grid_copy_insert_sql_literal,
+    format_grid_sql_literal_with_identifier_quote, is_auto_generated_column, is_grid_insert_omitted_column,
+    is_non_identity_generated_column, is_primary_key_column, supports_relational_copy_predicates, DataGridColumnInfo,
     DataGridCopyInsertMode, DataGridCopyInsertStatementOptions, DataGridCopyUpdateStatementOptions,
     DataGridPrimaryKeyMode, DataGridTableMeta,
 };
-use crate::sql_dialect::uses_single_row_insert_statements;
 use crate::models::connection::DatabaseType;
+use crate::sql_dialect::uses_single_row_insert_statements;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime};
 use dbx_types::types::is_opaque_aggregate_state_type;
 use serde_json::Value;
@@ -328,10 +327,8 @@ pub(super) fn write_sql_deletes_inserts(
     };
 
     let column_info = table_meta.columns.as_deref().unwrap_or(&[]);
-    let primary_key_info: Vec<Option<&DataGridColumnInfo>> = primary_key_indices
-        .iter()
-        .map(|(pk_name, _)| column_info_for(column_info, pk_name))
-        .collect();
+    let primary_key_info: Vec<Option<&DataGridColumnInfo>> =
+        primary_key_indices.iter().map(|(pk_name, _)| column_info_for(column_info, pk_name)).collect();
 
     let delete_statements: Vec<String> = context
         .request
@@ -364,11 +361,7 @@ pub(super) fn write_sql_deletes_inserts(
         || context.request.database_type.is_some_and(uses_single_row_insert_statements);
 
     let statements = if is_row_by_row && delete_statements.len() == insert_statements.len() {
-        delete_statements
-            .into_iter()
-            .zip(insert_statements)
-            .flat_map(|(del, ins)| [del, ins])
-            .collect::<Vec<_>>()
+        delete_statements.into_iter().zip(insert_statements).flat_map(|(del, ins)| [del, ins]).collect::<Vec<_>>()
     } else {
         let mut combined = delete_statements;
         combined.extend(insert_statements);
