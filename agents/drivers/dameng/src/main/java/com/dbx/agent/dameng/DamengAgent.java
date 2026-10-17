@@ -3069,11 +3069,16 @@ public final class DamengAgent extends AbstractJdbcAgent {
         if (schemaMatchesConnectedUser(schema)) {
             return true;
         }
+        // Short-circuit before the SYS_CONTEXT probe: when we don't know the connected username
+        // there is nothing to compare the probe result against, so skip the extra DB round-trip.
+        if (connectedUsername == null || connectedUsername.isBlank()) {
+            return true;
+        }
         String currentSchema = currentSchemaOrBlank();
         if (!currentSchema.isBlank()) {
             return schema.equalsIgnoreCase(currentSchema);
         }
-        return connectedUsername == null || connectedUsername.isBlank();
+        return false;
     }
 
     private void fillMissingColumnComments(String schema, String table, List<ColumnInfo> columns) {
