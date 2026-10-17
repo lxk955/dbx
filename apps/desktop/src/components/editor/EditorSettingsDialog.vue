@@ -508,12 +508,13 @@ function onLocaleOpenChange(open: boolean) {
   if (!open) restoreLocaleOptionPreview();
 }
 
-const appThemePaletteOptions = computed((): Array<{ value: AppThemePalette; label: string; previewColor: string }> =>
-  APP_THEME_PALETTES.map((palette) => ({
-    value: palette.value,
-    label: t(palette.labelKey),
-    previewColor: palette.previewColor,
-  })),
+const appThemePaletteOptions = computed(
+  (): Array<{ value: AppThemePalette; label: string; previewColor: string }> =>
+    APP_THEME_PALETTES.map((palette) => ({
+      value: palette.value,
+      label: t(palette.labelKey),
+      previewColor: palette.previewColor,
+    })),
 );
 const selectedThemePaletteOption = computed(() => appThemePaletteOptions.value.find((option) => option.value === themePalette.value) ?? appThemePaletteOptions.value[0]);
 const selectedLocaleOption = computed(() => LOCALE_OPTIONS.find((locale) => locale.value === currentLocale()) ?? LOCALE_OPTIONS[0]);
@@ -6221,6 +6222,7 @@ const aiEditPiAgentCliPath = ref("");
 const aiEditPiAgentCliEnvRows = ref<AiEnvRow[]>([]);
 const aiEditOpenCodeCliPath = ref("");
 const aiEditOpenCodeCliEnvRows = ref<AiEnvRow[]>([]);
+const aiEditOpenCodeCliVersion = ref("auto");
 const aiEditCursorCliPath = ref("");
 const aiEditCursorCliEnvRows = ref<AiEnvRow[]>([]);
 const aiEditGrokCliPath = ref("");
@@ -6511,6 +6513,7 @@ function currentAiEditConfig() {
     piAgentCliEnv: aiIsPiAgentCli.value ? cliEnvFromRows(aiEditPiAgentCliEnvRows.value) : {},
     opencodeCliPath: aiEditOpenCodeCliPath.value.trim() || undefined,
     opencodeCliEnv: aiIsOpenCodeCli.value ? cliEnvFromRows(aiEditOpenCodeCliEnvRows.value) : {},
+    opencodeCliVersion: aiIsOpenCodeCli.value ? aiEditOpenCodeCliVersion.value || undefined : undefined,
     cursorCliPath: aiEditCursorCliPath.value.trim() || undefined,
     cursorCliEnv: aiIsCursorCli.value ? cliEnvFromRows(aiEditCursorCliEnvRows.value) : {},
     grokCliPath: aiEditGrokCliPath.value.trim() || undefined,
@@ -6552,6 +6555,7 @@ function aiSelectProvider(presetId: string) {
   aiEditSkipTlsVerify.value = false;
   aiEditEnableThinking.value = true;
   aiEditReasoningLevel.value = "default";
+  aiEditOpenCodeCliVersion.value = "auto";
   if (CLI_AI_PROVIDERS.has(provider)) void ensureCliMcpStatus();
 }
 
@@ -6603,6 +6607,7 @@ function aiEnterEditMode(configId?: string) {
       aiEditPiAgentCliEnvRows.value = aiEnvRowsFromConfig(config.piAgentCliEnv);
       aiEditOpenCodeCliPath.value = config.opencodeCliPath ?? "";
       aiEditOpenCodeCliEnvRows.value = aiEnvRowsFromConfig(config.opencodeCliEnv);
+      aiEditOpenCodeCliVersion.value = config.opencodeCliVersion ?? "auto";
       aiEditCursorCliPath.value = config.cursorCliPath ?? "";
       aiEditCursorCliEnvRows.value = aiEnvRowsFromConfig(config.cursorCliEnv);
       aiEditGrokCliPath.value = config.grokCliPath ?? "";
@@ -6638,6 +6643,7 @@ function aiEnterEditMode(configId?: string) {
     aiEditPiAgentCliEnvRows.value = [];
     aiEditOpenCodeCliPath.value = "";
     aiEditOpenCodeCliEnvRows.value = [];
+    aiEditOpenCodeCliVersion.value = "auto";
     aiEditCursorCliPath.value = "";
     aiEditCursorCliEnvRows.value = [];
     aiEditGrokCliPath.value = "";
@@ -10656,7 +10662,8 @@ onUnmounted(() => {
 SELECT t.*
 FROM ${1:table} t
 WHERE t.del_flag = 0
-LIMIT 100;</pre>
+LIMIT 100;</pre
+                >
               </div>
 
               <div class="overflow-x-auto rounded-md border">
@@ -11748,6 +11755,26 @@ LIMIT 100;</pre>
                     </p>
                     <p v-if="aiCliPathError" class="text-[11px] text-destructive">
                       {{ aiCliPathError }}
+                    </p>
+                  </div>
+                </div>
+
+                <!-- OpenCode CLI Version -->
+                <div v-if="!aiIsCcSwitchProvider && aiIsOpenCodeCli" class="grid grid-cols-3 items-start gap-3">
+                  <Label class="pt-2 text-right text-xs">{{ t("ai.openCodeCliVersion") }}</Label>
+                  <div class="col-span-2 space-y-1.5">
+                    <Select v-model="aiEditOpenCodeCliVersion">
+                      <SelectTrigger class="h-8 text-xs">
+                        <SelectValue :placeholder="t('ai.openCodeCliVersionAuto')" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">{{ t("ai.openCodeCliVersionAuto") }}</SelectItem>
+                        <SelectItem value="v2">{{ t("ai.openCodeCliVersionV2") }}</SelectItem>
+                        <SelectItem value="v1">{{ t("ai.openCodeCliVersionV1") }}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p class="text-[11px] text-muted-foreground">
+                      {{ t("ai.openCodeCliVersionHint") }}
                     </p>
                   </div>
                 </div>
