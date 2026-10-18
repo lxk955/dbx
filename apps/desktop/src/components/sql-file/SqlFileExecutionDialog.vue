@@ -760,6 +760,7 @@ async function startExecution() {
   const taskLabel = previews.value.length === 1 ? previews.value[0]!.fileName : `${previews.value[0]!.fileName} (+${previews.value.length - 1})`;
   activeExecutionTask.value = addSqlFileTask(batchId, taskLabel, filePathDisplay.value);
   let completedSuccessfully = false;
+  let terminal: SqlFileProgress | null = null;
 
   try {
     await store.ensureConnected(connectionId.value);
@@ -857,7 +858,8 @@ async function startExecution() {
         },
         executionPaths,
       );
-      const terminal = await terminalProgress;
+      terminal = await terminalProgress;
+      progress.value = terminal;
       if (terminal.status === "error") {
         throw new Error(terminal.error || "SQL file execution failed");
       }
@@ -884,9 +886,10 @@ async function startExecution() {
       }
       if (!txnSessionId.value) {
         await refreshTargetAfterImport(target);
-        const failureCount = progress.value?.failureCount ?? 0;
+        const finalProgress = terminal ?? progress.value;
+        const failureCount = finalProgress?.failureCount ?? 0;
         if (failureCount > 0) {
-          toast(t("sqlFile.completedWithErrors", { succeeded: progress.value?.successCount ?? 0, failed: failureCount }), 5000);
+          toast(t("sqlFile.completedWithErrors", { succeeded: finalProgress?.successCount ?? 0, failed: failureCount }), 5000);
         } else {
           toast(t("sqlFile.executeSuccess"), 3000);
           open.value = false;
