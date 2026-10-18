@@ -98,5 +98,15 @@ describe("driver install progress channels", () => {
         t,
       ),
     ).toBe("Downloading driver  10.0 MB / 20.0 MB  (50%)");
+    expect(
+      formatDriverInstallProgressText(
+        {
+          step: "driver",
+          downloaded: 512 * 1024,
+          total: 2 * 1024 * 1024,
+        },
+        t,
+      ),
+    ).toBe("Downloading driver  512 KB / 2.0 MB  (25%)");
   });
 });

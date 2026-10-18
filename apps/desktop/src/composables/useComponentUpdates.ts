@@ -159,7 +159,7 @@ export function useComponentUpdates(options: { isDesktop: boolean }) {
         unlisten = await api.listenAgentInstallProgress((payload) => {
           const incoming = payload as DriverInstallProgress;
           if (!isDriverInstallProgressForOperation(incoming, operationId)) return;
-          if (incoming.total_drivers && !driverBatchTotal.value) {
+          if (incoming.total_drivers) {
             driverBatchTotal.value = incoming.total_drivers;
           }
           if (incoming.step === "done" && incoming.db_type) {
