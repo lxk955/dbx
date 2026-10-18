@@ -252,6 +252,15 @@ async function finishTransaction(commit: boolean) {
       if (progress.value) updateSqlFileTask(executionId.value, { ...progress.value, status: terminalStatus.value });
     }
     await refreshTargetAfterImport(sqlFileExecutionTarget());
+    if (committed && !outcomeUnknown) {
+      const failureCount = progress.value?.failureCount ?? 0;
+      if (failureCount > 0) {
+        toast(t("sqlFile.completedWithErrors", { succeeded: progress.value?.successCount ?? 0, failed: failureCount }), 5000);
+      } else {
+        toast(t("sqlFile.executeSuccess"), 3000);
+        open.value = false;
+      }
+    }
     return true;
   } catch (error: any) {
     toast(error?.message || String(error), 5000);
@@ -873,7 +882,16 @@ async function startExecution() {
           }
         }
       }
-      if (!txnSessionId.value) await refreshTargetAfterImport(target);
+      if (!txnSessionId.value) {
+        await refreshTargetAfterImport(target);
+        const failureCount = progress.value?.failureCount ?? 0;
+        if (failureCount > 0) {
+          toast(t("sqlFile.completedWithErrors", { succeeded: progress.value?.successCount ?? 0, failed: failureCount }), 5000);
+        } else {
+          toast(t("sqlFile.executeSuccess"), 3000);
+          open.value = false;
+        }
+      }
     }
   } catch (e: any) {
     terminalStatus.value = cancelRequested.value ? "cancelled" : "error";
