@@ -4537,6 +4537,7 @@ async fn export_database_sql_core_inner(
                     &ObjectSourceKind::Sequence,
                     &sequence.name,
                     &obj_source.source,
+                    &request.schema,
                     request.drop_table_if_exists,
                 );
                 if !source.is_empty() {
@@ -4980,6 +4981,7 @@ async fn export_database_sql_core_inner(
                         &ObjectSourceKind::View,
                         view_name,
                         &obj_source.source,
+                        &request.schema,
                         request.drop_table_if_exists,
                     );
                     if !source.is_empty() {
@@ -5039,6 +5041,7 @@ async fn export_database_sql_core_inner(
                         &ObjectSourceKind::Procedure,
                         proc_name,
                         &obj_source.source,
+                        &request.schema,
                         request.drop_table_if_exists,
                     );
                     if !source.is_empty() {
@@ -5098,6 +5101,7 @@ async fn export_database_sql_core_inner(
                         &ObjectSourceKind::Function,
                         func_name,
                         &obj_source.source,
+                        &request.schema,
                         request.drop_table_if_exists,
                     );
                     if !source.is_empty() {
@@ -5163,6 +5167,7 @@ async fn export_database_sql_core_inner(
                         &object_type,
                         object_name,
                         &obj_source.source,
+                        &request.schema,
                         request.drop_table_if_exists,
                     );
                     if !source.is_empty() {
@@ -5258,6 +5263,7 @@ fn build_database_export_object_source_sql(
     object_type: &ObjectSourceKind,
     object_name: &str,
     source: &str,
+    schema: &str,
     drop_if_exists: bool,
 ) -> String {
     let wrapped_source;
@@ -5266,12 +5272,23 @@ fn build_database_export_object_source_sql(
     {
         wrapped_source = crate::object_source_sql::build_view_ddl_sql(crate::object_source_sql::BuildViewDdlInput {
             database_type: Some(database_type),
-            schema: None,
+            schema: Some(schema.to_string()),
             name: object_name.to_string(),
             source: source.to_string(),
             identifier_quote: None,
         });
         &wrapped_source
+    } else {
+        source
+    };
+    // 独立序列在表之前导出，而 agent 序列源内嵌的 `alter sequence ... owned by`
+    // 引用所属表，重放时表还不存在；导出侧直接去掉该语句（DBeaver 同样不导出 OWNED BY）。
+    let stripped_source;
+    let source = if matches!(object_type, ObjectSourceKind::Sequence)
+        && matches!(database_type, DatabaseType::Kingbase | DatabaseType::Vastbase)
+    {
+        stripped_source = strip_agent_sequence_owned_by(source);
+        &stripped_source
     } else {
         source
     };
@@ -5297,6 +5314,20 @@ fn build_database_export_object_source_sql(
     };
     let object_name = quote_identifier(object_name, &DatabaseType::Mysql);
     format!("DROP {object_type} IF EXISTS {object_name};\n{source}")
+}
+
+/// agent 序列源以空行分块（create sequence / alter ... owner to / alter ... owned by），
+/// 导出时整块剔除 `owned by` 语句，其余内容原样保留。
+fn strip_agent_sequence_owned_by(source: &str) -> String {
+    let mut kept: Vec<&str> = Vec::new();
+    for block in source.split("\n\n") {
+        let lower = block.trim().to_ascii_lowercase();
+        if lower.starts_with("alter sequence ") && lower.contains(" owned by ") {
+            continue;
+        }
+        kept.push(block);
+    }
+    kept.join("\n\n")
 }
 
 #[cfg(test)]
@@ -5740,11 +5771,29 @@ mod tests {
             &ObjectSourceKind::View,
             "v_active_users",
             view_def,
+            "public",
             false,
         );
         assert!(ddl.starts_with(
-            "CREATE OR REPLACE VIEW \"v_active_users\" AS\nSELECT id, name FROM public.users WHERE active = true;"
+            "CREATE OR REPLACE VIEW \"public\".\"v_active_users\" AS\nSELECT id, name FROM public.users WHERE active = true;"
         ));
+    }
+
+    #[test]
+    fn agent_sequence_owned_by_is_stripped_from_kingbase_export() {
+        let source = "-- auto-generated definition\ncreate sequence permissions_id_seq\n    increment by 1\n    minvalue 1\n    maxvalue 9223372036854775807\n    start with 1\n    no cycle;\n\nalter sequence permissions_id_seq owner to app_user;\n\nalter sequence permissions_id_seq owned by permissions.id;";
+        let ddl = build_database_export_object_source_sql(
+            DatabaseType::Kingbase,
+            &ObjectSourceKind::Sequence,
+            "permissions_id_seq",
+            source,
+            "public",
+            false,
+        );
+        // 独立序列在表之前写入导出文件，owned by 引用的表此时还不存在。
+        assert!(!ddl.to_ascii_lowercase().contains("owned by"));
+        assert!(ddl.contains("alter sequence permissions_id_seq owner to app_user;"));
+        assert!(ddl.contains("create sequence permissions_id_seq"));
     }
 
     #[test]
@@ -5755,6 +5804,7 @@ mod tests {
             &ObjectSourceKind::View,
             "v_users",
             view_def,
+            "public",
             false,
         );
         assert_eq!(ddl, "CREATE VIEW \"v_users\" AS SELECT id FROM public.users;");
@@ -5775,6 +5825,7 @@ mod tests {
                 &ObjectSourceKind::Trigger,
                 "trg_orders_ai",
                 trigger,
+                "public",
                 true
             ),
             format!(
@@ -5788,6 +5839,7 @@ mod tests {
                 &ObjectSourceKind::Event,
                 "ev_purge",
                 event,
+                "public",
                 true
             ),
             format!(
@@ -5802,6 +5854,7 @@ mod tests {
                 &ObjectSourceKind::Trigger,
                 "trg_orders_ai",
                 trigger,
+                "public",
                 false
             ),
             build_export_object_source_sql(DatabaseType::Mysql, ObjectSourceKind::Trigger, &stripped_trigger)
@@ -5820,6 +5873,7 @@ mod tests {
                 &ObjectSourceKind::View,
                 "mysql_table",
                 view,
+                "public",
                 true
             ),
             "DROP VIEW IF EXISTS `mysql_table`;\nCREATE ALGORITHM=UNDEFINED SQL SECURITY DEFINER VIEW `mysql_table` AS select 1;"
@@ -5832,7 +5886,14 @@ mod tests {
         let view = "CREATE DEFINER=`root`@`%` VIEW `v` AS select 1";
 
         assert_eq!(
-            build_database_export_object_source_sql(DatabaseType::Doris, &ObjectSourceKind::View, "v", view, true),
+            build_database_export_object_source_sql(
+                DatabaseType::Doris,
+                &ObjectSourceKind::View,
+                "v",
+                view,
+                "public",
+                true
+            ),
             "CREATE VIEW `v` AS select 1;"
         );
     }
@@ -5844,7 +5905,14 @@ mod tests {
         let view = "CREATE DEFINER=`root`@`%` VIEW public.v AS SELECT 1";
 
         assert_eq!(
-            build_database_export_object_source_sql(DatabaseType::Postgres, &ObjectSourceKind::View, "v", view, true),
+            build_database_export_object_source_sql(
+                DatabaseType::Postgres,
+                &ObjectSourceKind::View,
+                "v",
+                view,
+                "public",
+                true
+            ),
             "CREATE DEFINER=`root`@`%` VIEW public.v AS SELECT 1;"
         );
     }
@@ -6200,6 +6268,7 @@ mod tests {
             &ObjectSourceKind::View,
             "active`rows",
             "CREATE VIEW `active``rows` AS SELECT 1",
+            "public",
             true,
         );
 
@@ -6213,6 +6282,7 @@ mod tests {
             &ObjectSourceKind::Procedure,
             "refresh_cache",
             "CREATE PROCEDURE `refresh_cache`() BEGIN SELECT 1; END",
+            "public",
             true,
         );
         let function = build_database_export_object_source_sql(
@@ -6220,6 +6290,7 @@ mod tests {
             &ObjectSourceKind::Function,
             "active_count",
             "CREATE FUNCTION `active_count`() RETURNS INT RETURN 1",
+            "public",
             true,
         );
 
@@ -6240,6 +6311,7 @@ mod tests {
             &ObjectSourceKind::View,
             "active_rows",
             "CREATE VIEW `active_rows` AS SELECT 1",
+            "public",
             false,
         );
         let postgres_with_drop = build_database_export_object_source_sql(
@@ -6247,6 +6319,7 @@ mod tests {
             &ObjectSourceKind::View,
             "active_rows",
             "CREATE VIEW active_rows AS SELECT 1",
+            "public",
             true,
         );
 

@@ -326,8 +326,11 @@ async function loadTables(preferredTable = "", preferredTables: string[] = []) {
     const tableInfos = await api.listTables(connectionId.value, database.value, schema.value);
     const names = sortDatabaseTableNames(tableInfos.map((table) => table.name));
     tables.value = names;
-    const preferredSet = new Set(preferredTables.filter((name) => names.includes(name)));
-    const nonTablePrefills = preferredTables.filter((name) => !names.includes(name));
+    // Kingbase 系的 listTables 同时返回视图（relkind v/m）；预填里命中视图的项
+    // 必须走 include_objects 通道，否则后端对象门会静默丢弃它们。
+    const viewTypeNames = new Set(tableInfos.filter((table) => table.table_type.toUpperCase().includes("VIEW")).map((table) => table.name));
+    const preferredSet = new Set(preferredTables.filter((name) => names.includes(name) && !viewTypeNames.has(name)));
+    const nonTablePrefills = preferredTables.filter((name) => !names.includes(name) || viewTypeNames.has(name));
     if (nonTablePrefills.length > 0) {
       includeObjects.value = true;
     }
