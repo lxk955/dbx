@@ -53,7 +53,6 @@ const emit = defineEmits<{
   openFilesystem: [pluginId: string, providerId: string, context?: PluginWorkbenchContext];
   closeTab: [];
   recommendations: [update: PluginAiRecommendationHostUpdate];
-  setTitle: [title: string | null];
 }>();
 
 const { t, locale: appLocale } = useI18n();
@@ -527,14 +526,22 @@ function createBridge() {
       ...(isTauriRuntime() ? aiCompletion : {}),
       setAiRecommendations: (update) => emit("recommendations", update),
       openWorkbench: async (pluginId, contributionId, context, options) => emit("openWorkbench", pluginId, contributionId, context, options),
-      setTitle: async (newTitle: string | null) => {
-        emit("setTitle", newTitle);
-        if (props.setTitle) await props.setTitle(newTitle);
-      },
-      getTitle: async () => {
-        if (props.getTitle) return await props.getTitle();
-        return title.value;
-      },
+      // Only expose the title APIs on surfaces that implement them (workbench
+      // tab and dock hosts pass the props); the bridge derives the
+      // `workbenchTitle` capability from their presence, so floating windows
+      // and sidebar hosts must not advertise a silent no-op.
+      ...(props.setTitle
+        ? {
+            setTitle: async (newTitle: string | null) => {
+              await props.setTitle(newTitle);
+            },
+          }
+        : {}),
+      ...(props.getTitle
+        ? {
+            getTitle: async () => await props.getTitle(),
+          }
+        : {}),
       // §4/§5 bridge command execution, scoped to this plugin's own manifest:
       // the single-plugin registry is equivalent here because findCommand /
       // findWorkbench / enablement never cross plugins. Panel commands dock,

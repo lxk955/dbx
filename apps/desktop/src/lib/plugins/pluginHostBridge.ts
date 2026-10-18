@@ -794,7 +794,7 @@ export class PluginHostBridge {
     if (method === "host.setTitle") {
       this.requirePermission("host.workbench");
       if (!this.api.setTitle) throw new Error("Host tab title update is unavailable");
-      const input = isRecord(params) ? params : {};
+      const input = requireRecord(params, "setTitle params");
       const rawTitle = input.title;
       const title = typeof rawTitle === "string" ? rawTitle.trim().slice(0, 256) || null : null;
       await this.api.setTitle(title);

@@ -23,7 +23,6 @@ const { t, locale: appLocale } = useI18n();
 const emit = defineEmits<{
   closeTab: [];
   recommendations: [update: PluginAiRecommendationHostUpdate];
-  setTitle: [title: string | null];
 }>();
 const connectionStore = useConnectionStore();
 const queryStore = useQueryStore();
@@ -150,7 +149,6 @@ function onSetTitle(title: string | null) {
   if (props.tabId) {
     queryStore.setPluginWorkbenchTabTitle(props.tabId, title);
   }
-  emit("setTitle", title);
 }
 
 function onGetTitle(): string {
@@ -186,7 +184,6 @@ defineExpose({ refresh });
       @open-filesystem="openFilesystem"
       @close-tab="emit('closeTab')"
       @recommendations="emit('recommendations', $event)"
-      @set-title="emit('setTitle', $event)"
     />
   </div>
 </template>
