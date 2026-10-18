@@ -3077,7 +3077,8 @@ export default withEnglishFallback({
     tableDataPreviewLoadFailed: "Falha ao carregar o texto completo: {message}",
     searchValuesOrCountTooltip: "Pesquisar valores ou filtrar por quantidade (ex.: >1, >=2, =1, count>1)",
     filterDuplicates: "Filtrar duplicados por quantidade (>1)",
-    filterUniques: "Filtrar únicos por quantidade (=1)",  },
+    filterUniques: "Filtrar únicos por quantidade (=1)",
+  },
   exportProgress: {
     streamingUnsupported: "A exportação em streaming não é compatível com esta consulta. Simplifique-a ou use um driver compatível.",
     agentSessionMissing: "A exportação em streaming requer uma sessão de conjunto de resultados, mas este driver não retornou session_id.",

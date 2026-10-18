@@ -3101,7 +3101,8 @@ export default withEnglishFallback({
     tableDataPreviewLoadFailed: "完全なテキストの読み込みに失敗しました：{message}",
     searchValuesOrCountTooltip: "値の検索または件数による絞り込み（例: >1, >=2, =1, count>1）",
     filterDuplicates: "件数による重複項目の絞り込み（>1）",
-    filterUniques: "件数による一意項目の絞り込み（=1）",  },
+    filterUniques: "件数による一意項目の絞り込み（=1）",
+  },
   exportProgress: {
     streamingUnsupported: "このクエリはストリーミングエクスポートに対応していません。クエリを簡略化するか、対応しているドライバーを使用してください。",
     agentSessionMissing: "ストリーミングエクスポートには結果セットのセッションが必要ですが、このドライバーは session_id を返しませんでした。",

@@ -3161,7 +3161,8 @@ export default withEnglishFallback({
     tableDataPreviewLoadFailed: "Не удалось загрузить полный текст: {message}",
     searchValuesOrCountTooltip: "Поиск значений или фильтрация по количеству (например, >1, >=2, =1, count>1)",
     filterDuplicates: "Фильтровать дубликаты по количеству (>1)",
-    filterUniques: "Фильтровать уникальные элементы по количеству (=1)",  },
+    filterUniques: "Фильтровать уникальные элементы по количеству (=1)",
+  },
   exportProgress: {
     streamingUnsupported: "Потоковый экспорт не поддерживается для этого запроса. Упростите его или используйте поддерживаемый драйвер.",
     agentSessionMissing: "Для потокового экспорта требуется сессия набора результатов, но этот драйвер не вернул session_id.",

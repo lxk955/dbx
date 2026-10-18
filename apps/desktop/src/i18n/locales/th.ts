@@ -3385,7 +3385,8 @@ export default withEnglishFallback({
     tableDataPreviewLoadFailed: "โหลดข้อความฉบับเต็มไม่สำเร็จ: {message}",
     searchValuesOrCountTooltip: "ค้นหาค่าหรือกรองตามจำนวน (เช่น >1, >=2, =1, count>1)",
     filterDuplicates: "กรองรายการที่ซ้ำกันตามจำนวน (>1)",
-    filterUniques: "กรองรายการที่ไม่ซ้ำกันตามจำนวน (=1)",  },
+    filterUniques: "กรองรายการที่ไม่ซ้ำกันตามจำนวน (=1)",
+  },
   exportProgress: {
     streamingUnsupported: "ไม่รองรับการส่งออกแบบ Streaming สำหรับ Query นี้ ทำให้เรียบง่ายขึ้นหรือใช้ Driver ที่รองรับ",
     agentSessionMissing: "การส่งออกแบบ Streaming ต้องใช้เซสชันชุดผลลัพธ์ แต่ Driver นี้ไม่ส่ง session_id กลับมา",
