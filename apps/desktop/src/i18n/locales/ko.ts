@@ -3025,7 +3025,9 @@ export default withEnglishFallback({
     tableDataPreviewDismiss: "다시 표시하지 않음",
     tableDataPreviewLoaded: "현재 페이지의 전체 텍스트 셀 {count}개를 불러왔습니다",
     tableDataPreviewLoadFailed: "전체 텍스트를 불러오지 못했습니다: {message}",
-  },
+    searchValuesOrCountTooltip: "값 검색 또는 개수로 필터링(예: >1, >=2, =1, count>1)",
+    filterDuplicates: "개수로 중복 항목 필터링(>1)",
+    filterUniques: "개수로 고유 항목 필터링(=1)",  },
   exportProgress: {
     streamingUnsupported: "이 쿼리는 스트리밍 내보내기를 지원하지 않습니다. 쿼리를 단순화하거나 지원되는 드라이버를 사용하세요.",
     agentSessionMissing: "스트리밍 내보내기에는 결과 집합 세션이 필요하지, 이 드라이버는 session_id를 반환하지 않았습니다.",

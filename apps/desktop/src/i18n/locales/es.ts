@@ -3202,7 +3202,9 @@ export default withEnglishFallback({
     tableDataPreviewDismiss: "No volver a mostrar",
     tableDataPreviewLoaded: "Se cargaron {count} celdas con texto completo de la página actual",
     tableDataPreviewLoadFailed: "Error al cargar el texto completo: {message}",
-  },
+    searchValuesOrCountTooltip: "Buscar valores o filtrar por cantidad (p. ej., >1, >=2, =1, count>1)",
+    filterDuplicates: "Filtrar duplicados por cantidad (>1)",
+    filterUniques: "Filtrar elementos únicos por cantidad (=1)",  },
   exportProgress: {
     streamingUnsupported: "La exportación en streaming no es compatible con esta consulta. Simplifíquela o use un controlador compatible.",
     agentSessionMissing: "La exportación en streaming requiere una sesión de conjunto de resultados, pero este controlador no devolvió session_id.",

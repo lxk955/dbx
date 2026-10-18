@@ -3075,7 +3075,9 @@ export default withEnglishFallback({
     tableDataPreviewDismiss: "Non mostrare più",
     tableDataPreviewLoaded: "Caricate {count} celle con testo completo nella pagina corrente",
     tableDataPreviewLoadFailed: "Impossibile caricare il testo completo: {message}",
-  },
+    searchValuesOrCountTooltip: "Cerca valori o filtra per conteggio (ad es. >1, >=2, =1, count>1)",
+    filterDuplicates: "Filtra i duplicati per conteggio (>1)",
+    filterUniques: "Filtra gli unici per conteggio (=1)",  },
   exportProgress: {
     streamingUnsupported: "L'esportazione in streaming non è supportata per questa query. Semplificala o usa un driver supportato.",
     agentSessionMissing: "L'esportazione in streaming richiede una sessione del set di risultati, ma questo driver non ha restituito session_id.",
