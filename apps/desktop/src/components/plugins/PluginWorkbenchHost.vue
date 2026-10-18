@@ -530,18 +530,24 @@ function createBridge() {
       // tab and dock hosts pass the props); the bridge derives the
       // `workbenchTitle` capability from their presence, so floating windows
       // and sidebar hosts must not advertise a silent no-op.
-      ...(props.setTitle
-        ? {
-            setTitle: async (newTitle: string | null) => {
-              await props.setTitle(newTitle);
-            },
-          }
-        : {}),
-      ...(props.getTitle
-        ? {
-            getTitle: async () => await props.getTitle(),
-          }
-        : {}),
+      ...(() => {
+        const setTitleProp = props.setTitle;
+        const getTitleProp = props.getTitle;
+        return {
+          ...(setTitleProp
+            ? {
+                setTitle: async (newTitle: string | null) => {
+                  await setTitleProp(newTitle);
+                },
+              }
+            : {}),
+          ...(getTitleProp
+            ? {
+                getTitle: async () => await getTitleProp(),
+              }
+            : {}),
+        };
+      })(),
       // §4/§5 bridge command execution, scoped to this plugin's own manifest:
       // the single-plugin registry is equivalent here because findCommand /
       // findWorkbench / enablement never cross plugins. Panel commands dock,
