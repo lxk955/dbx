@@ -18,7 +18,6 @@ vi.mock("@/lib/backend/api", async (importOriginal) => {
 import SidebarTreeRuntimeHost from "@/components/sidebar/SidebarTreeRuntimeHost.vue";
 import { useConnectionStore } from "@/stores/connectionStore";
 import { useQueryStore } from "@/stores/queryStore";
-import { useSettingsStore } from "@/stores/settingsStore";
 
 const node = (type: TreeNode["type"], label: string, extra?: Partial<TreeNode>): TreeNode => ({
   id: `test-conn:db:${type}:${label}`,
