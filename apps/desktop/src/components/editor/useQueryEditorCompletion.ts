@@ -5,6 +5,7 @@ import type { EditorView as EditorViewType } from "@codemirror/view";
 import { type QueryCompletionItem, type BatchColumnSelectionActionItem } from "./useQueryEditorBatchSelection";
 import type { CompletionMetadataScope } from "./queryEditorTypes";
 import { completionMatchRanges } from "@/lib/common/completionMatch";
+import { matchesIdentifierSearch } from "@/lib/sql/identifierSearch";
 import {
   buildSqlCompletionItemsFromContext,
   buildPostgresSequenceLiteralCompletionItems,
@@ -326,6 +327,13 @@ export function useQueryEditorCompletion(options: QueryEditorCompletionOptions) 
     return buildCompletionResult(actions.length > 0 ? [...replacement.items, ...actions] : replacement.items, replacement.from, getSqlCompletionResultValidFor(fullDoc, position), completionContext.prefix);
   }
 
+  function itemHasHanText(item: QueryCompletionItem | BatchColumnSelectionActionItem): boolean {
+    if (/\p{Script=Han}/u.test(item.label)) return true;
+    if ("comment" in item && typeof item.comment === "string" && /\p{Script=Han}/u.test(item.comment)) return true;
+    if (typeof item.detail === "string" && /\p{Script=Han}/u.test(item.detail)) return true;
+    return false;
+  }
+
   // CodeMirror's built-in matcher only matches single-character queries against
   // the label start, and cannot match pinyin initials against Han labels. Our
   // provider already filters and ranks items itself (substring + pinyin), so
@@ -333,7 +341,14 @@ export function useQueryEditorCompletion(options: QueryEditorCompletionOptions) 
   function shouldBypassCompletionFilter(prefix: string, items: Array<QueryCompletionItem | BatchColumnSelectionActionItem>): boolean {
     if (!prefix) return false;
     if (/\p{Script=Han}/u.test(prefix)) return true;
-    return /^[a-z0-9]+$/i.test(prefix) && items.some((item) => /\p{Script=Han}/u.test(item.label));
+    if (/^[a-z0-9]+$/i.test(prefix) && items.some(itemHasHanText)) return true;
+    return items.some((item) => {
+      const renderedLabel = "displayLabel" in item && typeof item.displayLabel === "string" ? item.displayLabel : item.label;
+      if (renderedLabel.toLowerCase().startsWith(prefix.toLowerCase())) return false;
+      if ("comment" in item && typeof item.comment === "string" && matchesIdentifierSearch(item.comment, prefix)) return true;
+      if (typeof item.detail === "string" && matchesIdentifierSearch(item.detail, prefix)) return true;
+      return false;
+    });
   }
 
   function completionItemsForBypassedFilter(prefix: string, items: Array<QueryCompletionItem | BatchColumnSelectionActionItem>): Array<QueryCompletionItem | BatchColumnSelectionActionItem> {
@@ -344,7 +359,11 @@ export function useQueryEditorCompletion(options: QueryEditorCompletionOptions) 
       // prefix, otherwise checked columns cannot be applied from that menu.
       if (isBatchColumnSelectionAction(item)) return true;
       const renderedLabel = "displayLabel" in item && typeof item.displayLabel === "string" ? item.displayLabel : item.label;
-      return /\p{Script=Han}/u.test(item.label) || renderedLabel.toLowerCase().startsWith(normalized);
+      if (renderedLabel.toLowerCase().startsWith(normalized)) return true;
+      if (itemHasHanText(item)) return true;
+      if ("comment" in item && typeof item.comment === "string" && matchesIdentifierSearch(item.comment, prefix)) return true;
+      if (typeof item.detail === "string" && matchesIdentifierSearch(item.detail, prefix)) return true;
+      return false;
     });
   }
 
