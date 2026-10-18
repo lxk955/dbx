@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { reactive, readonly } from "vue";
 import { MAX_CONCURRENT_PLUGIN_DATA_QUERIES, PLUGIN_CLIPBOARD_AUDIT_CAPACITY, PluginHostBridge, clipboardReadGateAllows, createClipboardReadGate, pluginSandboxDocument, pluginSdkSource, recordClipboardRead } from "./pluginHostBridge";
 import type { InstalledPlugin, PluginResultViewContribution, PluginWorkbenchContribution } from "@/types/database";
+import type { PluginConnectionSummary } from "@/types/pluginConnection";
 
 function plugin(permissions: string[] = [], contributions: InstalledPlugin["manifest"]["contributions"] = []): InstalledPlugin {
   return {
@@ -17,7 +18,7 @@ describe("PluginHostBridge", () => {
   it("host.listConnections returns a read-only secret-free list scoped to the calling plugin", async () => {
     const messages: unknown[] = [];
     const target = { postMessage: (message: unknown) => messages.push(message) } as unknown as Window;
-    const listConnections = vi.fn(() => [{ id: "conn-1", name: "Prod", providerId: "sample.connection", connectionType: "sample", readOnly: true }]);
+    const listConnections = vi.fn((_pluginId?: string, _options?: { all?: boolean }): PluginConnectionSummary[] => [{ id: "conn-1", name: "Prod", dbType: "sample", dialect: "sample", connected: true, isConnected: true, providerId: "sample.connection", connectionType: "sample", readOnly: true }]);
     const contributions = [
       { type: "connection-provider", id: "sample.connection", label: "Sample", database_type: "sample", fields: [] },
       { type: "workbench", id: "sample.main", label: "Sample" },
