@@ -453,11 +453,11 @@ public final class DdlBuilder {
             return null;
         }
         int nullIdx = defaultValue.indexOf('\0');
-        if (nullIdx >= 0) {
-            defaultValue = defaultValue.substring(0, nullIdx);
+        if (nullIdx < 0) {
+            return defaultValue;
         }
-        defaultValue = defaultValue.trim();
-        return defaultValue.isEmpty() ? null : defaultValue;
+        String truncated = defaultValue.substring(0, nullIdx).trim();
+        return truncated.isEmpty() ? null : truncated;
     }
 
     private static boolean notBlank(String value) {
