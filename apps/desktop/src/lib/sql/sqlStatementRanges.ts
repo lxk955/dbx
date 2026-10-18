@@ -295,9 +295,8 @@ const SET_OPERATION_MODIFIER_KEYWORDS = new Set(["ALL", "DISTINCT"]);
 // Mirrors the backend list in dbx-core/src/sql.rs is_oracle_like_database — keep both
 // in sync. ArgoDB (Transwarp Hive/Inceptor fork) ships a PL/SQL-compatible procedure
 // language (`CREATE [OR REPLACE] PROCEDURE ... IS BEGIN ... END;`), so its statement
-// ranges must stay whole instead of splitting at every body semicolon. Users also connect
-// to ArgoDB/Inceptor/Oracle/etc. via generic "jdbc" or "hive" drivers (#12321).
-const ORACLE_LIKE_PL_SQL_DATABASES: ReadonlySet<DatabaseType> = new Set(["oracle", "dameng", "gaussdb", "yashandb", "oscar", "oceanbase-oracle", "xugu", "argo", "transwarp", "jdbc", "hive"]);
+// ranges must stay whole instead of splitting at every body semicolon.
+const ORACLE_LIKE_PL_SQL_DATABASES: ReadonlySet<DatabaseType> = new Set(["oracle", "dameng", "gaussdb", "yashandb", "oscar", "oceanbase-oracle", "xugu", "argo", "transwarp"]);
 const MYSQL_ROUTINE_BLOCK_DATABASES: ReadonlySet<DatabaseType> = new Set(["mysql", "doris", "starrocks", "manticoresearch", "goldendb"]);
 // PostgreSQL/openGauss are also the connection types users pick for GaussDB/openGauss instances
 // running in Oracle (A) compatibility mode, where a routine body is written in Oracle style
@@ -1907,14 +1906,19 @@ function isPostgresFamilyDatabase(databaseType?: DatabaseType): boolean {
   return !!databaseType && POSTGRES_FAMILY_DATABASES.has(databaseType);
 }
 
+function isOracleStyleRoutineDatabase(databaseType?: DatabaseType): boolean {
+  return isPostgresFamilyDatabase(databaseType) || databaseType === "jdbc" || databaseType === "hive";
+}
+
 /**
  * Whether a statement must stay a single statement instead of being cut at its inner semicolons:
  * Oracle PL/SQL blocks on Oracle-like dialects, and the Oracle-style routine bodies that a
- * PostgreSQL-family connection reaches on a GaussDB/openGauss Oracle-compatibility server.
+ * PostgreSQL-family connection reaches on a GaussDB/openGauss Oracle-compatibility server,
+ * as well as generic JDBC and Hive drivers reaching ArgoDB/Inceptor procedure bodies (#12321).
  */
 export function keepsOracleStyleBlockTogether(sql: string, databaseType?: DatabaseType, options?: SqlParameterOptions): boolean {
   if (isOraclePlSqlStatement(sql, databaseType, options)) return true;
-  return isPostgresFamilyDatabase(databaseType) && startsWithOracleStyleRoutineBody(sql);
+  return isOracleStyleRoutineDatabase(databaseType) && startsWithOracleStyleRoutineBody(sql);
 }
 
 export function isOraclePlSqlStatement(sql: string, databaseType?: DatabaseType, options?: SqlParameterOptions): boolean {
