@@ -40,6 +40,8 @@ const props = withDefaults(
     plugin: InstalledPlugin;
     contribution: PluginUiContribution;
     context?: PluginWorkbenchContext;
+    setTitle?: (title: string | null) => Promise<void> | void;
+    getTitle?: () => Promise<string> | string;
   }>(),
   { context: () => ({}) },
 );
@@ -51,6 +53,7 @@ const emit = defineEmits<{
   openFilesystem: [pluginId: string, providerId: string, context?: PluginWorkbenchContext];
   closeTab: [];
   recommendations: [update: PluginAiRecommendationHostUpdate];
+  setTitle: [title: string | null];
 }>();
 
 const { t, locale: appLocale } = useI18n();
@@ -524,6 +527,14 @@ function createBridge() {
       ...(isTauriRuntime() ? aiCompletion : {}),
       setAiRecommendations: (update) => emit("recommendations", update),
       openWorkbench: async (pluginId, contributionId, context, options) => emit("openWorkbench", pluginId, contributionId, context, options),
+      setTitle: async (newTitle: string | null) => {
+        emit("setTitle", newTitle);
+        if (props.setTitle) await props.setTitle(newTitle);
+      },
+      getTitle: async () => {
+        if (props.getTitle) return await props.getTitle();
+        return title.value;
+      },
       // §4/§5 bridge command execution, scoped to this plugin's own manifest:
       // the single-plugin registry is equivalent here because findCommand /
       // findWorkbench / enablement never cross plugins. Panel commands dock,
