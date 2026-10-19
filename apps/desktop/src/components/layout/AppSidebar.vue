@@ -222,7 +222,6 @@ function openTableStructureForSelection(): boolean {
 }
 
 const refreshShortcutLabel = computed(() => formatShortcut(settingsStore.editorSettings.shortcuts.refreshData));
-const refreshTooltip = computed(() => (refreshShortcutLabel.value ? `${t("contextMenu.refreshChildren")} (${refreshShortcutLabel.value})` : t("contextMenu.refreshChildren")));
 
 function refreshSidebar(): boolean {
   return connectionTreeRef.value?.refreshSidebar?.() ?? false;
@@ -318,7 +317,7 @@ defineExpose({ focusSearch, locateTabInSidebar, disconnectAllActiveConnections, 
                 <FolderPlus class="h-3 w-3" />
               </Button>
             </LightTooltip>
-            <LightTooltip :text="refreshTooltip" side="bottom" :delay="0" :close-delay="0" nowrap>
+            <LightTooltip :text="t('contextMenu.refreshChildren')" side="bottom" :delay="0" :close-delay="0" nowrap>
               <Button variant="ghost" size="icon" class="h-5 w-5" :aria-keyshortcuts="refreshShortcutLabel || undefined" @click="refreshTree">
                 <RefreshCw class="h-3 w-3" />
               </Button>

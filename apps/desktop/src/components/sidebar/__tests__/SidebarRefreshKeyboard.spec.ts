@@ -152,7 +152,7 @@ describe("Sidebar F5 refresh shortcut and connection database reload (#12246)", 
     // In AppSidebar.vue: refreshSidebar delegates to ConnectionTree
     expect(appSidebarSource).toContain("connectionTreeRef.value?.refreshSidebar?.()");
     expect(appSidebarSource).toContain("refreshSidebar,");
-    expect(appSidebarSource).toContain("refreshTooltip");
+    expect(appSidebarSource).toContain("refreshShortcutLabel");
 
     // In ConnectionTree.vue: handles isRefreshDataShortcut and exposes refreshSidebar
     expect(connectionTreeSource).toContain("isRefreshDataShortcut(event, settingsStore.editorSettings.shortcuts)");
