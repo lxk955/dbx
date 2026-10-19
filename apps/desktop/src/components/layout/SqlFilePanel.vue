@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
-import { FolderOpen, FolderClosed, FileCode, FolderPlus, ChevronRight, ChevronDown, X, Trash2, RefreshCw, FolderSearch, Copy, Play, ChevronsUpDown, ChevronsDownUp, Settings, FilePlus, Pencil } from "@lucide/vue";
+import { FolderOpen, FolderClosed, FileCode, FileSpreadsheet, FileText, ExternalLink, FolderPlus, ChevronRight, ChevronDown, X, Trash2, RefreshCw, FolderSearch, Copy, Play, ChevronsUpDown, ChevronsDownUp, Settings, FilePlus, Pencil } from "@lucide/vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,7 +18,7 @@ import { isTauriRuntime } from "@/lib/backend/tauriRuntime";
 import { translateBackendError } from "@/i18n/backend-errors";
 import { copyToClipboard } from "@/lib/common/clipboard";
 import { forgetExternalSqlFileTarget, forgetExternalSqlFolderTargets, moveExternalSqlFileTarget, moveExternalSqlFolderTargets, resolveExternalSqlFileTargetForActiveTab } from "@/lib/sql/externalSqlFileTarget";
-import { externalSqlFileOpenErrorMessage, externalSqlEditorMaxBytes, formatSqlFileSize, isExternalSqlFileTooLargeError, isSqlFilePath, normalizeExternalSqlPath, relocateExternalSqlPathWithinFolder } from "@/lib/sql/sqlFileOpen";
+import { externalSqlFileOpenErrorMessage, externalSqlEditorMaxBytes, formatSqlFileSize, isExternalSqlFileTooLargeError, isSqlFilePath, isSqlOrScriptFilePath, isSpreadsheetFilePath, normalizeExternalSqlPath, relocateExternalSqlPathWithinFolder } from "@/lib/sql/sqlFileOpen";
 import * as api from "@/lib/backend/api";
 import type { SqlFileEntry } from "@/lib/backend/api";
 import { getSqlFileFilter, getSqlFileFolderPaths, saveSqlFileFilter, saveSqlFileFolderPaths, notifySqlFileFoldersChanged } from "@/lib/sqlFile/sqlFileFolders";
@@ -344,8 +344,27 @@ function collectDirPaths(entries: SqlFileEntry[], into: Set<string>) {
   }
 }
 
+async function openFileWithDefaultApp(path: string) {
+  if (!isTauriRuntime()) {
+    toast(t("sqlFileTree.desktopOnly"), 3000);
+    return;
+  }
+  try {
+    await api.openPathWithDefaultApp(path);
+  } catch (e: any) {
+    toast(t("sqlFileTree.openWithDefaultAppFailed", { message: translateBackendError(t, e) }), 5000);
+  }
+}
+
 async function openFile(path: string) {
-  if (!isTauriRuntime()) return;
+  if (!isTauriRuntime()) {
+    toast(t("sqlFileTree.desktopOnly"), 3000);
+    return;
+  }
+  if (!isSqlOrScriptFilePath(path)) {
+    await openFileWithDefaultApp(path);
+    return;
+  }
   try {
     const snapshot = await api.readExternalSqlFileSnapshot(path, externalSqlEditorMaxBytes(settingsStore.editorSettings.externalSqlEditorMaxMb));
     const target = resolveExternalSqlFileTargetForActiveTab(path, queryStore.tabs, queryStore.activeTabId, (connectionId) => connectionStore.getConfig(connectionId));
@@ -730,10 +749,14 @@ const contextMenuItems = computed<ContextMenuItem[]>(() => {
   }
 
   // file
-  const items: ContextMenuItem[] = [{ label: t("sqlFileTree.openFile"), action: () => openFile(target.entry.path), icon: FileCode }];
-  if (isSqlFilePath(target.entry.name)) {
-    items.push({ label: t("sqlFileTree.executeSqlFile"), action: () => executeFile(target.entry.path), icon: Play });
-  }
+  const isScript = isSqlOrScriptFilePath(target.entry.name);
+  const items: ContextMenuItem[] = isScript
+    ? [
+        { label: t("sqlFileTree.openFile"), action: () => openFile(target.entry.path), icon: FileCode },
+        ...(isSqlFilePath(target.entry.name) ? [{ label: t("sqlFileTree.executeSqlFile"), action: () => executeFile(target.entry.path), icon: Play }] : []),
+        { label: t("sqlFileTree.openWithDefaultApp"), action: () => openFileWithDefaultApp(target.entry.path), icon: ExternalLink },
+      ]
+    : [{ label: t("sqlFileTree.openWithDefaultApp"), action: () => openFileWithDefaultApp(target.entry.path), icon: ExternalLink }];
   items.push(
     { label: "", separator: true },
     { label: t("sqlFileTree.revealInFileManager"), action: () => revealInFileManager(target.entry.path), icon: FolderSearch },
@@ -916,7 +939,9 @@ function clearContextTarget() {
                     </template>
                     <template v-else>
                       <span class="w-3.5 shrink-0" />
-                      <FileCode class="h-4 w-4 shrink-0 text-blue-500" />
+                      <FileSpreadsheet v-if="isSpreadsheetFilePath(entry.name)" class="h-4 w-4 shrink-0 text-emerald-500" />
+                      <FileCode v-else-if="isSqlOrScriptFilePath(entry.name)" class="h-4 w-4 shrink-0 text-blue-500" />
+                      <FileText v-else class="h-4 w-4 shrink-0 text-muted-foreground" />
                     </template>
                     <span class="truncate ml-1 flex-1">{{ entry.name }}</span>
                     <template v-if="entry.is_dir">

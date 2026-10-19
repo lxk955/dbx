@@ -102,7 +102,7 @@ import { getPlatform, isMacOS, isWindows } from "@/lib/backend/platform";
 import { isTauriRuntime } from "@/lib/backend/tauriRuntime";
 import { openQueryResultArchiveFile } from "@/lib/query/queryResultArchiveFile";
 import { activeTabExternalSqlFileTarget, rememberExternalSqlFileTarget, resolveExternalSqlFileTarget, resolveExternalSqlFileTargetForActiveTab, unassociatedExternalSqlFileTarget, type ExternalSqlFileTarget } from "@/lib/sql/externalSqlFileTarget";
-import { defaultSavedQueryFileName, externalSqlFileOpenErrorMessage, externalSqlEditorMaxBytes, isSqlFilePath, queryEditorOpenFileAccept, queryEditorOpenFileFilters, readBrowserSqlFile, sqlFileTitleFromPath } from "@/lib/sql/sqlFileOpen";
+import { defaultSavedQueryFileName, externalSqlFileOpenErrorMessage, externalSqlEditorMaxBytes, isSqlFilePath, isSqlOrScriptFilePath, queryEditorOpenFileAccept, queryEditorOpenFileFilters, readBrowserSqlFile, sqlFileTitleFromPath } from "@/lib/sql/sqlFileOpen";
 import type { ConnectionConfig, DatabaseType, ObjectBrowserFilter, ObjectSourceKind, QueryTab, TableInfoTab, TabOutputView, TreeNode } from "@/types/database";
 import { OPEN_PLUGIN_SETTINGS, type PluginCenterFocus } from "@/lib/plugins/pluginCenterNavigation";
 import { parsePluginInstallDeepLink } from "@/lib/plugins/pluginInstallDeepLink";
@@ -2995,6 +2995,14 @@ let desktopOpenTabsRestorationBarrier: OpenTabsRestorationBarrier | null = null;
 
 async function openSqlFilePath(path: string) {
   if (!isTauriRuntime()) return;
+  if (!isSqlOrScriptFilePath(path)) {
+    try {
+      await api.openPathWithDefaultApp(path);
+    } catch {
+      /* ignore background startup open error */
+    }
+    return;
+  }
   try {
     await desktopOpenTabsRestorationBarrier?.settled;
     const snapshot = await api.readExternalSqlFileSnapshot(path, externalSqlEditorMaxBytes(settingsStore.editorSettings.externalSqlEditorMaxMb), "auto");
@@ -3977,6 +3985,19 @@ async function handleQuickOpenSelect(item: any) {
   }
 
   if (item.type === "sql_file" && item.filePath) {
+    if (!isSqlOrScriptFilePath(item.filePath)) {
+      if (!isTauriRuntime()) {
+        toast(t("sqlFileTree.desktopOnly"), 3000);
+        return;
+      }
+      try {
+        await api.openPathWithDefaultApp(item.filePath);
+      } catch (e: any) {
+        toast(t("sqlFileTree.openWithDefaultAppFailed", { message: translateBackendError(t, e) }), 5000);
+      }
+      return;
+    }
+
     try {
       const snapshot = await api.readExternalSqlFileSnapshot(item.filePath, externalSqlEditorMaxBytes(settingsStore.editorSettings.externalSqlEditorMaxMb));
       const target = resolveExternalSqlFileTargetForActiveTab(item.filePath, queryStore.tabs, queryStore.activeTabId, (connectionId) => connectionStore.getConfig(connectionId));
