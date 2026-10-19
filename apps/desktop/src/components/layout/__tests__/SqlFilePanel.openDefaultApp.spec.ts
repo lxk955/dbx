@@ -80,10 +80,10 @@ describe("SqlFilePanel open with default application", () => {
   it("opens non-SQL files using openPathWithDefaultApp instead of reading as SQL", async () => {
     const { host } = await mountPanel();
 
-    const excelEntry = Array.from(host.querySelectorAll(".tree-item-label")).find((el) => el.textContent?.includes("report.xlsx")) as HTMLElement;
-    expect(excelEntry).not.toBeNull();
+    const excelEntry = host.querySelector<HTMLElement>('[data-sql-file-path="/sql/report.xlsx"]');
+    expect(excelEntry).toBeTruthy();
 
-    excelEntry.click();
+    excelEntry!.click();
     await vi.waitFor(() => expect(mocks.openPathWithDefaultApp).toHaveBeenCalledTimes(1));
 
     expect(mocks.openPathWithDefaultApp).toHaveBeenCalledWith("/sql/report.xlsx");
@@ -94,10 +94,10 @@ describe("SqlFilePanel open with default application", () => {
     const { host, queryStore } = await mountPanel();
     const openTabSpy = vi.spyOn(queryStore, "openExternalSqlFile");
 
-    const sqlEntry = Array.from(host.querySelectorAll(".tree-item-label")).find((el) => el.textContent?.includes("query.sql")) as HTMLElement;
-    expect(sqlEntry).not.toBeNull();
+    const sqlEntry = host.querySelector<HTMLElement>('[data-sql-file-path="/sql/query.sql"]');
+    expect(sqlEntry).toBeTruthy();
 
-    sqlEntry.click();
+    sqlEntry!.click();
     await vi.waitFor(() => expect(mocks.readExternalSqlFileSnapshot).toHaveBeenCalledTimes(1));
 
     expect(mocks.readExternalSqlFileSnapshot).toHaveBeenCalledWith("/sql/query.sql", expect.any(Number));
@@ -109,12 +109,39 @@ describe("SqlFilePanel open with default application", () => {
     mocks.openPathWithDefaultApp.mockRejectedValue(new Error("No associated application"));
     const { host } = await mountPanel();
 
-    const pdfEntry = Array.from(host.querySelectorAll(".tree-item-label")).find((el) => el.textContent?.includes("notes.pdf")) as HTMLElement;
-    expect(pdfEntry).not.toBeNull();
+    const pdfEntry = host.querySelector<HTMLElement>('[data-sql-file-path="/sql/notes.pdf"]');
+    expect(pdfEntry).toBeTruthy();
 
-    pdfEntry.click();
+    pdfEntry!.click();
     await vi.waitFor(() => expect(mocks.toast).toHaveBeenCalledTimes(1));
 
     expect(mocks.toast).toHaveBeenCalledWith(expect.stringContaining("No associated application"), 5000);
+  });
+
+  it("renders distinct icons for spreadsheets, SQL scripts, and other documents", async () => {
+    const { host } = await mountPanel();
+
+    const excelEntry = host.querySelector<HTMLElement>('[data-sql-file-path="/sql/report.xlsx"]');
+    expect(excelEntry?.querySelector(".text-emerald-500")).toBeTruthy();
+
+    const sqlEntry = host.querySelector<HTMLElement>('[data-sql-file-path="/sql/query.sql"]');
+    expect(sqlEntry?.querySelector(".text-blue-500")).toBeTruthy();
+
+    const pdfEntry = host.querySelector<HTMLElement>('[data-sql-file-path="/sql/notes.pdf"]');
+    expect(pdfEntry?.querySelector(".text-muted-foreground")).toBeTruthy();
+  });
+
+  it("provides open with default app in context menu for non-SQL and SQL files", async () => {
+    const { host } = await mountPanel();
+
+    const excelEntry = host.querySelector<HTMLElement>('[data-sql-file-path="/sql/report.xlsx"]');
+    excelEntry?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(document.body.textContent).toContain(i18n.global.t("sqlFileTree.openWithDefaultApp")));
+    expect(document.body.textContent).not.toContain(i18n.global.t("sqlFileTree.executeSqlFile"));
+
+    const defaultAppAction = Array.from(document.querySelectorAll<HTMLElement>("[role='menuitem'], button, .context-menu-item")).find((el) => el.textContent?.includes(i18n.global.t("sqlFileTree.openWithDefaultApp")));
+    expect(defaultAppAction).toBeTruthy();
+    defaultAppAction?.click();
+    await vi.waitFor(() => expect(mocks.openPathWithDefaultApp).toHaveBeenCalledWith("/sql/report.xlsx"));
   });
 });

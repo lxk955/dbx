@@ -846,7 +846,7 @@ function clearContextTarget() {
           @contextmenu.capture="contextTarget = { kind: 'panel' }"
           @contextmenu.prevent="
             contextTarget = { kind: 'panel' };
-            onContextMenu($event);
+            onContextMenu($event, contextMenuItems);
           "
         >
           <div v-if="folders.length === 0" class="flex-1 flex flex-col items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
@@ -866,10 +866,10 @@ function clearContextTarget() {
                   contextTarget = { kind: 'folderHeader', folderPath: folder.path };
                   activePath = folder.path;
                 "
-                @contextmenu.prevent="
+                @contextmenu.prevent.stop="
                   contextTarget = { kind: 'folderHeader', folderPath: folder.path };
                   activePath = folder.path;
-                  onContextMenu($event);
+                  onContextMenu($event, contextMenuItems);
                 "
               >
                 <ChevronRight v-if="folder.collapsed" class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -925,10 +925,10 @@ function clearContextTarget() {
                       contextTarget = entry.is_dir ? { kind: 'dir', folderPath: folder.path, entry } : { kind: 'file', folderPath: folder.path, entry };
                       activePath = entry.path;
                     "
-                    @contextmenu.prevent="
+                    @contextmenu.prevent.stop="
                       contextTarget = entry.is_dir ? { kind: 'dir', folderPath: folder.path, entry } : { kind: 'file', folderPath: folder.path, entry };
                       activePath = entry.path;
-                      onContextMenu($event);
+                      onContextMenu($event, contextMenuItems);
                     "
                   >
                     <template v-if="entry.is_dir">
