@@ -8937,6 +8937,8 @@ export default withEnglishFallback({
     fileFilterPlaceholder: "ตัวกรองชื่อไฟล์",
     filterInvalid: "ตัวกรองไฟล์ไม่ถูกต้อง จึงคงค่าก่อนหน้าไว้: {message}",
     fileFilterHint: "ใช้ glob เช่น *.sql หรือ *.sh หรือ regular expression เช่น {regex}",
+    openWithDefaultApp: "เปิดด้วยแอปเริ่มต้นของระบบ",
+    openWithDefaultAppFailed: "เปิดด้วยแอปเริ่มต้นของระบบไม่สำเร็จ: {message}",
   },
   marketplace: {
     viewGrid: "ดูเป็นกริด",
