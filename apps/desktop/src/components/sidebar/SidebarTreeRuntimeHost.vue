@@ -3101,10 +3101,14 @@ async function toggleTriggerState(node: TreeNode, enabled: boolean) {
     const executed = await executeTreeNodeSqlWithProductionGuard(node, sql, { database: node.database, schema: node.schema });
     if (!executed) return;
     const updatedMeta: TriggerInfo = {
-      ...(node.meta && typeof node.meta === "object" ? (node.meta as TriggerInfo) : { name: triggerName }),
+      // The fallback must satisfy TriggerInfo; the spread ternary's narrower
+      // arm is what tripped vue-tsc (TS2322) in CI.
+      ...(node.meta && typeof node.meta === "object" ? (node.meta as TriggerInfo) : { name: triggerName, event: "", timing: "" }),
       enabled,
     };
-    node.meta = updatedMeta;
+    // `node` may be a frozen action-target copy (createSidebarActionTarget);
+    // assigning to it throws in strict mode, and the live node below is the
+    // only assignment that matters.
     const liveNode = findSidebarActionTarget(connectionStore.treeNodes, createSidebarActionTarget(node)) ?? findTreeNodeById(connectionStore.treeNodes, node.id);
     if (liveNode) {
       liveNode.meta = updatedMeta;
