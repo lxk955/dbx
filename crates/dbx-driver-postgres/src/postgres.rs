@@ -5437,9 +5437,9 @@ fn postgres_indexes_for_relations_compat_sql() -> &'static str {
                  ON a.attrelid = t.oid \
                 AND a.attnum = (string_to_array(ix.indkey::text, ' '))[pos.n]::int2 \
                 AND a.attnum > 0 \
-               WHERE (string_to_array(ix.indkey::text, ' '))[pos.n]::int2 >= 0 \
                LEFT JOIN pg_opclass oc \
                  ON oc.oid = (string_to_array(ix.indclass::text, ' '))[pos.n]::oid \
+               WHERE (string_to_array(ix.indkey::text, ' '))[pos.n]::int2 >= 0 \
                ORDER BY pos.n \
              ) AS column_opclasses, \
              (ix.indisunique AND ix.indisvalid) AS is_unique, \
@@ -9724,9 +9724,9 @@ const POSTGRES_INDEXES_COMPAT_SQL: &str = "SELECT i.relname AS index_name, \
                  ON a.attrelid = t.oid \
                 AND a.attnum = (string_to_array(ix.indkey::text, ' '))[pos.n]::int2 \
                 AND a.attnum > 0 \
-               WHERE (string_to_array(ix.indkey::text, ' '))[pos.n]::int2 >= 0 \
                LEFT JOIN pg_opclass oc \
                  ON oc.oid = (string_to_array(ix.indclass::text, ' '))[pos.n]::oid \
+               WHERE (string_to_array(ix.indkey::text, ' '))[pos.n]::int2 >= 0 \
                ORDER BY pos.n \
              ) AS column_opclasses, \
              (ix.indisunique AND ix.indisvalid) AS is_unique, \
@@ -15477,6 +15477,22 @@ mod tests {
                 sql.contains("WHERE (string_to_array(ix.indkey::text, ' '))[pos.n]::int2 >= 0"),
                 "expected system-column guard in {sql}"
             );
+        }
+    }
+
+    #[test]
+    fn compat_index_metadata_sql_has_valid_join_order() {
+        for sql in [POSTGRES_INDEXES_COMPAT_SQL, postgres_indexes_for_relations_compat_sql()] {
+            assert!(
+                !sql.contains("WHERE (string_to_array(ix.indkey::text, ' '))[pos.n]::int2 >= 0 LEFT JOIN"),
+                "WHERE clause must not precede LEFT JOIN in {sql}"
+            );
+            let opclass_pos = sql.find("LEFT JOIN pg_opclass oc").expect("must contain opclass join");
+            let col_opclasses_end = sql.find(") AS column_opclasses").expect("must contain column_opclasses");
+            let where_pos = sql[opclass_pos..col_opclasses_end]
+                .find("WHERE (string_to_array(ix.indkey::text, ' '))[pos.n]::int2 >= 0")
+                .expect("must contain where guard after opclass join");
+            assert!(where_pos > 0, "WHERE guard must appear after LEFT JOIN pg_opclass oc in column_opclasses");
         }
     }
 
