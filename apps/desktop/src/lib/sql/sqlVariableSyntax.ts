@@ -1,7 +1,7 @@
 // Per-database-type configuration for SQL variable/placeholder substitution.
 //
 // DBX runs two client-side substitution systems before sending SQL to a backend:
-// the placeholder parameter dialog (`sqlParameters.ts`, five syntaxes) and the
+// the placeholder parameter dialog (`sqlParameters.ts`, six syntaxes) and the
 // `@set name = value;` expansion (`sqlVariables.ts`). This module lets users opt
 // out of individual syntaxes per database type. SQL syntaxes default to `true`,
 // except Neo4j's `:label` patterns, which are not named parameters.
@@ -19,6 +19,7 @@ export interface SqlVariableSyntaxToggles {
   shell: boolean; // ${name}
   mybatis: boolean; // #{name}
   sqlserver: boolean; // @name
+  substitution: boolean; // &name, &&name
   atSet: boolean; // @set name = value;  (expandSqlVariables)
 }
 
@@ -28,11 +29,12 @@ export const DEFAULT_SQL_VARIABLE_SYNTAX_TOGGLES: SqlVariableSyntaxToggles = {
   shell: true,
   mybatis: true,
   sqlserver: true,
+  substitution: true,
   atSet: true,
 };
 
 // Fixed order for iterating the toggles in the settings UI.
-export const SQL_VARIABLE_SYNTAX_KEYS = ["positional", "named", "shell", "mybatis", "sqlserver", "atSet"] as const satisfies readonly (keyof SqlVariableSyntaxToggles)[];
+export const SQL_VARIABLE_SYNTAX_KEYS = ["positional", "named", "shell", "mybatis", "sqlserver", "substitution", "atSet"] as const satisfies readonly (keyof SqlVariableSyntaxToggles)[];
 
 // Display tokens (code symbols, not translated) shown next to each toggle.
 export const SQL_VARIABLE_SYNTAX_TOKENS: Record<keyof SqlVariableSyntaxToggles, string> = {
@@ -41,11 +43,12 @@ export const SQL_VARIABLE_SYNTAX_TOKENS: Record<keyof SqlVariableSyntaxToggles, 
   shell: "${name}",
   mybatis: "#{name}",
   sqlserver: "@name",
+  substitution: "&name",
   atSet: "@set …;",
 };
 
-// The first five toggles map one-to-one onto placeholder parameter syntaxes.
-const PARAMETER_SYNTAX_KEYS = ["positional", "named", "shell", "mybatis", "sqlserver"] as const satisfies readonly SqlParameterSyntax[];
+// The first six toggles map one-to-one onto placeholder parameter syntaxes.
+const PARAMETER_SYNTAX_KEYS = ["positional", "named", "shell", "mybatis", "sqlserver", "substitution"] as const satisfies readonly SqlParameterSyntax[];
 
 export type SqlVariableSyntaxOverrides = Partial<Record<DatabaseType, Partial<SqlVariableSyntaxToggles>>>;
 
@@ -66,6 +69,7 @@ export function resolveSqlVariableSyntaxToggles(overrides: SqlVariableSyntaxOver
       shell: false,
       mybatis: false,
       sqlserver: false,
+      substitution: false,
       atSet: false,
     };
   }
@@ -76,6 +80,7 @@ export function resolveSqlVariableSyntaxToggles(overrides: SqlVariableSyntaxOver
     shell: partial?.shell ?? true,
     mybatis: partial?.mybatis ?? true,
     sqlserver: partial?.sqlserver ?? true,
+    substitution: partial?.substitution ?? true,
     atSet: partial?.atSet ?? true,
   };
 }

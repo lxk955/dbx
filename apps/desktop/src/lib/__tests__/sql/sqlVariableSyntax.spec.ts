@@ -37,6 +37,7 @@ describe("resolveSqlVariableSyntaxToggles", () => {
       shell: true,
       mybatis: true,
       sqlserver: false,
+      substitution: true,
       atSet: false,
     });
   });
@@ -48,6 +49,7 @@ describe("resolveSqlVariableSyntaxToggles", () => {
       shell: false,
       mybatis: false,
       sqlserver: false,
+      substitution: false,
       atSet: false,
     });
   });
@@ -63,6 +65,7 @@ describe("resolveSqlVariableSyntaxToggles", () => {
       shell: false,
       mybatis: true,
       sqlserver: true,
+      substitution: true,
       atSet: false,
     });
     expect(overrides).toEqual({ mysql: { shell: false, atSet: false } });
@@ -70,17 +73,17 @@ describe("resolveSqlVariableSyntaxToggles", () => {
 });
 
 describe("enabledSqlParameterSyntaxes", () => {
-  it("returns the five placeholder syntaxes and never atSet", () => {
-    expect(enabledSqlParameterSyntaxes(DEFAULT_SQL_VARIABLE_SYNTAX_TOGGLES)).toEqual(["positional", "named", "shell", "mybatis", "sqlserver"]);
+  it("returns the six placeholder syntaxes and never atSet", () => {
+    expect(enabledSqlParameterSyntaxes(DEFAULT_SQL_VARIABLE_SYNTAX_TOGGLES)).toEqual(["positional", "named", "shell", "mybatis", "sqlserver", "substitution"]);
   });
 
   it("filters out disabled placeholder syntaxes", () => {
-    expect(enabledSqlParameterSyntaxes({ positional: false, named: true, shell: false, mybatis: true, sqlserver: false, atSet: true })).toEqual(["named", "mybatis"]);
+    expect(enabledSqlParameterSyntaxes({ positional: false, named: true, shell: false, mybatis: true, sqlserver: false, substitution: true, atSet: true })).toEqual(["named", "mybatis", "substitution"]);
   });
 
   it("ignores the atSet toggle entirely", () => {
-    expect(enabledSqlParameterSyntaxes({ positional: true, named: true, shell: true, mybatis: true, sqlserver: true, atSet: false })).toEqual(["positional", "named", "shell", "mybatis", "sqlserver"]);
-    expect(enabledSqlParameterSyntaxes({ positional: false, named: false, shell: false, mybatis: false, sqlserver: false, atSet: true })).toEqual([]);
+    expect(enabledSqlParameterSyntaxes({ positional: true, named: true, shell: true, mybatis: true, sqlserver: true, substitution: true, atSet: false })).toEqual(["positional", "named", "shell", "mybatis", "sqlserver", "substitution"]);
+    expect(enabledSqlParameterSyntaxes({ positional: false, named: false, shell: false, mybatis: false, sqlserver: false, substitution: false, atSet: true })).toEqual([]);
   });
 });
 
