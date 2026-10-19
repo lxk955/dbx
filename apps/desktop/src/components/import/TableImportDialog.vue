@@ -18,6 +18,7 @@ import {
   autoMapImportColumns,
   buildTableImportParseOptions,
   defaultTableImportEmptyStringAsNull,
+  formatTableImportPreviewCell,
   formatTableImportElapsed,
   nextTableImportWizardStep,
   previousTableImportWizardStep,
@@ -223,11 +224,17 @@ const mappedColumns = computed<api.TableImportColumnMapping[]>(() => {
 });
 const mappedCount = computed(() => mappedColumns.value.length);
 const mappingValidation = computed(() => validateImportMappings(mappedColumns.value));
-const primaryKeyColumns = computed(() => targetColumns.value.filter((column) => column.is_primary_key));
-const updateExistingUnavailableReason = computed(() => {
+const isUniqueKeyModelDatabase = computed(() => structureDatabaseType.value === "doris" || structureDatabaseType.value === "starrocks");
+const primaryKeyColumns = computed(() => targetColumns.value.filter((column) => column.is_primary_key || (isUniqueKeyModelDatabase.value && column.is_unique)));
+const updateExistingDisabledReason = computed(() => {
   if (targetMode.value !== "existing") return t("tableImport.updateExistingRequiresExistingTable");
   if (!supportsImportConflictPolicy.value) return t("tableImport.updateExistingUnsupportedDialect");
   if (!existingTargetMetadataReady.value || primaryKeyColumns.value.length === 0) return t("tableImport.updateExistingRequiresPrimaryKey");
+  return "";
+});
+const canSelectUpdateExisting = computed(() => updateExistingDisabledReason.value === "");
+const updateExistingMappingError = computed(() => {
+  if (targetMode.value !== "existing" || conflictPolicy.value !== "updateExisting") return "";
   const mappedTargets = mappedColumns.value.map((mapping) => mapping.targetColumn.toLowerCase());
   const missingKeys = primaryKeyColumns.value.filter((column) => !mappedTargets.includes(column.name.toLowerCase()));
   if (missingKeys.length > 0) return t("tableImport.updateExistingRequiresMappedPrimaryKey", { columns: missingKeys.map((column) => column.name).join(", ") });
@@ -235,8 +242,7 @@ const updateExistingUnavailableReason = computed(() => {
   if (!mappedTargets.some((column) => !primaryKeyNames.includes(column))) return t("tableImport.updateExistingRequiresMappedValue");
   return "";
 });
-const canUpdateExistingRows = computed(() => updateExistingUnavailableReason.value === "");
-const conflictPolicyError = computed(() => (conflictPolicy.value === "updateExisting" ? updateExistingUnavailableReason.value : ""));
+const conflictPolicyError = computed(() => (conflictPolicy.value === "updateExisting" ? updateExistingDisabledReason.value || updateExistingMappingError.value : ""));
 const requiredUnmappedColumns = computed(() =>
   requiredImportTargetColumns(
     targetColumns.value,
@@ -966,12 +972,6 @@ function updateColumnDataType(sourceColumn: string, value: any) {
     ...columnDataTypes.value,
     [sourceColumn]: String(value),
   };
-}
-
-function formatCell(value: unknown) {
-  if (value === null) return "NULL";
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
 }
 
 function goBack() {
@@ -1712,12 +1712,12 @@ watch(rawProgressPercent, (percent) => {
             <select id="table-import-conflict-policy" v-model="conflictPolicy" data-testid="table-import-conflict-policy" class="flex h-8 w-full rounded-md border border-input bg-background text-foreground px-2 text-xs [color-scheme:light] dark:[color-scheme:dark]">
               <option value="error" class="bg-popover text-popover-foreground">{{ t("tableImport.conflictError") }}</option>
               <option value="skip" class="bg-popover text-popover-foreground">{{ t("tableImport.skipDuplicateRows") }}</option>
-              <option v-if="targetMode === 'existing'" value="updateExisting" :disabled="!canUpdateExistingRows" class="bg-popover text-popover-foreground">
+              <option v-if="targetMode === 'existing'" value="updateExisting" :disabled="!canSelectUpdateExisting" class="bg-popover text-popover-foreground">
                 {{ t("tableImport.updateExistingRows") }}
               </option>
             </select>
-            <p v-if="targetMode === 'existing' && !canUpdateExistingRows" class="text-[11px] text-muted-foreground">
-              {{ updateExistingUnavailableReason }}
+            <p v-if="targetMode === 'existing' && !canSelectUpdateExisting" class="text-[11px] text-muted-foreground">
+              {{ updateExistingDisabledReason }}
             </p>
           </div>
 
@@ -1831,7 +1831,7 @@ watch(rawProgressPercent, (percent) => {
                   <tbody>
                     <tr v-for="(row, rowIndex) in preview.rows" :key="rowIndex">
                       <td v-for="(cell, colIndex) in row" :key="colIndex" class="max-w-[180px] border-b border-r px-2 py-1.5 font-mono" :class="{ 'text-muted-foreground': cell === null }">
-                        <span class="block truncate">{{ formatCell(cell) }}</span>
+                        <span class="block truncate">{{ formatTableImportPreviewCell(cell) }}</span>
                       </td>
                     </tr>
                   </tbody>

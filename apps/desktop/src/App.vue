@@ -139,6 +139,9 @@ import {
   handleTabHistoryNavigationShortcut,
   isNewQueryShortcut,
   isObjectSourceSaveShortcutTarget,
+  isOpenConnectionPickerShortcut,
+  isOpenDatabasePickerShortcut,
+  isOpenSchemaPickerShortcut,
   isOpenSettingsShortcut,
   isQuickOpenShortcut,
   isGlobalSearchShortcut,
@@ -170,6 +173,7 @@ import { aiSqlActionFeedback, type AiSqlActionOutcome, type AiSqlActionReport } 
 import type { SqlExecutionOutcome } from "@/lib/sql/sqlExecutionOutcome";
 import { tabDisplayTitle } from "@/lib/tabs/tabPresentation";
 import { buildAppendedEditorSql, buildDeduplicatedAppendedEditorSql } from "@/lib/ai/aiSqlAppend";
+import { resolveAiSqlTargetTabId, type AiSqlApplyTargetMode } from "@/lib/ai/aiSqlTargetTab";
 import { assessProductionSql } from "@/lib/database/productionSafety";
 import { normalizeSqlExecutionTarget, sqlExecutionTargetCapabilities } from "@/lib/database/sqlExecutionTargetCapabilities";
 import { executeWithProductionSqlGuard } from "@/lib/database/productionExecutionGuard";
@@ -3181,13 +3185,17 @@ async function openPendingPluginInstallLinks() {
   }
 }
 
-function setConnectionDialogOpen(value: boolean) {
+function setConnectionDialogOpen(value: boolean, options?: { restoreFocus?: boolean }) {
   showConnectionDialog.value = value;
   if (!value) {
     connectionDialogPrefill.value = null;
     connectionDialogUpdate.value = null;
     connectionPluginProvider.value = null;
     connectionDialogInitialTab.value = undefined;
+    // Handlers that immediately open another surface (driver store page,
+    // settings, or a reopened connection dialog) opt out: the delayed tree
+    // refocus would steal focus back from the new surface's autofocus.
+    if (options?.restoreFocus !== false) void appSidebarRef.value?.focusSelectedNode();
   }
 }
 
@@ -3375,13 +3383,18 @@ async function openConnectionQuery(connectionId: string) {
     }
     return;
   }
-  const tabId = queryStore.createTab(connectionId, initialTarget.database);
+  // The quick-start page opens a query directly, bypassing newQuery() and its
+  // default-schema fallback. Pass the configured schema here too, otherwise an
+  // Oracle connection with a default schema opens the editor without a session
+  // schema and unqualified tables resolve against the session default (#11844).
+  const tabId = queryStore.createTab(connectionId, initialTarget.database, undefined, "query", initialTarget.schema);
   try {
     await connectionStore.ensureConnected(connectionId);
     const options = await getDatabaseOptions(connectionId);
     const target = quickConnectionOpenTarget(connection, options);
     if (target.kind === "query") {
       queryStore.updateDatabase(tabId, target.database);
+      if (target.schema) queryStore.updateSchema(tabId, target.schema);
     }
   } catch (e: any) {
     toast(
@@ -3650,7 +3663,7 @@ async function locateTabInSidebar(tab: QueryTab) {
 
 /**
  * Query tab an AI-initiated action must run in: the one belonging to the
- * *requested* connection, created on demand.
+ * *requested* connection, resolved according to `aiSqlApplyTargetMode` (#12438).
  *
  * Deliberately not `ensureQueryTab()` — that returns whichever query tab happens
  * to be active, which is how a conversation bound to one database appended its
@@ -3658,15 +3671,13 @@ async function locateTabInSidebar(tab: QueryTab) {
  * alone (`activate: false`), so running a conversation never yanks the user's
  * editor away.
  */
-function ensureQueryTabForConnection(target: AiConversationBinding): string {
+function ensureQueryTabForConnection(target: AiConversationBinding, options: { mode?: AiSqlApplyTargetMode } = {}): string {
   if (!target.connectionId) return "";
   const database = target.database || "";
   const schema = target.schema || undefined;
-  // Schema is matched exactly, empty included. Skipping the comparison when the
-  // target has no schema would reuse a tab on any schema, and execution inherits
-  // that tab's schema — silently running in the wrong namespace.
-  const existing = queryStore.tabs.find((tab) => tab.mode === "query" && tab.connectionId === target.connectionId && (tab.database || "") === database && (tab.schema || undefined) === schema);
-  if (existing) return existing.id;
+  const mode = options.mode ?? settingsStore.editorSettings.aiSqlApplyTargetMode;
+  const resolvedId = resolveAiSqlTargetTabId(queryStore.tabs, queryStore.activeTabId, target, mode);
+  if (resolvedId !== null) return resolvedId;
   return queryStore.createTab(target.connectionId, database, undefined, "query", schema, undefined, undefined, { activate: false });
 }
 
@@ -3991,6 +4002,15 @@ async function handleQuickOpenSelect(item: any) {
   // Standalone plugin workbenches open without a database connection
   if (item.type === "plugin_workbench" && item.pluginId && item.contributionId) {
     queryStore.openPluginWorkbench(item.pluginId, item.contributionId, { title: item.label });
+    return;
+  }
+
+  // Plugin connections have their own destination (a contributed workbench or
+  // filesystem provider). Route them through the same lifecycle used by the
+  // sidebar instead of treating them like database connections and attempting
+  // to load a database tree.
+  if (item.type === "connection" && connectionStore.getConfig(item.connectionId)?.db_type === "plugin") {
+    await openConnectionQuery(item.connectionId);
     return;
   }
 
@@ -4556,6 +4576,17 @@ async function handleKeydown(e: KeyboardEvent) {
     e.stopPropagation();
     return;
   }
+  if (isOpenConnectionPickerShortcut(e, shortcuts) || isOpenDatabasePickerShortcut(e, shortcuts) || isOpenSchemaPickerShortcut(e, shortcuts)) {
+    const target = e.target instanceof Element ? e.target : null;
+    const opened =
+      !target?.closest('[role="dialog"], [role="alertdialog"]') &&
+      ((isOpenConnectionPickerShortcut(e, shortcuts) && contentAreaRef.value?.openConnectionPicker?.()) || (isOpenDatabasePickerShortcut(e, shortcuts) && contentAreaRef.value?.openDatabasePicker?.()) || (isOpenSchemaPickerShortcut(e, shortcuts) && contentAreaRef.value?.openSchemaPicker?.()));
+    if (opened) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    return;
+  }
 
   const tabSwitcherDirection = tabSwitcherDirectionFromShortcut(e, shortcuts);
   if (tabSwitcherDirection) {
@@ -4725,19 +4756,19 @@ async function handleKeydown(e: KeyboardEvent) {
   if (isExecuteSqlShortcut(e, shortcuts) && defaultQueryShortcutTarget) {
     e.preventDefault();
     e.stopPropagation();
-    void newQuery({ preferredSource: "sidebar", openDefault: true });
+    if (!e.repeat) void newQuery({ preferredSource: "sidebar", openDefault: true });
     return;
   }
   if (activeTab.value?.mode === "query" && isExecuteSqlInNewResultTabShortcut(e, shortcuts) && e.target instanceof Element && e.target.closest("[data-query-editor-root]")) {
     e.preventDefault();
     e.stopPropagation();
-    if (!contentAreaRef.value?.shouldBlockQueryEditorExecutionShortcut?.(e)) requestActiveEditorExecuteInNewResultTab();
+    if (!e.repeat && !activeTab.value.isExecuting && !contentAreaRef.value?.shouldBlockQueryEditorExecutionShortcut?.(e)) requestActiveEditorExecuteInNewResultTab();
     return;
   }
   if (activeTab.value?.mode === "query" && isExecuteSqlShortcut(e, shortcuts) && e.target instanceof Element && e.target.closest("[data-query-editor-root]")) {
     e.preventDefault();
     e.stopPropagation();
-    if (!contentAreaRef.value?.shouldBlockQueryEditorExecutionShortcut?.(e)) requestActiveEditorExecute();
+    if (!e.repeat && !activeTab.value.isExecuting && !contentAreaRef.value?.shouldBlockQueryEditorExecutionShortcut?.(e)) requestActiveEditorExecute();
     return;
   }
   if (activeTab.value?.mode === "query" && isSendSelectionToAiShortcut(e, shortcuts) && e.target instanceof Element && e.target.closest("[data-query-editor-root]")) {
@@ -5258,7 +5289,7 @@ onUnmounted(() => {
           <div
             data-editor-content
             v-show="isSpecialPageActive || (!isAiPanelMaximized && !isHistoryPanelMaximized) || isZenMode"
-            :class="isDetachedWindowContext ? 'flex-1 min-w-0 overflow-hidden bg-background' : isClassicLayout ? 'flex-1 min-w-0 overflow-hidden' : 'flex-1 min-w-0 overflow-hidden rounded-md border border-border/80 bg-background'"
+            :class="isDetachedWindowContext ? 'flex-1 min-w-0 overflow-hidden bg-background' : isClassicLayout ? 'flex-1 min-w-0 overflow-hidden' : 'flex-1 min-w-0 overflow-hidden dbx-panel bg-background'"
             @mousedown="rememberEditorContentSurface"
             @focusin="rememberEditorContentSurface"
           >
@@ -5540,6 +5571,7 @@ onUnmounted(() => {
                 <div v-for="workbenchTab in mountedPluginWorkbenchTabs" :key="workbenchTab.id" v-show="activeTab && workbenchTab.id === activeTab.id" class="flex min-h-0 flex-1 flex-col">
                   <PluginWorkbenchTab
                     :ref="(element) => setPluginWorkbenchTabRef(workbenchTab.id, element)"
+                    :tab-id="workbenchTab.id"
                     :plugin-id="workbenchTab.pluginWorkbench!.pluginId"
                     :contribution-id="workbenchTab.pluginWorkbench!.contributionId"
                     :context="workbenchTab.pluginWorkbench!.context"
@@ -5555,7 +5587,7 @@ onUnmounted(() => {
           <div
             v-if="!isDetachedWindowContext && showAiPanel"
             v-show="!isSpecialPageActive && !isHistoryPanelMaximized && !isZenMode"
-            :class="[isClassicLayout ? 'h-full relative z-30 isolate bg-background' : 'h-full relative z-30 isolate rounded-md border border-border/80 bg-background', isAiPanelMaximized ? 'min-w-0 flex-1' : 'min-w-[240px] max-w-full']"
+            :class="[isClassicLayout ? 'h-full relative z-30 isolate bg-background' : 'h-full relative z-30 isolate dbx-panel bg-background', isAiPanelMaximized ? 'min-w-0 flex-1' : 'min-w-[240px] max-w-full']"
             :style="isAiPanelMaximized ? {} : { width: aiPanelWidth + 'px' }"
           >
             <div v-if="!isAiPanelMaximized" class="panel-resize-handle panel-resize-handle--left" @pointerdown="startAiPanelResize" />
@@ -5584,7 +5616,7 @@ onUnmounted(() => {
           <div
             v-if="!isDetachedWindowContext && showHistory"
             v-show="!isSpecialPageActive && !isAiPanelMaximized && !isZenMode"
-            :class="[isClassicLayout ? 'h-full relative z-30 isolate bg-background' : 'h-full relative z-30 isolate rounded-md border border-border/80 bg-background', isHistoryPanelMaximized ? 'min-w-0 flex-1' : 'min-w-[240px] max-w-full']"
+            :class="[isClassicLayout ? 'h-full relative z-30 isolate bg-background' : 'h-full relative z-30 isolate dbx-panel bg-background', isHistoryPanelMaximized ? 'min-w-0 flex-1' : 'min-w-[240px] max-w-full']"
             :style="isHistoryPanelMaximized ? {} : { width: historyWidth + 'px', maxWidth: 'calc(100% - 240px)' }"
           >
             <div v-if="!isHistoryPanelMaximized" class="panel-resize-handle panel-resize-handle--left" @pointerdown="startHistoryResize" />
@@ -5606,7 +5638,7 @@ onUnmounted(() => {
           <div
             v-if="!isDetachedWindowContext && showSqlLibraryPanel"
             v-show="!isSpecialPageActive && !isAiPanelMaximized && !isHistoryPanelMaximized && !isZenMode"
-            :class="isClassicLayout ? 'h-full shrink-0 relative z-30 isolate bg-background' : 'h-full shrink-0 relative z-30 isolate rounded-md border border-border/80 bg-background'"
+            :class="isClassicLayout ? 'h-full shrink-0 relative z-30 isolate bg-background' : 'h-full shrink-0 relative z-30 isolate dbx-panel bg-background'"
             :style="{ width: sqlLibraryWidth + 'px' }"
           >
             <div class="panel-resize-handle panel-resize-handle--left" @pointerdown="startSqlLibraryResize" />
@@ -5620,7 +5652,7 @@ onUnmounted(() => {
           <div
             v-if="!isDetachedWindowContext && showSqlFilePanel"
             v-show="!isSpecialPageActive && !isAiPanelMaximized && !isHistoryPanelMaximized && !isZenMode"
-            :class="isClassicLayout ? 'h-full shrink-0 relative z-30 isolate bg-background' : 'h-full shrink-0 relative z-30 isolate rounded-md border border-border/80 bg-background'"
+            :class="isClassicLayout ? 'h-full shrink-0 relative z-30 isolate bg-background' : 'h-full shrink-0 relative z-30 isolate dbx-panel bg-background'"
             :style="{ width: sqlFilePanelWidth + 'px' }"
           >
             <div class="panel-resize-handle panel-resize-handle--left" @pointerdown="startSqlFilePanelResize" />
@@ -5664,15 +5696,15 @@ onUnmounted(() => {
               )
           "
           @open-driver-store="
-            setConnectionDialogOpen(false);
+            setConnectionDialogOpen(false, { restoreFocus: false });
             openDriverStorePage($event);
           "
           @open-tunnel-profile-settings="
-            setConnectionDialogOpen(false);
+            setConnectionDialogOpen(false, { restoreFocus: false });
             openSettings('tunnels');
           "
           @open-connection-settings="
-            setConnectionDialogOpen(false);
+            setConnectionDialogOpen(false, { restoreFocus: false });
             openConnectionSettings($event, 'advanced');
           "
           @open-lineage-target="openLineageTarget"
@@ -5709,6 +5741,9 @@ onUnmounted(() => {
           :is-ignoring-update="isIgnoringUpdate"
           :active-task-count="activeUpdateTaskCount"
           :driver-updates="componentUpdates.driverUpdates.value"
+          :driver-batch-completed="componentUpdates.driverBatchCompleted.value"
+          :driver-batch-total="componentUpdates.driverBatchTotal.value"
+          :driver-progress-map="componentUpdates.driverProgressMap.value"
           :jdbc-update="componentUpdates.jdbcPluginStatus.value"
           :mcp-update="componentUpdates.mcpStatus.value"
           :plugin-updates="componentUpdates.pluginUpdates.value"

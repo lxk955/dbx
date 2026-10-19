@@ -46,6 +46,7 @@ import {
   PencilRuler,
   Play,
   Package,
+  PanelRight,
   RefreshCw,
   RotateCcw,
   Scissors,
@@ -276,6 +277,7 @@ const compileErrorMessage = ref("");
 const sidePanelRow = ref<ObjectBrowserRow | null>(null);
 const openedInitialEvent = ref("");
 const isEventEditor = computed(() => sidePanelMode.value === "event-editor");
+const isSidePanelOpen = computed(() => !!sidePanelRow.value || isEventEditor.value);
 const sidePanelMode = ref<"table-info" | "source" | "type-info" | "event-editor">("source");
 const eventEditorKey = computed(() =>
   eventEditorInstanceKey({
@@ -424,6 +426,7 @@ const showProcedureExecutionConfirm = ref(false);
 const procedureExecutionTarget = ref<ObjectBrowserRow | null>(null);
 const selectedTableIds = ref<Set<string>>(new Set());
 const tableSelectionAnchorId = ref<string | null>(null);
+const selectedRowId = ref<string | null>(null);
 const expandedPartitionParentIds = ref<Set<string>>(new Set());
 const showBatchDropConfirm = ref(false);
 const batchDropExecuting = ref(false);
@@ -543,6 +546,7 @@ const { tier: toolbarTier } = useToolbarOverflow(toolbarRef, [() => props.databa
 const showToolbarOverflow = computed(() => toolbarTier.value >= 1);
 const showInlineSortAndView = computed(() => toolbarTier.value < 1);
 const showInlineCheckboxToggle = computed(() => toolbarTier.value < 1);
+const showInlineSidePanelToggle = computed(() => toolbarTier.value < 1);
 const showInlineObjectFilter = computed(() => toolbarTier.value < 2);
 const showDatabaseChip = computed(() => toolbarTier.value < 2);
 const hasCreatedAt = computed(() => rows.value.some((row) => row.created_at?.trim()));
@@ -765,7 +769,7 @@ const filteredRows = computed(() => groupedRows.value.rows);
 function partitionRowDepth(row: ObjectBrowserRow): number {
   return groupedRows.value.depths.get(row.id) ?? 0;
 }
-const selectableRows = computed(() => rows.value.filter((row) => row.type === "TABLE"));
+const selectableRows = computed(() => rows.value);
 
 // ---- Grid (tile) view virtualization ----
 // The grid view chunks filteredRows into fixed-height rows and hands them to
@@ -857,12 +861,15 @@ const gridRows = computed(() => {
   }
   return rows;
 });
-const visibleSelectableRows = computed(() => filteredRows.value.filter((row) => row.type === "TABLE"));
+const visibleSelectableRows = computed(() => filteredRows.value);
 const selectedTableRows = computed(() => {
   const ids = selectedTableIds.value;
   return selectableRows.value.filter((row) => ids.has(row.id));
 });
 const selectedTableCount = computed(() => selectedTableRows.value.length);
+const hasSelectedTablesOnly = computed(() => selectedTableRows.value.length > 0 && selectedTableRows.value.every((row) => row.type === "TABLE"));
+const batchDropConfirmTitle = computed(() => (hasSelectedTablesOnly.value ? t("objects.confirmBatchDropTitle") : t("contextMenu.confirmBatchDropTitle")));
+const batchDropConfirmMessage = computed(() => (hasSelectedTablesOnly.value ? t("objects.confirmBatchDropMessage", { count: selectedTableCount.value }) : t("contextMenu.confirmBatchDropMessage", { count: selectedTableCount.value })));
 const canBatchDropCascade = computed(() => selectedTableCount.value > 0 && supportsDropTableCascade(effectiveDatabaseType.value));
 const canBatchTruncateCascade = computed(() => selectedTableCount.value > 0 && supportsTruncateTableCascade(effectiveDatabaseType.value));
 
@@ -1162,15 +1169,16 @@ function selectTableRangeFromAnchor(row: ObjectBrowserRow) {
 }
 
 function onRowClick(row: ObjectBrowserRow, event: MouseEvent) {
-  if (row.type === "TABLE" && event.shiftKey) {
+  selectedRowId.value = row.id;
+  if (event.shiftKey) {
     selectTableRangeFromAnchor(row);
     return;
   }
-  if (row.type === "TABLE" && (event.metaKey || event.ctrlKey)) {
+  if (event.metaKey || event.ctrlKey) {
     toggleTableSelectionWithAnchor(row);
     return;
   }
-  if (row.type === "TABLE") tableSelectionAnchorId.value = row.id;
+  tableSelectionAnchorId.value = row.id;
   const activation = settingsStore.editorSettings.sidebarActivation;
   const { action, isDouble } = resolveRowClickAction(row, event.detail, activation, effectiveDatabaseType.value);
   // Double click: cancel any pending single-click and fire immediately. When
@@ -1182,9 +1190,13 @@ function onRowClick(row: ObjectBrowserRow, event: MouseEvent) {
       clearTimeout(singleClickTimer);
       singleClickTimer = null;
     }
-    if (action !== singleClickRowAction(row, effectiveDatabaseType.value)) {
+    const firstClickRan = settingsStore.editorSettings.objectBrowserAutoOpenDetailPanel !== false || isSidePanelOpen.value;
+    if (!firstClickRan || action !== singleClickRowAction(row, effectiveDatabaseType.value)) {
       executeRowAction(row, action);
     }
+    return;
+  }
+  if (settingsStore.editorSettings.objectBrowserAutoOpenDetailPanel === false && !isSidePanelOpen.value) {
     return;
   }
   // Single click: defer when the row has a distinct double-click action so a
@@ -1300,13 +1312,18 @@ const filteredTableDdlContent = computed(() => {
 });
 
 async function openTableInfo(row: ObjectBrowserRow, initialTab?: TableInfoTab) {
+  selectedRowId.value = row.id;
   // Toggle off if clicking the same table
   if (sidePanelRow.value?.id === row.id && sidePanelMode.value === "table-info" && !initialTab) {
+    if (settingsStore.editorSettings.objectBrowserAutoOpenDetailPanel === false) {
+      return;
+    }
     closeSidePanel();
     return;
   }
   sidePanelRow.value = row;
   sidePanelMode.value = "table-info";
+  sourceRow.value = null;
   const epoch = sidePanelGuard.start();
   // Reset state
   tableColumns.value = [];
@@ -1694,23 +1711,56 @@ function onSidePanelResizeEnd() {
 
 function closeSidePanel() {
   sidePanelRow.value = null;
+  sourceRow.value = null;
   sidePanelMode.value = "source";
   sidePanelGuard.bump();
 }
 
+function toggleSidePanel() {
+  if (isSidePanelOpen.value) {
+    if (selectedRowId.value && sidePanelRow.value && sidePanelRow.value.id !== selectedRowId.value) {
+      const targetRow = filteredRows.value.find((r) => r.id === selectedRowId.value);
+      if (targetRow) {
+        executeRowAction(targetRow, singleClickRowAction(targetRow, effectiveDatabaseType.value));
+        return;
+      }
+    }
+    closeSidePanel();
+  } else {
+    const targetRow = (selectedRowId.value ? filteredRows.value.find((r) => r.id === selectedRowId.value) : null) ?? filteredRows.value[0];
+    if (targetRow) {
+      selectedRowId.value = targetRow.id;
+      executeRowAction(targetRow, singleClickRowAction(targetRow, effectiveDatabaseType.value));
+    }
+  }
+}
+
+function toggleAutoOpenDetailPanel() {
+  settingsStore.updateEditorSettings({
+    objectBrowserAutoOpenDetailPanel: settingsStore.editorSettings.objectBrowserAutoOpenDetailPanel === false,
+  });
+}
+
 async function openTypeInfo(row: ObjectBrowserRow) {
+  selectedRowId.value = row.id;
   if (sidePanelRow.value?.id === row.id && sidePanelMode.value === "type-info") {
+    if (settingsStore.editorSettings.objectBrowserAutoOpenDetailPanel === false) {
+      return;
+    }
     closeSidePanel();
     return;
   }
   sidePanelRow.value = row;
   sidePanelMode.value = "type-info";
+  sourceRow.value = null;
   sidePanelGuard.bump();
 }
 
 function openTypeDdl(row: ObjectBrowserRow) {
+  selectedRowId.value = row.id;
   sidePanelRow.value = row;
   sidePanelMode.value = "type-info";
+  sourceRow.value = null;
   sidePanelGuard.bump();
   // DDL tab is selected by the panel once details load; switching the tab is
   // deferred via a dedicated request so the panel can focus it.
@@ -1749,6 +1799,9 @@ function openSourceTab(row: ObjectBrowserRow) {
 async function openSource(row: ObjectBrowserRow) {
   // Toggle off if clicking the same source row
   if (sidePanelRow.value?.id === row.id && sidePanelMode.value === "source") {
+    if (settingsStore.editorSettings.objectBrowserAutoOpenDetailPanel === false) {
+      return;
+    }
     closeSidePanel();
     return;
   }
@@ -1758,6 +1811,7 @@ async function openSource(row: ObjectBrowserRow) {
 let sourceIdentity: SourceIdentitySnapshot | undefined;
 
 async function loadSourcePanel(row: ObjectBrowserRow, options?: { preserveEditing?: boolean }) {
+  selectedRowId.value = row.id;
   // Starting a different object must invalidate slower source requests before
   // any state is reset, otherwise an old response can populate the new row.
   const epoch = sidePanelGuard.start();
@@ -1829,6 +1883,7 @@ async function refreshActiveSource() {
 }
 
 function openEventEditor(row: ObjectBrowserRow) {
+  selectedRowId.value = row.id;
   sidePanelGuard.start();
   sidePanelRow.value = row;
   sourceRow.value = null;
@@ -2609,7 +2664,6 @@ function setSelectedTableIds(ids: Set<string>) {
 }
 
 function toggleTableSelection(row: ObjectBrowserRow) {
-  if (row.type !== "TABLE") return;
   const next = new Set(selectedTableIds.value);
   if (next.has(row.id)) {
     next.delete(row.id);
@@ -2648,7 +2702,7 @@ async function fetchSortedTableRowsForDrop(): Promise<ObjectBrowserRow[]> {
   const rows = [...selectedTableRows.value];
   if (rows.length <= 1) return rows;
 
-  const fkResults = await Promise.all(rows.map((row) => api.listForeignKeys(props.connection.id, props.database, row.schema || selectedSchema.value || "", row.name, props.catalog).catch(() => [] as ForeignKeyInfo[])));
+  const fkResults = await Promise.all(rows.map((row) => (row.type === "TABLE" ? api.listForeignKeys(props.connection.id, props.database, row.schema || selectedSchema.value || "", row.name, props.catalog).catch(() => [] as ForeignKeyInfo[]) : Promise.resolve([] as ForeignKeyInfo[]))));
 
   const tablesWithFk: TableWithFk[] = rows.map((row, i) => ({
     name: row.name,
@@ -2666,7 +2720,7 @@ async function refreshBatchDropPreviewSql() {
   const sortedRows = await fetchSortedTableRowsForDrop();
   const useCascade = canBatchDropCascade.value && batchDropCascade.value;
   for (const row of sortedRows) {
-    const sql = await buildDropTableSql(tableAdminSqlOptions(row, { cascade: useCascade })).catch(() => "");
+    const sql = await buildDropSqlForRow(row, { cascade: useCascade }).catch(() => "");
     if (sql) statements.push(sql);
   }
   batchDropPreviewSql.value = statements.join("\n");
@@ -2696,7 +2750,7 @@ async function confirmBatchDropTables() {
     const plan = await Promise.all(
       targets.map(async (target) => ({
         target,
-        sql: await buildDropTableSql(tableAdminSqlOptions(target, { cascade: useCascade })),
+        sql: await buildDropSqlForRow(target, { cascade: useCascade }),
       })),
     );
     batchSql = plan.map(({ sql }) => sql).join(";\n");
@@ -2733,7 +2787,7 @@ async function confirmBatchDropTables() {
     }
 
     if (result.failed) throw result.failed;
-    toast(t("objects.batchDropSuccess", { count: result.succeeded.length }));
+    toast(hasSelectedTablesOnly.value ? t("objects.batchDropSuccess", { count: result.succeeded.length }) : t("contextMenu.batchDropSuccess", { count: result.succeeded.length }));
   } catch (e: any) {
     if (!batchDropRecorded && batchSql) {
       await recordTableMutationHistory(getTableMutationHistoryStoreOrNull(), {
@@ -4256,6 +4310,7 @@ watch(
     objectBrowserRowsLoadGuard.invalidate();
     schemaListLoadGuard.invalidate();
     closeSidePanel();
+    selectedRowId.value = null;
     loadingSchemas.value = false;
     loadingObjects.value = false;
     loadingMoreObjects.value = false;
@@ -4272,6 +4327,7 @@ watch(
     userHasSelectedFilter.value = false;
     objectFilter.value = usesServerObjectPaging.value ? (props.selectedObjectFilter ?? props.initialObjectFilter ?? "tables") : "all";
     clearTableSelection();
+    selectedRowId.value = null;
     // Close side panel and invalidate any pending source/table-info requests
     // so stale results from the old context don't overwrite new state.
     closeSidePanel();
@@ -4337,7 +4393,7 @@ function tableClipboardMenuItems(item: ObjectBrowserRow): ContextMenuItem[] {
 }
 
 function isSelectedBatchTableContext(item: ObjectBrowserRow): boolean {
-  return item.type === "TABLE" && selectedTableCount.value > 1 && selectedTableIds.value.has(item.id);
+  return selectedTableCount.value > 1 && selectedTableIds.value.has(item.id);
 }
 
 function addToAiMenuItem(item: ObjectBrowserRow): ContextMenuItem {
@@ -4383,10 +4439,10 @@ function getTableMenuItems(item: ObjectBrowserRow): ContextMenuItem[] {
   }
   const useBatchActions = isSelectedBatchTableContext(item);
   const moreActions: ContextMenuItem[] = [];
-  if (supportsVacuumTable.value) {
+  if (supportsVacuumTable.value && (!useBatchActions || hasSelectedTablesOnly.value)) {
     moreActions.push({ sidebarActionId: "contextMenu.vacuumTable", label: t("contextMenu.vacuumTable"), action: () => requestVacuumTable(item), icon: Activity, variant: "destructive" as const });
   }
-  if (supportsTruncateTable.value) {
+  if (supportsTruncateTable.value && (!useBatchActions || hasSelectedTablesOnly.value)) {
     moreActions.push({
       sidebarActionId: "contextMenu.truncateTable",
       label: useBatchActions ? selectedBatchTableCountLabel("batchTruncate") : t("contextMenu.truncateTable"),
@@ -4395,22 +4451,22 @@ function getTableMenuItems(item: ObjectBrowserRow): ContextMenuItem[] {
       variant: "destructive" as const,
     });
   }
-  moreActions.push(
-    {
+  if (!useBatchActions || hasSelectedTablesOnly.value) {
+    moreActions.push({
       sidebarActionId: "contextMenu.emptyTable",
       label: useBatchActions ? selectedBatchTableCountLabel("batchEmpty") : t("contextMenu.emptyTable"),
       action: useBatchActions ? requestBatchEmptyTables : () => requestEmptyTable(item),
       icon: Eraser,
       variant: "destructive" as const,
-    },
-    {
-      sidebarActionId: "contextMenu.dropTable",
-      label: useBatchActions ? selectedBatchTableCountLabel("batchDrop") : t("contextMenu.dropTable"),
-      action: useBatchActions ? requestBatchDropTables : () => requestDrop(item),
-      icon: Trash2,
-      variant: "destructive" as const,
-    },
-  );
+    });
+  }
+  moreActions.push({
+    sidebarActionId: "contextMenu.dropTable",
+    label: useBatchActions ? selectedBatchTableCountLabel("batchDrop") : t("contextMenu.dropTable"),
+    action: useBatchActions ? requestBatchDropTables : () => requestDrop(item),
+    icon: Trash2,
+    variant: "destructive" as const,
+  });
   return [
     { sidebarActionId: "contextMenu.viewData", label: t("contextMenu.viewData"), action: () => openViewData(item), icon: Table2 },
     {
@@ -4673,6 +4729,9 @@ function getObjectBrowserMenuItems(item: ObjectBrowserRow): ContextMenuItem[] {
         <CheckSquare v-if="settingsStore.editorSettings.objectBrowserShowCheckbox" class="h-3.5 w-3.5" />
         <Square v-else class="h-3.5 w-3.5" />
       </Button>
+      <Button v-if="showInlineSidePanelToggle" variant="ghost" size="icon" class="h-7 w-7" :class="{ 'text-primary': isSidePanelOpen }" :title="isSidePanelOpen ? t('objects.closeDetailPanel') : t('objects.openDetailPanel')" @click="toggleSidePanel">
+        <PanelRight class="h-3.5 w-3.5" />
+      </Button>
       <Button variant="ghost" size="icon" class="h-7 w-7" :title="refreshTooltip" :disabled="loadingObjects" @click="refresh">
         <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': loadingObjects || refreshingObjects }" />
       </Button>
@@ -4712,6 +4771,11 @@ function getObjectBrowserMenuItems(item: ObjectBrowserRow): ContextMenuItem[] {
           {{ t("objects.viewCompact") }}
         </DropdownMenuItem>
         <DropdownMenuCheckboxItem v-if="supportsBatchTableActions" :model-value="settingsStore.editorSettings.objectBrowserShowCheckbox" @select.prevent @update:model-value="toggleCheckboxColumn()">{{ t("objects.toggleCheckbox") }}</DropdownMenuCheckboxItem>
+        <DropdownMenuItem @select="toggleSidePanel">
+          <PanelRight class="h-3.5 w-3.5" />
+          {{ isSidePanelOpen ? t("objects.closeDetailPanel") : t("objects.openDetailPanel") }}
+        </DropdownMenuItem>
+        <DropdownMenuCheckboxItem :model-value="settingsStore.editorSettings.objectBrowserAutoOpenDetailPanel !== false" @select.prevent @update:model-value="toggleAutoOpenDetailPanel()">{{ t("objects.autoOpenDetailPanel") }}</DropdownMenuCheckboxItem>
         <template v-if="showObjectFilter && toolbarTier >= 2">
           <DropdownMenuSeparator />
           <DropdownMenuCheckboxItem v-for="filter in objectFilters" :key="filter" :model-value="objectFilter === filter" @select.prevent @update:model-value="selectObjectFilter(filter)">{{ filterLabel(filter) }} </DropdownMenuCheckboxItem>
@@ -4734,11 +4798,11 @@ function getObjectBrowserMenuItems(item: ObjectBrowserRow): ContextMenuItem[] {
         <Clipboard class="mr-1.5 h-3.5 w-3.5" />
         {{ t("objects.copyTableSelected") }}
       </Button>
-      <Button v-if="supportsBatchTableActions && supportsTruncateTable" variant="ghost" size="sm" class="h-7 px-2 text-xs text-destructive" @click="requestBatchTruncateTables">
+      <Button v-if="supportsBatchTableActions && supportsTruncateTable && hasSelectedTablesOnly" variant="ghost" size="sm" class="h-7 px-2 text-xs text-destructive" @click="requestBatchTruncateTables">
         <Scissors class="mr-1.5 h-3.5 w-3.5" />
         {{ t("objects.truncateSelected") }}
       </Button>
-      <Button v-if="supportsBatchTableActions" variant="ghost" size="sm" class="h-7 px-2 text-xs text-destructive" @click="requestBatchEmptyTables">
+      <Button v-if="supportsBatchTableActions && hasSelectedTablesOnly" variant="ghost" size="sm" class="h-7 px-2 text-xs text-destructive" @click="requestBatchEmptyTables">
         <Eraser class="mr-1.5 h-3.5 w-3.5" />
         {{ t("contextMenu.batchEmpty", { count: selectedTableCount }) }}
       </Button>
@@ -4907,14 +4971,14 @@ function getObjectBrowserMenuItems(item: ObjectBrowserRow): ContextMenuItem[] {
                 <div
                   class="grid h-[34px] cursor-default items-center gap-3 border-b px-3"
                   :class="{
-                    'bg-accent text-accent-foreground': isOpen || sourceRow?.id === item.id || sidePanelRow?.id === item.id || selectedTableIds.has(item.id),
-                    'hover:bg-accent/40': !isOpen && sourceRow?.id !== item.id && sidePanelRow?.id !== item.id && !selectedTableIds.has(item.id),
+                    'bg-accent text-accent-foreground': isOpen || sourceRow?.id === item.id || sidePanelRow?.id === item.id || selectedRowId === item.id || selectedTableIds.has(item.id),
+                    'hover:bg-accent/40': !isOpen && sourceRow?.id !== item.id && sidePanelRow?.id !== item.id && selectedRowId !== item.id && !selectedTableIds.has(item.id),
                   }"
-                  :style="{ gridTemplateColumns, boxShadow: sidePanelRow?.id === item.id && !selectedTableIds.has(item.id) ? 'inset 3px 0 0 var(--primary)' : undefined }"
+                  :style="{ gridTemplateColumns, boxShadow: (sidePanelRow?.id === item.id || selectedRowId === item.id) && !selectedTableIds.has(item.id) ? 'inset 3px 0 0 var(--primary)' : undefined }"
                   @click="onRowClick(item, $event)"
                   @contextmenu="onContextMenu"
                 >
-                  <button v-if="showCheckboxColumn" class="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground" type="button" :class="{ invisible: item.type !== 'TABLE' }" @click.stop="toggleTableSelection(item)">
+                  <button v-if="showCheckboxColumn" class="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground" type="button" @click.stop="toggleTableSelection(item)">
                     <CheckSquare v-if="selectedTableIds.has(item.id)" class="h-3.5 w-3.5 text-primary" />
                     <Square v-else class="h-3.5 w-3.5" />
                   </button>
@@ -4975,14 +5039,14 @@ function getObjectBrowserMenuItems(item: ObjectBrowserRow): ContextMenuItem[] {
                     v-if="isGridView"
                     class="relative flex h-full min-h-0 cursor-default flex-col items-center gap-1 rounded-lg border p-3 text-center transition-all"
                     :class="{
-                      'border-primary bg-accent shadow-sm': isOpen || sourceRow?.id === item.id || sidePanelRow?.id === item.id || selectedTableIds.has(item.id),
-                      'bg-card hover:border-primary/40 hover:bg-accent/40 hover:shadow-sm': !isOpen && sourceRow?.id !== item.id && sidePanelRow?.id !== item.id && !selectedTableIds.has(item.id),
+                      'border-primary bg-accent shadow-sm': isOpen || sourceRow?.id === item.id || sidePanelRow?.id === item.id || selectedRowId === item.id || selectedTableIds.has(item.id),
+                      'bg-card hover:border-primary/40 hover:bg-accent/40 hover:shadow-sm': !isOpen && sourceRow?.id !== item.id && sidePanelRow?.id !== item.id && selectedRowId !== item.id && !selectedTableIds.has(item.id),
                     }"
                     :title="item.displayName"
                     @click="onRowClick(item, $event)"
                     @contextmenu="onContextMenu"
                   >
-                    <button v-if="showCheckboxColumn" class="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground" type="button" :class="{ invisible: item.type !== 'TABLE' }" @click.stop="toggleTableSelection(item)">
+                    <button v-if="showCheckboxColumn" class="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground" type="button" @click.stop="toggleTableSelection(item)">
                       <CheckSquare v-if="selectedTableIds.has(item.id)" class="h-3.5 w-3.5 text-primary" />
                       <Square v-else class="h-3.5 w-3.5" />
                     </button>
@@ -5018,14 +5082,14 @@ function getObjectBrowserMenuItems(item: ObjectBrowserRow): ContextMenuItem[] {
                     data-object-compact-card
                     class="flex h-full min-w-0 cursor-default items-center gap-1 rounded border px-1.5 text-[11px] text-foreground transition-colors"
                     :class="{
-                      'border-primary bg-accent shadow-sm': isOpen || sourceRow?.id === item.id || sidePanelRow?.id === item.id || selectedTableIds.has(item.id),
-                      'bg-card hover:border-primary/40 hover:bg-accent/40': !isOpen && sourceRow?.id !== item.id && sidePanelRow?.id !== item.id && !selectedTableIds.has(item.id),
+                      'border-primary bg-accent shadow-sm': isOpen || sourceRow?.id === item.id || sidePanelRow?.id === item.id || selectedRowId === item.id || selectedTableIds.has(item.id),
+                      'bg-card hover:border-primary/40 hover:bg-accent/40': !isOpen && sourceRow?.id !== item.id && sidePanelRow?.id !== item.id && selectedRowId !== item.id && !selectedTableIds.has(item.id),
                     }"
                     :title="item.displayName"
                     @click="onRowClick(item, $event)"
                     @contextmenu="onContextMenu"
                   >
-                    <button v-if="showCheckboxColumn" class="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground" type="button" :class="{ invisible: item.type !== 'TABLE' }" @click.stop="toggleTableSelection(item)">
+                    <button v-if="showCheckboxColumn" class="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground" type="button" @click.stop="toggleTableSelection(item)">
                       <CheckSquare v-if="selectedTableIds.has(item.id)" class="h-3.5 w-3.5 text-primary" />
                       <Square v-else class="h-3.5 w-3.5" />
                     </button>
@@ -5349,16 +5413,7 @@ function getObjectBrowserMenuItems(item: ObjectBrowserRow): ContextMenuItem[] {
     </template>
   </DangerConfirmDialog>
 
-  <DangerConfirmDialog
-    v-model:open="showBatchDropConfirm"
-    :title="t('objects.confirmBatchDropTitle')"
-    :message="t('objects.confirmBatchDropMessage', { count: selectedTableCount })"
-    :sql="batchDropPreviewSql"
-    :confirm-label="t('objects.dropSelected')"
-    :loading="batchDropExecuting"
-    :close-on-confirm="false"
-    @confirm="confirmBatchDropTables"
-  >
+  <DangerConfirmDialog v-model:open="showBatchDropConfirm" :title="batchDropConfirmTitle" :message="batchDropConfirmMessage" :sql="batchDropPreviewSql" :confirm-label="t('objects.dropSelected')" :loading="batchDropExecuting" :close-on-confirm="false" @confirm="confirmBatchDropTables">
     <template #options>
       <div v-if="batchDropExecuting" class="mb-3 rounded-md border bg-muted/20 px-3 py-2.5">
         <div class="mb-1.5 flex items-center justify-between text-xs tabular-nums text-muted-foreground">

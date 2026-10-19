@@ -180,6 +180,10 @@ export function isExecuteSqlInNewResultTabShortcut(event: ShortcutLikeEvent, sho
   return matchesShortcut(event, actionShortcut("executeSqlInNewResultTab", shortcuts));
 }
 
+export function isExplainSqlShortcut(event: ShortcutLikeEvent, shortcuts?: Partial<ShortcutSettings>): boolean {
+  return matchesShortcut(event, actionShortcut("explainSql", shortcuts));
+}
+
 export function isCloseTabShortcut(event: ShortcutLikeEvent, shortcuts?: Partial<ShortcutSettings>): boolean {
   return matchesShortcut(event, actionShortcut("closeTab", shortcuts));
 }
@@ -376,6 +380,18 @@ export function isQuickOpenShortcut(event: ShortcutLikeEvent, shortcuts?: Partia
 
 export function isGlobalSearchShortcut(event: ShortcutLikeEvent, shortcuts?: Partial<ShortcutSettings>): boolean {
   return matchesShortcut(event, actionShortcut("globalSearch", shortcuts));
+}
+
+export function isOpenConnectionPickerShortcut(event: ShortcutLikeEvent, shortcuts?: Partial<ShortcutSettings>): boolean {
+  return matchesShortcut(event, actionShortcut("openConnectionPicker", shortcuts));
+}
+
+export function isOpenDatabasePickerShortcut(event: ShortcutLikeEvent, shortcuts?: Partial<ShortcutSettings>): boolean {
+  return matchesShortcut(event, actionShortcut("openDatabasePicker", shortcuts));
+}
+
+export function isOpenSchemaPickerShortcut(event: ShortcutLikeEvent, shortcuts?: Partial<ShortcutSettings>): boolean {
+  return matchesShortcut(event, actionShortcut("openSchemaPicker", shortcuts));
 }
 
 export function isNavigateTabHistoryBackShortcut(event: ShortcutLikeEvent, shortcuts?: Partial<ShortcutSettings>, platform = globalThis.navigator?.platform || ""): boolean {

@@ -250,6 +250,7 @@ enum ConnectionDatabaseInfoSource {
         session: Arc<PluginDriverSession>,
     },
     NativeMysql(db::mysql::MySqlPool),
+    NativeGaussdbDws(deadpool_postgres::Pool),
     NativeHBase(db::hbase_driver::HBaseClient),
     NativeMongo(mongodb::Client, Option<String>),
     Meilisearch(db::meilisearch_driver::MeilisearchClient),
@@ -259,6 +260,12 @@ enum ConnectionDatabaseInfoSource {
     Consul(Box<crate::consul::ConsulClient>),
     #[cfg(feature = "mq-admin")]
     MessageQueue,
+}
+
+async fn gaussdb_dws_product_version_from_pool(pool: &deadpool_postgres::Pool) -> Option<String> {
+    let result = db::postgres::execute_query_with_max_rows(pool, "SELECT version()", Some(1)).await.ok()?;
+    let server_version = result.rows.first()?.first()?.as_str()?;
+    crate::query::plugin_plan::gaussdb_product_version_from_server_version(server_version)
 }
 
 /// Held connection for a manual transaction session
@@ -2919,12 +2926,37 @@ impl AppState {
                 } else {
                     db_config.url_params.as_deref().and_then(extract_auth_token_from_params).unwrap_or_default()
                 };
-                let client = db::turso_driver::TursoClient::new(&url, &auth_token, db_config.ssl, connect_timeout)?;
+                let http_proxy = clickhouse_http_proxy(runtime_proxy.as_ref())?;
+                let ca_cert =
+                    if db_config.ca_cert_path.trim().is_empty() { None } else { Some(db_config.ca_cert_path.as_str()) };
+                let client_cert = if db_config.client_cert_path.trim().is_empty() {
+                    None
+                } else {
+                    Some(db_config.client_cert_path.as_str())
+                };
+                let client_key = if db_config.client_key_path.trim().is_empty() {
+                    None
+                } else {
+                    Some(db_config.client_key_path.as_str())
+                };
+                let client = db::turso_driver::TursoClient::new_with_options(
+                    &url,
+                    &auth_token,
+                    db_config.ssl,
+                    connect_timeout,
+                    ca_cert,
+                    client_cert,
+                    client_key,
+                    http_proxy,
+                )?;
                 db::turso_driver::test_connection(&client, connect_timeout).await?;
                 PoolKind::Turso(client)
             }
             DatabaseType::CloudflareD1 => {
-                PoolKind::CloudflareD1(db::cloudflare_d1_driver::connect(&db_config, connect_timeout).await?)
+                let http_proxy = clickhouse_http_proxy(runtime_proxy.as_ref())?;
+                PoolKind::CloudflareD1(
+                    db::cloudflare_d1_driver::connect_with_proxy(&db_config, http_proxy, connect_timeout).await?,
+                )
             }
             DatabaseType::Redis => {
                 let con = if db_config.uses_redis_cluster() {
@@ -3688,7 +3720,10 @@ impl AppState {
         if transport_layers.is_empty() || db::sqlite_worker::sqlite_remote_worker_requested(config) {
             return Ok(ConnectionEndpoint::direct(config.host.clone(), config.port));
         }
-        if config.db_type == DatabaseType::ClickHouse {
+        if config.db_type == DatabaseType::ClickHouse
+            || config.db_type == DatabaseType::CloudflareD1
+            || config.db_type == DatabaseType::Turso
+        {
             if let Some(proxy) = self.clickhouse_proxy_for_transport_layers(connection_id, &transport_layers).await? {
                 return Ok(ConnectionEndpoint { host: config.host.clone(), port: config.port, proxy: Some(proxy) });
             }
@@ -5441,6 +5476,11 @@ impl AppState {
                         session: session.clone(),
                     })
                 }
+                Some(PoolKind::Postgres(pool))
+                    if crate::query::plugin_plan::is_explicit_gaussdb_dws_profile(&config) =>
+                {
+                    Some(ConnectionDatabaseInfoSource::NativeGaussdbDws(pool.clone()))
+                }
                 Some(PoolKind::Mysql(pool, _)) => Some(ConnectionDatabaseInfoSource::NativeMysql(pool.clone())),
                 Some(PoolKind::HBase(client)) => Some(ConnectionDatabaseInfoSource::NativeHBase(client.clone())),
                 Some(PoolKind::MongoDb(client)) => {
@@ -5487,6 +5527,21 @@ impl AppState {
             }
             Some(ConnectionDatabaseInfoSource::NativeMysql(pool)) => {
                 db::mysql::database_connection_info(&pool, db::mysql::protocol_product_name(&config)).await.map(Some)
+            }
+            Some(ConnectionDatabaseInfoSource::NativeGaussdbDws(pool)) => {
+                // Version discovery is optional metadata. If the query or product
+                // marker is unavailable, return versionless info; plan support is
+                // determined by the explicit DWS profile, not the product version.
+                let product_version = gaussdb_dws_product_version_from_pool(&pool).await;
+                Ok(Some(DatabaseConnectionInfo {
+                    product_name: Some("GaussDB".to_string()),
+                    product_version: product_version.map(|version| format!("GaussDB {version}")),
+                    current_database: database
+                        .map(str::to_string)
+                        .or_else(|| config.effective_database().map(str::to_string)),
+                    driver_name: Some("DBX PostgreSQL-compatible driver".to_string()),
+                    ..Default::default()
+                }))
             }
             Some(ConnectionDatabaseInfoSource::NativeHBase(client)) => {
                 db::hbase_driver::database_connection_info(&client).await
