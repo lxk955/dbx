@@ -2731,10 +2731,8 @@ const columnWidthMode = computed(() => settingsStore.editorSettings.dataGridColu
 const tableFontFamily = computed(() => settingsStore.editorSettings.tableFontFamily);
 const columnWidthCacheKey = computed(() => props.columnWidthCacheKey?.trim() || props.cacheKey?.trim() || undefined);
 const columnStructureSignature = computed(() => createDataGridColumnStructureSignature(props.result.columns, props.result.column_types));
-// Bumped once the configured header font is ready, so widths measured against a temporary fallback
-// font get re-measured without reacting to unrelated fonts loaded elsewhere in the application.
-const dataGridFontReadyTick = ref(0);
-const columnFormatterReadyTick = ref(0);
+// The configured header font is re-measured once ready (grown-only, never clearing user
+// adjustments), without reacting to unrelated fonts loaded elsewhere in the application.
 const columnHeaderMeasurementKey = computed(() => [tableFontSize.value, tableFontFamily.value]);
 let columnHeaderMeasureContext: CanvasRenderingContext2D | null | undefined;
 let triggerGrowColumnWidths: (() => void) | undefined;
@@ -2751,7 +2749,6 @@ if (typeof document !== "undefined" && document.fonts) {
         return;
       }
       if (requestId === fontLoadRequestId) {
-        dataGridFontReadyTick.value++;
         triggerGrowColumnWidths?.();
       }
     },
@@ -5652,7 +5649,6 @@ const {
   toast,
 });
 columnFormatterForWidth = columnFormatter;
-columnFormatterReadyTick.value++;
 
 initColumnWidths();
 watch([visibleColumnIndexes, () => renderedColumnWidths.value.length], () => scheduleColumnLayoutRefresh());

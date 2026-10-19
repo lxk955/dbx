@@ -1,16 +1,7 @@
 // @vitest-environment happy-dom
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  clearDataGridColumnWidthStates,
-  createDataGridColumnMeasurementSignature,
-  createDataGridColumnStructureSignature,
-  DATA_GRID_COLUMN_WIDTH_STATE_LIMIT,
-  dataGridColumnWidthStateCount,
-  loadDataGridColumnWidthState,
-  removeDataGridColumnWidthState,
-  saveDataGridColumnWidthState,
-} from "@/lib/dataGrid/dataGridColumnWidthState";
+import { clearDataGridColumnWidthStates, createDataGridColumnMeasurementSignature, createDataGridColumnStructureSignature, DATA_GRID_COLUMN_WIDTH_STATE_LIMIT, loadDataGridColumnWidthState, removeDataGridColumnWidthState, saveDataGridColumnWidthState } from "@/lib/dataGrid/dataGridColumnWidthState";
 
 describe("dataGridColumnWidthState", () => {
   const structureSignature = createDataGridColumnStructureSignature(["id", "name"], ["INT", "VARCHAR"]);
@@ -30,7 +21,7 @@ describe("dataGridColumnWidthState", () => {
     expect(loaded?.userSizedColumnIndexes).toEqual(new Set([1]));
   });
 
-  it("persists user-sized column widths to localStorage and restores them when in-memory cache is cold", () => {
+  it("persists user-sized column widths to localStorage and restores them when in-memory cache is cold", async () => {
     const identity = { cacheKey: "result-file-/queries/test.sql-0", structureSignature, measurementSignature };
     saveDataGridColumnWidthState(identity, [0, 1], [120, 300], new Set([1]));
 
@@ -38,12 +29,12 @@ describe("dataGridColumnWidthState", () => {
     const rawSaved = localStorage.getItem("dbx-data-grid-column-widths:result-file-/queries/test.sql-0");
     expect(rawSaved).toBeTruthy();
 
-    // Clear in-memory map without wiping localStorage
-    // (simulating app restart where in-memory map starts empty)
+    // Simulate an app restart: fresh module instance => empty in-memory map, same localStorage.
+    vi.resetModules();
+    const fresh = await import("@/lib/dataGrid/dataGridColumnWidthState");
     const coldIdentity = { cacheKey: "result-file-/queries/test.sql-0", structureSignature, measurementSignature };
-    // Clear in-memory by clearing only map or loading after removing memory reference
-    // Directly test loadDataGridColumnWidthState when memory map doesn't have it
-    const reloaded = loadDataGridColumnWidthState(coldIdentity, [0, 1]);
+    expect(fresh.dataGridColumnWidthStateCount()).toBe(0);
+    const reloaded = fresh.loadDataGridColumnWidthState(coldIdentity, [0, 1]);
     expect(reloaded?.widths).toEqual([120, 300]);
     expect(reloaded?.userSizedColumnIndexes).toEqual(new Set([1]));
   });
