@@ -1,7 +1,6 @@
 import type { Command, EditorView, KeyBinding } from "@codemirror/view";
-import { shortcutToCodeMirrorKey } from "@/lib/editor/shortcutRegistry";
+import { shortcutToCodeMirrorKey, type ShortcutSettings } from "@/lib/editor/shortcutRegistry";
 import { isExecuteSqlShortcut, isExecuteSqlInNewResultTabShortcut, isExplainSqlShortcut } from "@/lib/editor/keyboardShortcuts";
-import type { ShortcutSettings } from "@/types/settings";
 
 const SAFARI_POST_COMPOSITION_KEY_WINDOW_MS = 100;
 
