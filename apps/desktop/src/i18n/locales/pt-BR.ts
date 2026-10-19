@@ -665,6 +665,7 @@ export default withEnglishFallback({
     alwaysOnTopOff: "Não manter no topo",
     blockDangerousRedisCommands: "Bloquear comandos perigosos",
     multiDbExecute: "Execução em múltiplos bancos",
+    executeAllSql: "Executar todo o SQL",
   },
   multiDbExecute: {
     manualTransaction: "Transação manual",
@@ -9312,6 +9313,7 @@ export default withEnglishFallback({
     tabGroupRowsSingle: "Uma linha",
     tabGroupRowsTwoRow: "Duas linhas (grupos em linha própria)",
     tabGroupRowsDescription: "Aplica-se apenas a uma barra de abas no topo ou na base com agrupamento ativado: os grupos ocupam uma linha própria e as abas do grupo selecionado aparecem na linha seguinte.",
+    shortcutExecuteAllSql: "Executar todo o SQL",
   },
   driverStore: {
     jreDirRemoveFailed: "Não foi possível remover o diretório JRE antigo: {path} (erro original: {error})",

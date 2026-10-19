@@ -645,6 +645,7 @@ export default withEnglishFallback({
     alwaysOnTopOff: "Не оставлять поверх других окон",
     blockDangerousRedisCommands: "Блокировать опасные команды",
     multiDbExecute: "Выполнение на нескольких БД",
+    executeAllSql: "Выполнить весь SQL",
   },
   multiDbExecute: {
     manualTransaction: "Ручная транзакция",
@@ -10738,6 +10739,7 @@ export default withEnglishFallback({
     tabGroupRowsSingle: "Одна строка",
     tabGroupRowsTwoRow: "Две строки (группы на отдельной строке)",
     tabGroupRowsDescription: "Действует только для верхней или нижней панели вкладок с включённой группировкой: группы занимают отдельную строку, а вкладки выбранной группы отображаются на следующей строке.",
+    shortcutExecuteAllSql: "Выполнить весь SQL",
   },
   driverStore: {
     jreDirRemoveFailed: "Не удалось удалить старый каталог JRE: {path} (исходная ошибка: {error})",
