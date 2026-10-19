@@ -3410,10 +3410,7 @@ function imageAttachmentDetail(attachment: AiImageAttachment): string {
 }
 
 function activeImageAttachmentSupportError(attachments: readonly AiImageAttachment[]) {
-  return imageAttachmentSupportError(
-    activeFullConfig.value?.provider,
-    attachments.map((attachment) => attachment.mediaType),
-  );
+  return imageAttachmentSupportError(activeFullConfig.value?.provider, attachments.map((attachment) => attachment.mediaType));
 }
 
 function imageAttachmentSupportErrorMessage(error: "provider" | "format"): string {
@@ -4691,6 +4688,7 @@ async function send() {
           sqlFiles,
           csvFiles: csvAttachments,
           selections: selectionContexts,
+          includeQueryResult: settings.includeQueryResult,
         },
       );
       context.selectedDatabases = runDatabases;

@@ -511,12 +511,13 @@ function onLocaleOpenChange(open: boolean) {
   if (!open) restoreLocaleOptionPreview();
 }
 
-const appThemePaletteOptions = computed((): Array<{ value: AppThemePalette; label: string; previewColor: string }> =>
-  APP_THEME_PALETTES.map((palette) => ({
-    value: palette.value,
-    label: t(palette.labelKey),
-    previewColor: palette.previewColor,
-  })),
+const appThemePaletteOptions = computed(
+  (): Array<{ value: AppThemePalette; label: string; previewColor: string }> =>
+    APP_THEME_PALETTES.map((palette) => ({
+      value: palette.value,
+      label: t(palette.labelKey),
+      previewColor: palette.previewColor,
+    })),
 );
 const selectedThemePaletteOption = computed(() => appThemePaletteOptions.value.find((option) => option.value === themePalette.value) ?? appThemePaletteOptions.value[0]);
 const selectedLocaleOption = computed(() => LOCALE_OPTIONS.find((locale) => locale.value === currentLocale()) ?? LOCALE_OPTIONS[0]);
@@ -10762,7 +10763,8 @@ onUnmounted(() => {
 SELECT t.*
 FROM ${1:table} t
 WHERE t.del_flag = 0
-LIMIT 100;</pre>
+LIMIT 100;</pre
+                >
               </div>
 
               <div class="overflow-x-auto rounded-md border">
@@ -11412,6 +11414,22 @@ LIMIT 100;</pre>
                     </p>
                   </div>
                   <Switch id="ai-restore-last-conversation" :model-value="settingsStore.restoreLastConversation" @update:model-value="(value) => settingsStore.setRestoreLastConversation(Boolean(value))" />
+                </div>
+              </div>
+
+              <!-- Send query results to AI (list mode, global) -->
+              <div v-if="aiConfigListMode === 'list'" class="space-y-3">
+                <Separator />
+                <div class="settings-item flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">
+                  <div class="space-y-1">
+                    <Label for="ai-include-query-result">
+                      {{ t("ai.includeQueryResult") }}
+                    </Label>
+                    <p class="text-xs text-muted-foreground">
+                      {{ t("ai.includeQueryResultDescription") }}
+                    </p>
+                  </div>
+                  <Switch id="ai-include-query-result" :model-value="settingsStore.includeQueryResult" @update:model-value="(value) => settingsStore.setIncludeQueryResult(Boolean(value))" />
                 </div>
               </div>
 
