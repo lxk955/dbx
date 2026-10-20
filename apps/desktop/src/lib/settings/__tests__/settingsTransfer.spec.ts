@@ -14,6 +14,17 @@ function fileWith(editor: Record<string, unknown>, overrides: Record<string, unk
 }
 
 describe("settingsTransfer", () => {
+  it("round-trips column comment placement as a data preference and rejects non-booleans", () => {
+    const text = serializeSettingsTransfer({ ...DEFAULT_EDITOR_SETTINGS, dataGridColumnCommentsInInfoArea: true, dataGridTransposeMetadataInInfoColumn: true });
+    const result = parseSettingsTransferFile(text);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.editorSettings.dataGridColumnCommentsInInfoArea).toBe(true);
+    if (result.ok) expect(result.value.editorSettings.dataGridTransposeMetadataInInfoColumn).toBe(true);
+    expect(transferCategoryForKey("dataGridTransposeMetadataInInfoColumn")).toBe("data");
+    expect(transferCategoryForKey("dataGridColumnCommentsInInfoArea")).toBe("data");
+    expect(parseSettingsTransferFile(fileWith({ dataGridColumnCommentsInInfoArea: "true" })).ok).toBe(false);
+    expect(parseSettingsTransferFile(fileWith({ dataGridTransposeMetadataInInfoColumn: "true" })).ok).toBe(false);
+  });
   it("round-trips an opt-out of comment-first result names and rejects non-booleans", () => {
     const text = serializeSettingsTransfer({ ...DEFAULT_EDITOR_SETTINGS, resultTabPreferComments: false });
     const result = parseSettingsTransferFile(text);
@@ -539,6 +550,41 @@ describe("settingsTransfer", () => {
     if (!result.ok) return;
     expect(result.value.editorSettings.sqlFormatter?.layoutStyle).toBe("dbx");
     expect(result.value.editorSettings.sqlFormatter?.commaPosition).toBe("after");
+  });
+
+  it("imports a pre-custom-rules application backup without dropping existing settings", () => {
+    const current = DEFAULT_EDITOR_SETTINGS.sqlFormatter;
+    const oldKeys = [
+      "layoutStyle",
+      "keywordCase",
+      "dataTypeCase",
+      "functionCase",
+      "identifierCase",
+      "indentStyle",
+      "useTabs",
+      "tabWidth",
+      "logicalOperatorNewline",
+      "commaPosition",
+      "fromClauseLayout",
+      "expressionWidth",
+      "linesBetweenQueries",
+      "preserveEmptyLines",
+      "denseOperators",
+      "newlineBeforeSemicolon",
+      "paramTypes",
+    ];
+    const legacy = Object.fromEntries(Object.entries(current).filter(([key]) => oldKeys.includes(key)));
+    const result = parseSettingsTransferFile(fileWith({ sqlFormatter: legacy }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.editorSettings.sqlFormatter).toMatchObject({ ...legacy, customRulesEnabled: false, selectListLayout: "vertical" });
+  });
+
+  it("preserves custom rules and a 76-column width in application backups", () => {
+    const sqlFormatter = { ...DEFAULT_EDITOR_SETTINGS.sqlFormatter, customRulesEnabled: true, selectListLayout: "wrap", updateListLayout: "vertical", expressionWidth: 76 };
+    const result = parseSettingsTransferFile(fileWith({ sqlFormatter }));
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.editorSettings.sqlFormatter).toEqual(sqlFormatter);
   });
 
   it("rejects malformed sql variable syntax overrides", () => {

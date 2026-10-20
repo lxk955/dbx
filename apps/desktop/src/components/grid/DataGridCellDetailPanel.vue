@@ -11,7 +11,7 @@ import { TabsContent } from "@/components/ui/tabs";
 import TemporalCellEditor from "@/components/grid/TemporalCellEditor.vue";
 import { useDataGridCellDetail } from "@/composables/useDataGridCellDetail";
 import { BINARY_CELL_DOWNLOAD_MODES, isBinaryCellColumnType, binaryCellUtf8Text, isBlobCellColumnType, type BinaryCellDownloadMode } from "@/lib/dataGrid/binaryCellDownload";
-import { isGeometryColumnType } from "@/lib/dataGrid/cellDetailPresentation";
+import { cellDetailPreviewText, isGeometryColumnType } from "@/lib/dataGrid/cellDetailPresentation";
 import { isHexGeometry } from "@/lib/dataGrid/geometryPreview";
 import type { DataGridCellDetail } from "@/lib/dataGrid/dataGridDetail";
 import type { TemporalCellEditorConfig } from "@/lib/dataGrid/dataGridTemporalEditor";
@@ -54,6 +54,7 @@ const emit = defineEmits<{
   copyValue: [];
   commit: [];
   cancel: [];
+  close: [];
   save: [];
   setNull: [];
   copyColumnName: [];
@@ -64,6 +65,7 @@ const { geometryPreviewOpen, geometryCanvas, detailsEditorContainer, sideJsonPre
   detail: toRef(props, "detail"),
   editValue: detailEditValue,
   onCancel: () => emit("cancel"),
+  onClose: () => emit("close"),
   // 详情编辑器里按 Ctrl/Cmd+S 与 temporal 编辑器的 ctrl+s 路径保持一致：
   // 先 emit commit（把草稿落成待保存变更），再 emit save（触发网格保存）。
   onSave: () => {
@@ -76,7 +78,7 @@ void detailsEditorContainer;
 void sideJsonPreviewContainer;
 
 const binaryTextPreview = computed(() => (isBlobCellColumnType(props.detail.type) ? binaryCellUtf8Text(props.detail.value, props.detail.type, props.databaseType) : null));
-const presentedValuePreview = computed(() => (binaryTextPreview.value === null ? props.detail.rawValuePreview : props.detail.displayValuePreview));
+const presentedValuePreview = computed(() => (binaryTextPreview.value === null ? cellDetailPreviewText(props.detail, props.databaseType) : props.detail.displayValuePreview));
 const transformOpen = ref(false);
 // 底部面板横向空间充足：有图片预览时与值文本左右并排，侧栏窄面板保持上下堆叠。
 const valueBesideImage = computed(() => props.panelIsBottom && !props.editing && !!props.detail.imagePreviewUrl);

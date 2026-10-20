@@ -5,6 +5,7 @@ import com.dbx.agent.ColumnInfo;
 import com.dbx.agent.DdlBuilder;
 import com.dbx.agent.IndexInfo;
 import com.dbx.agent.MetadataListConstraints;
+import com.dbx.agent.ObjectInfo;
 import com.dbx.agent.ObjectSource;
 import com.dbx.agent.TableInfo;
 import com.dbx.agent.test.TestSupport;
@@ -338,6 +339,51 @@ class Gbase8sAgentTest {
     }
 
     @Test
+    void listObjectsLoadsGbase8sTablesAndViews() {
+        List<String> sql = new ArrayList<>();
+        Gbase8sAgent agent = new Gbase8sAgent();
+        TestSupport.setPrivateConnection(agent, preparedConnection(sql, resultSet(
+            new String[]{"tabname", "tabtype", "comments"},
+            new Object[][]{
+                {"users", "T", "User table"},
+                {"v_active_users", "V", "Active users view"}
+            }
+        )));
+
+        List<ObjectInfo> objects = agent.listObjects("root");
+
+        Assertions.assertEquals(2, objects.size());
+        Assertions.assertEquals("users", objects.get(0).getName());
+        Assertions.assertEquals("TABLE", objects.get(0).getObject_type());
+        Assertions.assertEquals("v_active_users", objects.get(1).getName());
+        Assertions.assertEquals("VIEW", objects.get(1).getObject_type());
+        Assertions.assertTrue(sql.get(0).contains("FROM systables"));
+    }
+
+    @Test
+    void constrainedListObjectsFiltersGbase8sViews() {
+        List<String> sql = new ArrayList<>();
+        Gbase8sAgent agent = new Gbase8sAgent();
+        TestSupport.setPrivateConnection(agent, preparedConnection(sql, resultSet(
+            new String[]{"tabname", "tabtype", "comments"},
+            new Object[][]{
+                {"v_orders", "V", null}
+            }
+        )));
+
+        List<ObjectInfo> objects = agent.listObjects(
+            "gbasedbt",
+            new MetadataListConstraints(null, null, null, List.of("VIEW"))
+        );
+
+        Assertions.assertEquals(1, objects.size());
+        Assertions.assertEquals("v_orders", objects.get(0).getName());
+        Assertions.assertEquals("VIEW", objects.get(0).getObject_type());
+        Assertions.assertTrue(sql.get(0).contains("FROM systables"));
+        Assertions.assertTrue(sql.get(0).contains("tabtype IN ('V')"));
+    }
+
+    @Test
     void extractsPrimaryKeyColumnNumbersFromGbase8sIndexParts() {
         Assertions.assertEquals(
             Set.of(1, 3, 5),
@@ -578,6 +624,66 @@ class Gbase8sAgentTest {
     }
 
     @Test
+    void sanitizeColumnDefaultStripsTrailingNulBytesAndEmptyExpressions() {
+        Assertions.assertEquals("'2'", Gbase8sAgent.sanitizeColumnDefault("'2'\0\0\0"));
+        Assertions.assertEquals("''", Gbase8sAgent.sanitizeColumnDefault("''\0\0\0"));
+        Assertions.assertEquals("'0'", Gbase8sAgent.sanitizeColumnDefault("'0' \0\0"));
+        Assertions.assertEquals("current_timestamp", Gbase8sAgent.sanitizeColumnDefault("current_timestamp\0"));
+        Assertions.assertNull(Gbase8sAgent.sanitizeColumnDefault("\0\0\0"));
+        Assertions.assertNull(Gbase8sAgent.sanitizeColumnDefault("   \0  "));
+        Assertions.assertNull(Gbase8sAgent.sanitizeColumnDefault(null));
+        Assertions.assertNull(Gbase8sAgent.sanitizeColumnDefault(""));
+    }
+
+    @Test
+    void getColumnsAndDdlStripTrailingNulBytesFromDefaults() throws Exception {
+        List<String> sql = new ArrayList<>();
+        Gbase8sAgent agent = new Gbase8sAgent();
+        Connection connection = preparedConnection(
+            sql,
+            resultSet(
+                new String[]{"part1", "part2", "part3", "part4", "part5", "part6", "part7", "part8", "part9", "part10", "part11", "part12", "part13", "part14", "part15", "part16"},
+                new Object[][]{{1, 0, null, null, null, null, null, null, null, null, null, null, null, null, null, null}}
+            ),
+            resultSet(
+                new String[]{"colname", "column_default"},
+                new Object[][]{
+                    {"show_status", "'2'\0\0\0\0\0"},
+                    {"name", "''\0\0\0\0\0"},
+                    {"empty_default", "\0\0\0"}
+                }
+            ),
+            resultSet(
+                new String[]{"colname", "coltype", "colno", "collength", "comments"},
+                new Object[][]{
+                    {"id", 258, 1, 4, null},
+                    {"show_status", 257, 2, 2, null},
+                    {"name", 269, 3, 765, null},
+                    {"empty_default", 258, 4, 4, null}
+                }
+            )
+        );
+        TestSupport.setPrivateConnection(agent, connection);
+        agent.afterConnect(new ConnectParams(
+            "localhost", 9088, "appdb", "", "", "GBASEDBTSERVER=gbase8s;", "", false
+        ), connection);
+
+        List<ColumnInfo> columns = agent.getColumns("root", "test_table");
+        Assertions.assertEquals(4, columns.size());
+        Assertions.assertNull(columns.get(0).getColumn_default());
+        Assertions.assertEquals("'2'", columns.get(1).getColumn_default());
+        Assertions.assertEquals("''", columns.get(2).getColumn_default());
+        Assertions.assertNull(columns.get(3).getColumn_default());
+
+        String ddl = DdlBuilder.buildTableDdl("root", "test_table", columns, List.of(), List.of());
+        Assertions.assertFalse(ddl.contains("\0"), "DDL must not contain NUL bytes");
+        Assertions.assertTrue(ddl.contains("\"show_status\" SMALLINT NOT NULL DEFAULT '2'"));
+        Assertions.assertTrue(ddl.contains("\"name\" VARCHAR(765) NOT NULL DEFAULT ''"));
+        Assertions.assertTrue(ddl.contains("\"empty_default\" INTEGER NOT NULL"));
+        Assertions.assertFalse(ddl.contains("\"empty_default\" INTEGER NOT NULL DEFAULT"));
+    }
+
+    @Test
     void getColumnsUsesMysqlModeFromCustomConnectionStringBeforeUrlParams() {
         String sql = defaultExpressionSql(
             "SQLMODE=ansi",
@@ -762,6 +868,33 @@ class Gbase8sAgentTest {
         Assertions.assertEquals(2, sql.size());
         Assertions.assertTrue(sql.get(0).contains("SELECT tabtype FROM systables"), sql.get(0));
         Assertions.assertTrue(sql.get(1).contains("FROM sysviews"), sql.get(1));
+    }
+
+    @Test
+    void getTableDdlStripsNulBytesFromSysviewsChunks() {
+        List<String> sql = new ArrayList<>();
+        Gbase8sAgent agent = new Gbase8sAgent();
+        TestSupport.setPrivateConnection(agent, preparedConnection(
+            sql,
+            resultSet(
+                new String[]{"tabtype"},
+                new Object[][]{
+                    {"V"}
+                }
+            ),
+            resultSet(
+                new String[]{"viewtext"},
+                new Object[][]{
+                    {"create view v1 as select 1 as id; \0\0\0"},
+                    {"\0\0\0"}
+                }
+            )
+        ));
+
+        String ddl = agent.getTableDdl("gbasedbt", "v1");
+
+        Assertions.assertEquals("create view v1 as select 1 as id;", ddl);
+        Assertions.assertFalse(ddl.contains("\0"));
     }
 
     private static Connection preparedConnection(List<String> sql, ResultSet... resultSets) {

@@ -43,6 +43,22 @@ function makeSettings(overrides: Partial<EditorSettings> = {}): EditorSettings {
 }
 
 describe("EDITOR_SETTINGS_DRAFT_KEYS", () => {
+  it("tracks the result-tab click setting in the draft without changing saved settings", () => {
+    const settings = makeSettings({ pinResultTabOnClick: true });
+    const draft = editorSettingsDraftFromSettings(settings);
+    const base = editorSettingsDraftFromSettings(settings);
+    draft.pinResultTabOnClick = false;
+    expect(settings.pinResultTabOnClick).toBe(true);
+    expect(editorSettingsDraftChanged(draft, base)).toBe(true);
+    expect(editorSettingsPatchFromDraft(draft, base)).toMatchObject({ pinResultTabOnClick: false });
+  });
+
+  it("captures and saves the column comment placement preference", () => {
+    const base = editorSettingsDraftFromSettings(makeSettings({ dataGridColumnCommentsInInfoArea: false, dataGridTransposeMetadataInInfoColumn: false }));
+    const draft = editorSettingsDraftFromSettings(makeSettings({ dataGridColumnCommentsInInfoArea: true, dataGridTransposeMetadataInInfoColumn: true }));
+    expect(draft.dataGridColumnCommentsInInfoArea).toBe(true);
+    expect(editorSettingsPatchFromDraft(draft, base)).toEqual({ dataGridColumnCommentsInInfoArea: true, dataGridTransposeMetadataInInfoColumn: true });
+  });
   it("keeps connection and query timeout ownership outside editor settings", () => {
     expect(EDITOR_SETTINGS_DRAFT_KEYS).not.toContain("globalConnectTimeoutSecs");
     expect(EDITOR_SETTINGS_DRAFT_KEYS).not.toContain("globalQueryTimeoutSecs");
