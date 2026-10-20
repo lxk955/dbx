@@ -70,6 +70,8 @@ const props = defineProps<{
   blockDangerousRedisCommands?: boolean;
   sqlKeywordCase: "preserve" | "upper" | "lower";
   databaseRequiredSignal?: number;
+  /** When non-zero, highlights and opens the connection picker so the user selects a connection. */
+  connectionRequiredSignal?: number;
   autoCommit?: boolean;
   txnSessionId?: string;
   txnAutoRolledBack?: boolean;
@@ -435,8 +437,26 @@ watch(
   },
 );
 
+const connectionRequiredVisible = ref(false);
+
+watch(
+  () => props.connectionRequiredSignal,
+  (signal) => {
+    if (!signal) return;
+    connectionRequiredVisible.value = false;
+    requestAnimationFrame(() => {
+      connectionRequiredVisible.value = true;
+      connectionPickerRef.value?.openDropdown();
+    });
+  },
+);
+
 watch(activeDatabaseValue, (database) => {
   if (database) databaseRequiredVisible.value = false;
+});
+
+watch(activeConnectionValue, (connectionId) => {
+  if (connectionId) connectionRequiredVisible.value = false;
 });
 
 /**
@@ -950,7 +970,7 @@ defineExpose({
       </div>
     </div>
     <div class="flex shrink-0 items-center gap-2">
-      <div class="flex shrink-0 items-center gap-1">
+      <div class="flex shrink-0 items-center gap-1" :class="{ 'connection-required-prompt': connectionRequiredVisible }">
         <span v-if="activeConnection?.color" class="h-4 w-1 rounded-full shrink-0" :style="{ backgroundColor: activeConnection.color }" />
         <ConnectionTreeSelect
           ref="connectionPickerRef"
@@ -1168,5 +1188,16 @@ defineExpose({
   72% {
     transform: translateX(3px);
   }
+}
+
+.connection-required-prompt {
+  color: var(--destructive);
+  animation: database-required-shake 420ms ease;
+}
+
+.connection-required-prompt :deep(button) {
+  color: var(--destructive);
+  border-color: color-mix(in oklch, var(--destructive) 55%, transparent);
+  background: color-mix(in oklch, var(--destructive) 10%, transparent);
 }
 </style>

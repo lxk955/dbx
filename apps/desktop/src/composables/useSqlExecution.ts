@@ -632,6 +632,7 @@ export function useSqlExecution(deps: {
       return finish({ status: "skipped", errorMessage: t("dangerDialog.cancel") });
     }
     if (requiresConnectionSelection(executionTab, connection)) {
+      deps.onMissingConnection?.(executionTab.id);
       return finish({ status: "failed", errorMessage: t("editor.selectConnectionRequired") });
     }
     if (requiresDatabaseSelection(executionTab, connection, sql)) {
