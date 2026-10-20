@@ -262,7 +262,7 @@ function printRuleElement(writer: Writer, nodes: AstNode[], baseColumn: number, 
     printCondition(writer, operands, baseColumn, ctx);
     return;
   }
-  for (let index = 0; index < nodes.length; ) {
+  for (let index = 0; index < nodes.length;) {
     const node = nodes[index];
     if (node.type === "line_comment" || node.type === "block_comment" || node.type === "disable_comment") {
       if (/[\r\n]/.test(node.precedingWhitespace)) writer.newline(baseColumn);
