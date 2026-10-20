@@ -679,6 +679,32 @@ describe("useDataGridColumnResize", () => {
 
     expect(comf.columnWidths.value[0]).toBeGreaterThanOrEqual(std.columnWidths.value[0]);
   });
+
+  it("clears remembered column widths and restores automatic calculation", () => {
+    const cacheKey = "test-reset-column-widths";
+    const state = createResizeState({
+      columns: ["id", "name"],
+      rows: [[1, "Alice"]],
+      cacheKey,
+      widthMode: "content",
+    });
+    state.initColumnWidths();
+    const autoWidth = state.columnWidths.value[0]!;
+    expect(state.hasUserSizedColumns.value).toBe(false);
+
+    // Resize column 0 manually
+    state.onResizeStart(0, new MouseEvent("mousedown", { clientX: 100, cancelable: true }));
+    document.dispatchEvent(new MouseEvent("mouseup", { clientX: 250 }));
+    expect(state.columnWidths.value[0]).toBeGreaterThan(autoWidth);
+    expect(state.hasUserSizedColumns.value).toBe(true);
+    expect(localStorage.getItem(`dbx-data-grid-column-widths:${cacheKey}`)).toBeTruthy();
+
+    // Reset column widths
+    state.resetColumnWidths();
+    expect(state.hasUserSizedColumns.value).toBe(false);
+    expect(state.columnWidths.value[0]).toBe(autoWidth);
+    expect(localStorage.getItem(`dbx-data-grid-column-widths:${cacheKey}`)).toBeNull();
+  });
 });
 
 describe("sampleDataGridColumnValues", () => {

@@ -2799,7 +2799,7 @@ function columnWidthDisplayValue(value: CellValue, columnIndex: number): CellVal
   return showWhitespaceEnabled.value && typeof display === "string" ? gridCellDisplayValue(display, flatteningMultiLineEnabled.value, true) : display;
 }
 
-const { initColumnWidths, growColumnWidthsToFitSamples, onResizeStart, autoFitColumn, autoFitAllColumns, renderedColumnWidths, totalWidth, columnVars, getIsResizing } = useDataGridColumnResize({
+const { initColumnWidths, growColumnWidthsToFitSamples, onResizeStart, autoFitColumn, autoFitAllColumns, resetColumnWidths, hasUserSizedColumns, renderedColumnWidths, totalWidth, columnVars, getIsResizing } = useDataGridColumnResize({
   columns: visibleColumns,
   sourceRows: computed(() => props.result.rows),
   columnIndexes: visibleColumnIndexes,
@@ -13884,6 +13884,8 @@ defineExpose({
   moveDisplayableColumn,
   resetColumnOrder,
   autoFitAllColumns,
+  resetColumnWidths,
+  hasUserSizedColumns,
   nullColumnsHidden,
   allNullColumnCount,
   canToggleAllNullColumns,
@@ -14291,6 +14293,7 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
       frozenColumnCount: frozenColumnCount.value,
       contextVisibleColIdx: contextHeaderVisibleColIdx.value ?? undefined,
       hasColumnSelection: hasColumnSelection.value,
+      hasUserSizedColumns: hasUserSizedColumns.value,
       selectedColumnCount,
       visibleColumnCount: visibleColumnCount.value,
       hiddenColumnCount: hiddenColumnCount.value,
@@ -14321,6 +14324,7 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
         hideSelectedColumns: t("grid.hideSelectedColumns", { count: selectedColumnCount }),
         hideIdenticalColumns: identicalColumnCount > 0 ? t("grid.hideIdenticalColumnsCount", { count: identicalColumnCount }) : t("grid.hideIdenticalColumns"),
         showAllColumnsMenu: t("grid.showAllColumnsMenu"),
+        clearRememberedColumnWidths: t("grid.clearRememberedColumnWidths"),
       },
       icons: {
         copy: Copy,
@@ -14329,6 +14333,7 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
         ascending: ArrowUp,
         descending: ArrowDown,
         clearSort: Eraser,
+        clearRememberedColumnWidths: RotateCcw,
       },
       actions: {
         copyName: copyHeaderColumnOrSelected,
@@ -14338,6 +14343,10 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
         copyAlterSql: copyAlterColumnSql,
         copyMetadata: copyContextColumnMetadata,
         sort: applyContextSort,
+        clearRememberedColumnWidths: () => {
+          resetColumnWidths();
+          clearCellSelection();
+        },
         freezeToColumn: () => {
           const idx = contextHeaderVisibleColIdx.value;
           if (idx !== null && idx >= 0) {

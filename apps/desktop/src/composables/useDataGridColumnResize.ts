@@ -56,6 +56,7 @@ export function useDataGridColumnResize(options: UseDataGridColumnResizeOptions)
   // Replaced wholesale instead of mutated so reactive consumers (renderedColumnWidths)
   // re-run when a column becomes user-sized and stops receiving spare width.
   const userSizedColumnIndexes = shallowRef<Set<number>>(new Set());
+  const hasUserSizedColumns = computed(() => userSizedColumnIndexes.value.size > 0);
 
   function columnWidthStateIdentity() {
     return {
@@ -247,6 +248,12 @@ export function useDataGridColumnResize(options: UseDataGridColumnResizeOptions)
     persistColumnWidths();
   }
 
+  function resetColumnWidths() {
+    removeDataGridColumnWidthState(options.cacheKey?.value);
+    userSizedColumnIndexes.value = new Set();
+    initColumnWidths(true);
+  }
+
   const resolvedRowNumberWidth = computed(() => options.rowNumberWidth?.value ?? DATA_GRID_ROW_NUM_WIDTH);
 
   const renderedColumnWidths = computed(() => {
@@ -308,6 +315,8 @@ export function useDataGridColumnResize(options: UseDataGridColumnResizeOptions)
     onResizeStart,
     autoFitColumn,
     autoFitAllColumns,
+    resetColumnWidths,
+    hasUserSizedColumns,
     renderedColumnWidths,
     totalWidth,
     columnVars,
