@@ -2519,7 +2519,7 @@ async function saveTabForCloseAll(tabId: string): Promise<boolean> {
 
   const existing = tab.savedSqlId ? savedSqlStore.getFile(tab.savedSqlId) : undefined;
   const target = savedSqlTargetForSave(tab);
-  let saveName = tab.title?.trim() ? defaultSavedSqlName(tab.title) : existing?.name || defaultSavedSqlName(tab.title);
+  let saveName = existing?.name || defaultSavedSqlName(tab.title);
   for (let attempt = 0; attempt < SAVE_SQL_NAME_ATTEMPTS; attempt++) {
     try {
       const saved = await savedSqlStore.saveFile({
@@ -2626,7 +2626,7 @@ async function handleSaveTab(tabId: string) {
         id: existing.id,
         connectionId: target.connectionId,
         folderId: existing.folderId,
-        name: tab.title?.trim() ? defaultSavedSqlName(tab.title) : existing.name,
+        name: existing.name,
         database: target.database,
         catalog: target.catalog,
         schema: target.schema,
@@ -2670,7 +2670,7 @@ async function openSaveSqlDialog(tabId?: string) {
         id: existing.id,
         connectionId: target.connectionId,
         folderId: existing.folderId,
-        name: tab.title?.trim() ? defaultSavedSqlName(tab.title) : existing.name,
+        name: existing.name,
         database: target.database,
         catalog: target.catalog,
         schema: target.schema,
