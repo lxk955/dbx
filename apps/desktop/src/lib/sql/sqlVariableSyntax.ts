@@ -58,6 +58,23 @@ export type SqlVariableSyntaxOverrides = Partial<Record<DatabaseType, Partial<Sq
 export const SQL_VARIABLE_SYNTAX_DATABASE_TYPES: DatabaseType[] = manifestDatabaseTypes();
 
 const ORACLE_SUBSTITUTION_DATABASE_TYPES = new Set<DatabaseType>(["oracle", "oceanbase-oracle", "dameng", "yashandb", "oscar"]);
+const MODE_DEPENDENT_SUBSTITUTION_DATABASE_TYPES = new Set<DatabaseType>(["opengauss", "gaussdb", "kingbase"]);
+
+export function isModeDependentSubstitutionDatabase(dbType?: DatabaseType): boolean {
+  return !dbType ? false : MODE_DEPENDENT_SUBSTITUTION_DATABASE_TYPES.has(dbType);
+}
+
+export function isApplicableCompatibilityMode(dbType?: DatabaseType, compatibilityMode?: string): boolean {
+  if (!dbType || !compatibilityMode) return false;
+  const mode = compatibilityMode.trim().toLowerCase();
+  if (dbType === "opengauss" || dbType === "gaussdb") {
+    return mode === "a" || mode === "b" || mode === "c" || mode === "d" || mode === "pg";
+  }
+  if (dbType === "kingbase") {
+    return mode === "oracle" || mode === "pg" || mode === "mysql" || mode === "sqlserver";
+  }
+  return false;
+}
 
 export function isOracleSubstitutionDatabase(dbType?: DatabaseType, compatibilityMode?: string): boolean {
   if (!dbType) return false;
@@ -118,18 +135,36 @@ export function enabledSqlParameterSyntaxes(toggles: SqlVariableSyntaxToggles): 
 /**
  * Normalize persisted overrides into a sparse structure: drop non-object entries
  * and only keep syntaxes that differ from database-specific defaults.
+ *
+ * For databases whose substitution default depends on compatibility mode
+ * (openGauss, GaussDB, Kingbase), an explicit boolean override cannot be assumed
+ * redundant across all modes unless an applicable compatibilityMode is supplied.
  */
-export function normalizeSqlVariableSyntaxOverrides(value: unknown): SqlVariableSyntaxOverrides {
+export function normalizeSqlVariableSyntaxOverrides(value: unknown, compatibilityMode?: string): SqlVariableSyntaxOverrides {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const result: SqlVariableSyntaxOverrides = {};
   for (const [dbType, raw] of Object.entries(value as Record<string, unknown>)) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-    const defaults = defaultSqlVariableSyntaxToggles(dbType as DatabaseType);
+    const isModeDependent = isModeDependentSubstitutionDatabase(dbType as DatabaseType);
+    const applicableMode = isApplicableCompatibilityMode(dbType as DatabaseType, compatibilityMode) ? compatibilityMode : undefined;
+    const defaults = defaultSqlVariableSyntaxToggles(dbType as DatabaseType, applicableMode);
     const partial: Partial<SqlVariableSyntaxToggles> = {};
     for (const key of SQL_VARIABLE_SYNTAX_KEYS) {
       if ((dbType === "neo4j" || dbType === "nebula") && key === "named") continue;
       const val = (raw as Record<string, unknown>)[key];
-      if (typeof val === "boolean" && val !== defaults[key]) {
+      if (typeof val !== "boolean") continue;
+
+      if (key === "substitution" && isModeDependent) {
+        if (applicableMode !== undefined) {
+          if (val !== defaults[key]) {
+            partial[key] = val;
+          }
+        } else {
+          // Without an applicable compatibility mode context, retain any explicit boolean
+          // override because it deviates from either Oracle mode (default true) or PG mode (default false).
+          partial[key] = val;
+        }
+      } else if (val !== defaults[key]) {
         partial[key] = val;
       }
     }

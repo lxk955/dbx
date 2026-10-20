@@ -1,6 +1,53 @@
 import { describe, expect, it } from "vitest";
 import { reactive } from "vue";
-import { DEFAULT_SQL_VARIABLE_SYNTAX_TOGGLES, defaultSqlVariableSyntaxToggles, enabledSqlParameterSyntaxes, isOracleSubstitutionDatabase, normalizeSqlVariableSyntaxOverrides, resolveSqlVariableSyntaxToggles } from "@/lib/sql/sqlVariableSyntax";
+import {
+  DEFAULT_SQL_VARIABLE_SYNTAX_TOGGLES,
+  defaultSqlVariableSyntaxToggles,
+  enabledSqlParameterSyntaxes,
+  isApplicableCompatibilityMode,
+  isModeDependentSubstitutionDatabase,
+  isOracleSubstitutionDatabase,
+  normalizeSqlVariableSyntaxOverrides,
+  resolveSqlVariableSyntaxToggles,
+} from "@/lib/sql/sqlVariableSyntax";
+
+describe("isModeDependentSubstitutionDatabase", () => {
+  it("identifies mode-dependent database types", () => {
+    expect(isModeDependentSubstitutionDatabase("opengauss")).toBe(true);
+    expect(isModeDependentSubstitutionDatabase("gaussdb")).toBe(true);
+    expect(isModeDependentSubstitutionDatabase("kingbase")).toBe(true);
+  });
+
+  it("returns false for mode-independent databases or undefined", () => {
+    expect(isModeDependentSubstitutionDatabase("oracle")).toBe(false);
+    expect(isModeDependentSubstitutionDatabase("postgres")).toBe(false);
+    expect(isModeDependentSubstitutionDatabase("mysql")).toBe(false);
+    expect(isModeDependentSubstitutionDatabase("sqlserver")).toBe(false);
+    expect(isModeDependentSubstitutionDatabase("sqlite")).toBe(false);
+    expect(isModeDependentSubstitutionDatabase(undefined)).toBe(false);
+  });
+});
+
+describe("isApplicableCompatibilityMode", () => {
+  it("validates openGauss and GaussDB compatibility modes", () => {
+    expect(isApplicableCompatibilityMode("opengauss", "A")).toBe(true);
+    expect(isApplicableCompatibilityMode("opengauss", "b")).toBe(true);
+    expect(isApplicableCompatibilityMode("gaussdb", "C")).toBe(true);
+    expect(isApplicableCompatibilityMode("opengauss", "oracle")).toBe(false);
+  });
+
+  it("validates Kingbase compatibility modes", () => {
+    expect(isApplicableCompatibilityMode("kingbase", "oracle")).toBe(true);
+    expect(isApplicableCompatibilityMode("kingbase", "pg")).toBe(true);
+    expect(isApplicableCompatibilityMode("kingbase", "A")).toBe(false);
+  });
+
+  it("returns false for non-mode-dependent databases or undefined inputs", () => {
+    expect(isApplicableCompatibilityMode("postgres", "pg")).toBe(false);
+    expect(isApplicableCompatibilityMode(undefined, "A")).toBe(false);
+    expect(isApplicableCompatibilityMode("opengauss", undefined)).toBe(false);
+  });
+});
 
 describe("isOracleSubstitutionDatabase", () => {
   it("identifies Oracle and Oracle-compatible databases", () => {
@@ -221,5 +268,65 @@ describe("normalizeSqlVariableSyntaxOverrides", () => {
     // Detached from the reactive source: mutating the clone must not touch the proxy.
     cloned.mysql = {};
     expect(overrides.mysql).toEqual({ shell: false, atSet: false });
+  });
+
+  it("preserves explicit substitution: false for mode-dependent databases without compatibility mode", () => {
+    expect(normalizeSqlVariableSyntaxOverrides({ opengauss: { substitution: false } })).toEqual({ opengauss: { substitution: false } });
+    expect(normalizeSqlVariableSyntaxOverrides({ gaussdb: { substitution: false } })).toEqual({ gaussdb: { substitution: false } });
+    expect(normalizeSqlVariableSyntaxOverrides({ kingbase: { substitution: false } })).toEqual({ kingbase: { substitution: false } });
+  });
+
+  it("preserves explicit substitution: true for mode-dependent databases without compatibility mode", () => {
+    expect(normalizeSqlVariableSyntaxOverrides({ opengauss: { substitution: true } })).toEqual({ opengauss: { substitution: true } });
+    expect(normalizeSqlVariableSyntaxOverrides({ kingbase: { substitution: true } })).toEqual({ kingbase: { substitution: true } });
+  });
+
+  it("evaluates mode-dependent defaults when an applicable compatibilityMode is supplied", () => {
+    // openGauss in A mode defaults substitution to true: false deviates and is kept; true matches and is dropped
+    expect(normalizeSqlVariableSyntaxOverrides({ opengauss: { substitution: false } }, "A")).toEqual({ opengauss: { substitution: false } });
+    expect(normalizeSqlVariableSyntaxOverrides({ opengauss: { substitution: true } }, "A")).toEqual({});
+
+    // openGauss in B mode defaults substitution to false: true deviates and is kept; false matches and is dropped
+    expect(normalizeSqlVariableSyntaxOverrides({ opengauss: { substitution: true } }, "B")).toEqual({ opengauss: { substitution: true } });
+    expect(normalizeSqlVariableSyntaxOverrides({ opengauss: { substitution: false } }, "B")).toEqual({});
+
+    // Kingbase in oracle mode defaults substitution to true: false deviates and is kept; true matches and is dropped
+    expect(normalizeSqlVariableSyntaxOverrides({ kingbase: { substitution: false } }, "oracle")).toEqual({ kingbase: { substitution: false } });
+    expect(normalizeSqlVariableSyntaxOverrides({ kingbase: { substitution: true } }, "oracle")).toEqual({});
+
+    // Kingbase in pg mode defaults substitution to false: true deviates and is kept; false matches and is dropped
+    expect(normalizeSqlVariableSyntaxOverrides({ kingbase: { substitution: true } }, "pg")).toEqual({ kingbase: { substitution: true } });
+    expect(normalizeSqlVariableSyntaxOverrides({ kingbase: { substitution: false } }, "pg")).toEqual({});
+  });
+
+  it("does not let unrelated compatibility modes affect another database type during normalization", () => {
+    // openGauss "A" mode must not cause Kingbase substitution: false to be dropped
+    expect(normalizeSqlVariableSyntaxOverrides({ opengauss: { substitution: false }, kingbase: { substitution: false } }, "A")).toEqual({
+      opengauss: { substitution: false },
+      kingbase: { substitution: false },
+    });
+    // Kingbase "oracle" mode must not cause openGauss substitution: false to be dropped
+    expect(normalizeSqlVariableSyntaxOverrides({ opengauss: { substitution: false }, kingbase: { substitution: false } }, "oracle")).toEqual({
+      opengauss: { substitution: false },
+      kingbase: { substitution: false },
+    });
+  });
+
+  it("round-trips mode-dependent overrides correctly into resolution", () => {
+    const rawSaved = { opengauss: { substitution: false } };
+    const normalized = normalizeSqlVariableSyntaxOverrides(rawSaved);
+    expect(normalized).toEqual({ opengauss: { substitution: false } });
+
+    // Runtime resolution in A-mode honors the explicit false override
+    expect(resolveSqlVariableSyntaxToggles(normalized, "opengauss", true, "A").substitution).toBe(false);
+
+    // Kingbase runtime resolution in oracle mode honors explicit false override
+    const kbNormalized = normalizeSqlVariableSyntaxOverrides({ kingbase: { substitution: false } });
+    expect(resolveSqlVariableSyntaxToggles(kbNormalized, "kingbase", true, "oracle").substitution).toBe(false);
+
+    // Control: without override, A-mode and oracle-mode default to true
+    expect(resolveSqlVariableSyntaxToggles({}, "opengauss", true, "A").substitution).toBe(true);
+    expect(resolveSqlVariableSyntaxToggles({}, "kingbase", true, "oracle").substitution).toBe(true);
+    expect(resolveSqlVariableSyntaxToggles({}, "postgres", true).substitution).toBe(false);
   });
 });

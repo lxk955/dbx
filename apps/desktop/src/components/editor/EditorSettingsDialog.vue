@@ -272,6 +272,7 @@ import { executableStatementRangeCacheForDoc, executableStatementRangeStartingAt
 import { EMPTY_TABLE_COLUMN_TEMPLATE_DATA_TYPE, parseTableColumnTemplateFields, TABLE_COLUMN_TEMPLATE_DATABASE_TYPES, tableColumnTemplateRowsToSettings } from "@/lib/table/tableColumnTemplates";
 import {
   defaultSqlVariableSyntaxToggles,
+  isModeDependentSubstitutionDatabase,
   normalizeSqlVariableSyntaxOverrides,
   resolveSqlVariableSyntaxToggles,
   SQL_VARIABLE_SYNTAX_DATABASE_TYPES,
@@ -358,6 +359,7 @@ import {
 import { applyEditorSettingsDraftToRefs, type EditorSettingsDraftRefMap } from "@/lib/settings/applyEditorSettingsDraft";
 import { serializeSettingsTransfer, sortTransferCategories, transferCategoryForKey, type SettingsTransferCategoryId } from "@/lib/settings/settingsTransfer";
 import { useConnectionStore } from "@/stores/connectionStore";
+import { useQueryStore } from "@/stores/queryStore";
 import { effectiveDatabaseTypeForConnection } from "@/lib/database/jdbcDialect";
 import { useSavedSqlStore } from "@/stores/savedSqlStore";
 import { usePromptTemplateStore } from "@/stores/promptTemplateStore";
@@ -431,6 +433,7 @@ const { draft: editHistoryRetentionLimit, loaded: historyRetentionLoaded, loadin
 const { draft: editMcpHistoryRetentionLimit, loaded: mcpHistoryRetentionLoaded, loading: mcpHistoryRetentionLoading, saving: mcpHistoryRetentionSaving, loadError: mcpHistoryRetentionLoadError } = mcpHistoryRetention;
 const mcpHistoryCleanupLoading = ref(false);
 const connectionStore = useConnectionStore();
+const queryStore = useQueryStore();
 const hasSqlServerConnection = computed(() => connectionStore.connections.some((connection) => effectiveDatabaseTypeForConnection(connection) === "sqlserver"));
 const savedSqlStore = useSavedSqlStore();
 const promptTemplateStore = usePromptTemplateStore();
@@ -899,15 +902,60 @@ function updateExternalSqlEditorMaxMbInput(event: Event) {
   editExternalSqlEditorMaxMb.value = normalized;
 }
 
+const currentSqlVariableSyntaxCompatibilityMode = computed<string | undefined>(() => {
+  const dbType = editSqlVariableSyntaxDatabaseType.value;
+  if (!isModeDependentSubstitutionDatabase(dbType)) return undefined;
+
+  const activeTab = queryStore.tabs.find((tab) => tab.id === queryStore.activeTabId);
+  if (activeTab?.connectionId) {
+    const activeConn = connectionStore.getConfig(activeTab.connectionId);
+    const connDbType = activeConn ? (effectiveDatabaseTypeForConnection(activeConn) ?? activeConn.db_type) : undefined;
+    if (connDbType === dbType || activeTab.databaseType === dbType) {
+      if (dbType === "opengauss" || dbType === "gaussdb") {
+        return connectionStore.databaseCompatibilityMode(activeTab.connectionId, activeTab.database || activeConn?.database);
+      }
+      if (dbType === "kingbase") {
+        return activeConn?.database_info?.compatibilityMode;
+      }
+    }
+  }
+
+  if (connectionStore.activeConnectionId) {
+    const activeConn = connectionStore.getConfig(connectionStore.activeConnectionId);
+    const connDbType = activeConn ? (effectiveDatabaseTypeForConnection(activeConn) ?? activeConn.db_type) : undefined;
+    if (connDbType === dbType) {
+      if (dbType === "opengauss" || dbType === "gaussdb") {
+        return connectionStore.databaseCompatibilityMode(activeConn.id, activeConn.database);
+      }
+      if (dbType === "kingbase") {
+        return activeConn?.database_info?.compatibilityMode;
+      }
+    }
+  }
+
+  const conn = connectionStore.connections.find((c) => (effectiveDatabaseTypeForConnection(c) ?? c.db_type) === dbType);
+  if (conn) {
+    if (dbType === "opengauss" || dbType === "gaussdb") {
+      return connectionStore.databaseCompatibilityMode(conn.id, conn.database);
+    }
+    if (dbType === "kingbase") {
+      return conn.database_info?.compatibilityMode;
+    }
+  }
+
+  return undefined;
+});
+
 function sqlVariableSyntaxToggle(key: keyof SqlVariableSyntaxToggles): boolean {
-  return resolveSqlVariableSyntaxToggles(editSqlVariableSyntaxOverrides.value, editSqlVariableSyntaxDatabaseType.value)[key];
+  return resolveSqlVariableSyntaxToggles(editSqlVariableSyntaxOverrides.value, editSqlVariableSyntaxDatabaseType.value, true, currentSqlVariableSyntaxCompatibilityMode.value)[key];
 }
 
 function setSqlVariableSyntaxToggle(key: keyof SqlVariableSyntaxToggles, value: boolean) {
   const dbType = editSqlVariableSyntaxDatabaseType.value;
   if ((dbType === "neo4j" || dbType === "nebula") && key === "named") return;
-  const defaults = defaultSqlVariableSyntaxToggles(dbType);
-  const current = resolveSqlVariableSyntaxToggles(editSqlVariableSyntaxOverrides.value, dbType);
+  const compatibilityMode = currentSqlVariableSyntaxCompatibilityMode.value;
+  const defaults = defaultSqlVariableSyntaxToggles(dbType, compatibilityMode);
+  const current = resolveSqlVariableSyntaxToggles(editSqlVariableSyntaxOverrides.value, dbType, true, compatibilityMode);
   const merged: SqlVariableSyntaxToggles = {
     ...current,
     [key]: value,
@@ -915,10 +963,23 @@ function setSqlVariableSyntaxToggle(key: keyof SqlVariableSyntaxToggles, value: 
   const next: SqlVariableSyntaxOverrides = {
     ...editSqlVariableSyntaxOverrides.value,
   };
+  const isModeDependent = isModeDependentSubstitutionDatabase(dbType);
   const partial: Partial<SqlVariableSyntaxToggles> = {};
   for (const toggleKey of SQL_VARIABLE_SYNTAX_KEYS) {
     if ((dbType === "neo4j" || dbType === "nebula") && toggleKey === "named") continue;
-    if (merged[toggleKey] !== defaults[toggleKey]) {
+    if (toggleKey === "substitution" && isModeDependent) {
+      if (compatibilityMode !== undefined) {
+        if (merged[toggleKey] !== defaults[toggleKey]) {
+          partial[toggleKey] = merged[toggleKey];
+        }
+      } else {
+        if (toggleKey === key) {
+          partial[toggleKey] = value;
+        } else if (editSqlVariableSyntaxOverrides.value[dbType]?.substitution !== undefined) {
+          partial[toggleKey] = editSqlVariableSyntaxOverrides.value[dbType]!.substitution;
+        }
+      }
+    } else if (merged[toggleKey] !== defaults[toggleKey]) {
       partial[toggleKey] = merged[toggleKey];
     }
   }
