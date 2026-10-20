@@ -1,5 +1,56 @@
 import { describe, expect, it } from "vitest";
 import { coerceDataGridCellValue, dataGridCellDisplayText, dataGridCellEditorText } from "@/lib/dataGrid/dataGridCellCoercion";
+import { binaryCellClipboardText } from "@/lib/dataGrid/binaryCellDownload";
+
+describe("dataGridCellEditorText", () => {
+  it("decodes hex-encoded ASCII UUID values to readable UUID strings (#12911)", () => {
+    const hex = "0x30316130353762662d326262642d373061362d623363332d353665623430396130663935";
+    expect(
+      dataGridCellEditorText({
+        value: hex,
+        databaseType: "mysql",
+        columnInfo: { data_type: "uuid" },
+      }),
+    ).toBe("01a057bf-2bbd-70a6-b3c3-56eb409a0f95");
+
+    // Also works when columnInfo is binary or undefined (e.g. wire protocol fallback)
+    expect(
+      dataGridCellEditorText({
+        value: hex,
+        databaseType: "mysql",
+        columnInfo: { data_type: "binary" },
+      }),
+    ).toBe("01a057bf-2bbd-70a6-b3c3-56eb409a0f95");
+  });
+
+  it("decodes 16-byte raw hex UUIDs in uuid columns to hyphenated UUID strings", () => {
+    expect(
+      dataGridCellEditorText({
+        value: "0x01a057bf2bbd70a6b3c356eb409a0f95",
+        databaseType: "mysql",
+        columnInfo: { data_type: "uuid" },
+      }),
+    ).toBe("01a057bf-2bbd-70a6-b3c3-56eb409a0f95");
+  });
+
+  it("preserves plain UUID strings and arbitrary binary data", () => {
+    expect(
+      dataGridCellEditorText({
+        value: "01a057bf-2bbd-70a6-b3c3-56eb409a0f95",
+        databaseType: "mysql",
+        columnInfo: { data_type: "uuid" },
+      }),
+    ).toBe("01a057bf-2bbd-70a6-b3c3-56eb409a0f95");
+
+    expect(
+      dataGridCellEditorText({
+        value: "0x01020304",
+        databaseType: "mysql",
+        columnInfo: { data_type: "binary(4)" },
+      }),
+    ).toBe("0x01020304");
+  });
+});
 
 describe("dataGridCellDisplayText", () => {
   it("keeps precision-sensitive decimal text through editor display and unchanged commit coercion", () => {
@@ -374,5 +425,48 @@ describe("coerceDataGridCellValue", () => {
         columnInfo: { data_type: "decimal(18,2)" },
       }),
     ).toBe("1,23");
+  });
+
+  it("handles UUID cell edits cleanly (#12911)", () => {
+    const hex = "0x30316130353762662d326262642d373061362d623363332d353665623430396130663935";
+    // Unchanged value preserves original hex oldValue
+    expect(
+      coerceDataGridCellValue({
+        value: "01a057bf-2bbd-70a6-b3c3-56eb409a0f95",
+        oldValue: hex,
+        databaseType: "mysql",
+        columnInfo: { data_type: "uuid" },
+      }),
+    ).toBe(hex);
+
+    // Edited value in uuid column returns clean UUID string
+    expect(
+      coerceDataGridCellValue({
+        value: "01a057bf-2bbd-70a6-b3c3-56eb409a0f99",
+        oldValue: hex,
+        databaseType: "mysql",
+        columnInfo: { data_type: "uuid" },
+      }),
+    ).toBe("01a057bf-2bbd-70a6-b3c3-56eb409a0f99");
+
+    // Cleared value returns null
+    expect(
+      coerceDataGridCellValue({
+        value: "",
+        oldValue: hex,
+        databaseType: "mysql",
+        columnInfo: { data_type: "uuid" },
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("binaryCellClipboardText", () => {
+  it("copies hex-encoded UUID values as readable text (#12911)", () => {
+    const hex = "0x30316130353762662d326262642d373061362d623363332d353665623430396130663935";
+    expect(binaryCellClipboardText(hex, "uuid", "mysql")).toBe("01a057bf-2bbd-70a6-b3c3-56eb409a0f95");
+    expect(binaryCellClipboardText(hex, "binary", "mysql")).toBe("01a057bf-2bbd-70a6-b3c3-56eb409a0f95");
+    expect(binaryCellClipboardText("0x01a057bf2bbd70a6b3c356eb409a0f95", "uuid", "mysql")).toBe("01a057bf-2bbd-70a6-b3c3-56eb409a0f95");
+    expect(binaryCellClipboardText("0x01020304", "binary", "mysql")).toBeNull();
   });
 });

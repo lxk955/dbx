@@ -2843,6 +2843,11 @@ pub fn format_grid_sql_literal_with_identifier_quote(
             return timestamp.to_string();
         }
     }
+    if column_info.map(|column| is_uuid_column_type(&column.data_type)).unwrap_or(false) {
+        if let Some(literal) = format_hex_uuid_literal(&text) {
+            return literal;
+        }
+    }
     if is_mysql_binary_literal_column(database_type, column_info) {
         if let Some(literal) = format_mysql_binary_literal_text(&text) {
             // DBX result values expose binary columns as prefixed hex; keep them
@@ -3303,6 +3308,48 @@ fn is_mysql_binary_column_type(data_type: &str) -> bool {
     let lower = data_type.trim().to_ascii_lowercase();
     let base = lower.split(['(', ':', ' ']).next().unwrap_or("").trim();
     matches!(base, "binary" | "varbinary" | "blob" | "tinyblob" | "mediumblob" | "longblob")
+}
+
+fn is_uuid_column_type(data_type: &str) -> bool {
+    let lower = data_type.trim().to_ascii_lowercase();
+    let base = lower.split(['(', ':', ' ']).next().unwrap_or("").trim();
+    matches!(base, "uuid" | "uniqueidentifier")
+}
+
+fn format_hex_uuid_literal(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    let hex = trimmed.strip_prefix("0x").or_else(|| trimmed.strip_prefix("0X"))?;
+    if hex.len() == 72 {
+        let mut bytes = Vec::with_capacity(36);
+        for i in 0..36 {
+            let byte = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok()?;
+            bytes.push(byte);
+        }
+        if bytes.len() == 36
+            && bytes.iter().enumerate().all(|(idx, &b)| {
+                if idx == 8 || idx == 13 || idx == 18 || idx == 23 {
+                    b == b'-'
+                } else {
+                    b.is_ascii_hexdigit()
+                }
+            })
+        {
+            let uuid_str = std::str::from_utf8(&bytes).ok()?;
+            return Some(format!("'{uuid_str}'"));
+        }
+    }
+    if hex.len() == 32 && hex.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        let lower = hex.to_ascii_lowercase();
+        return Some(format!(
+            "'{}-{}-{}-{}-{}'",
+            &lower[0..8],
+            &lower[8..12],
+            &lower[12..16],
+            &lower[16..20],
+            &lower[20..32]
+        ));
+    }
+    None
 }
 
 fn format_mysql_binary_literal_text(text: &str) -> Option<String> {
@@ -10991,6 +11038,35 @@ mod tests {
                 Some(&timestamptz),
             ),
             "'2026-09-13T13:00:00+12:00'"
+        );
+    }
+
+    #[test]
+    fn uuid_column_literals_decode_prefixed_hex_values() {
+        let uuid_col = column("id", "uuid", false, None);
+        assert_eq!(
+            format_grid_sql_literal(
+                &json!("0x30316130353762662d326262642d373061362d623363332d353665623430396130663935"),
+                Some(DatabaseType::Mysql),
+                Some(&uuid_col)
+            ),
+            "'01a057bf-2bbd-70a6-b3c3-56eb409a0f95'"
+        );
+        assert_eq!(
+            format_grid_sql_literal(
+                &json!("0x01a057bf2bbd70a6b3c356eb409a0f95"),
+                Some(DatabaseType::Mysql),
+                Some(&uuid_col)
+            ),
+            "'01a057bf-2bbd-70a6-b3c3-56eb409a0f95'"
+        );
+        assert_eq!(
+            format_grid_sql_literal(
+                &json!("01a057bf-2bbd-70a6-b3c3-56eb409a0f95"),
+                Some(DatabaseType::Mysql),
+                Some(&uuid_col)
+            ),
+            "'01a057bf-2bbd-70a6-b3c3-56eb409a0f95'"
         );
     }
 

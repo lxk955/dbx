@@ -858,11 +858,30 @@ fn mysql_bit_value_to_string(bytes: &[u8], column: &mysql_async::Column) -> Stri
     val.to_string()
 }
 
+fn is_ascii_uuid(bytes: &[u8]) -> bool {
+    if bytes.len() != 36 {
+        return false;
+    }
+    for (i, &b) in bytes.iter().enumerate() {
+        if i == 8 || i == 13 || i == 18 || i == 23 {
+            if b != b'-' {
+                return false;
+            }
+        } else if !b.is_ascii_hexdigit() {
+            return false;
+        }
+    }
+    true
+}
+
 fn mysql_bytes_to_json(bytes: Vec<u8>, column: &mysql_async::Column) -> serde_json::Value {
     if is_mysql_blob_column(column) {
         return mysql_blob_preview(&bytes, "BLOB");
     }
     if is_mysql_binary_string_column(column) {
+        if is_ascii_uuid(&bytes) {
+            return serde_json::Value::String(bytes_to_string_lossy(bytes));
+        }
         return super::binary_value_to_json(&bytes);
     }
     serde_json::Value::String(bytes_to_string_lossy(bytes))
@@ -9144,6 +9163,17 @@ mod tests {
 
         assert_eq!(mysql_column_type_name(&text_column), "varchar");
         assert_eq!(mysql_bytes_to_json(b"TEXT-001".to_vec(), &text_column), serde_json::json!("TEXT-001"));
+    }
+
+    #[test]
+    fn mysql_binary_string_decodes_ascii_uuid() {
+        let binary_column = mysql_test_column(ColumnType::MYSQL_TYPE_STRING, 63, ColumnFlags::BINARY_FLAG, 36);
+        let uuid_bytes = b"01a057bf-2bbd-70a6-b3c3-56eb409a0f95".to_vec();
+
+        assert_eq!(
+            mysql_bytes_to_json(uuid_bytes, &binary_column),
+            serde_json::json!("01a057bf-2bbd-70a6-b3c3-56eb409a0f95")
+        );
     }
 
     #[test]
