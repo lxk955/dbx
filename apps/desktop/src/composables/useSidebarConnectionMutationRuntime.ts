@@ -235,7 +235,7 @@ export function useSidebarConnectionMutationRuntime(options: SidebarConnectionMu
   async function connectConnectionIds(connectionIds: readonly string[]) {
     if (!connectionIds.length) return;
     const result = await connectSidebarConnections(connectionIds, async (connectionId) => {
-      const node = connectionStore.findConnectionNode?.(connectionId);
+      const node = connectionStore.findConnectionNode(connectionId);
       if (node && connectionStore.loadTreeNodeChildren) {
         await connectionStore.loadTreeNodeChildren(node);
       } else {
