@@ -6683,7 +6683,10 @@ impl ConnectionEndpoint {
 }
 
 fn connection_remote_endpoint(config: &ConnectionConfig) -> (String, u16) {
-    if config.db_type == DatabaseType::MongoDb {
+    if config.db_type == DatabaseType::SqlServer {
+        let (host, parsed_port) = dbx_types::models::connection::normalize_sqlserver_host_port(&config.host);
+        (host, parsed_port.unwrap_or(config.port))
+    } else if config.db_type == DatabaseType::MongoDb {
         config
             .connection_string
             .as_deref()
@@ -7452,7 +7455,13 @@ pub async fn probe_connection_endpoint(config: &ConnectionConfig, host: &str, po
     }
     let timeout = std::time::Duration::from_secs(config.effective_connect_timeout_secs());
 
-    let entries = connection_probe_endpoints(host, port);
+    let entries = if config.db_type == DatabaseType::SqlServer {
+        let (probe_host, parsed_port) = dbx_types::models::connection::normalize_sqlserver_host_port(host);
+        let effective_port = parsed_port.unwrap_or(port);
+        vec![(probe_host, effective_port)]
+    } else {
+        connection_probe_endpoints(host, port)
+    };
 
     if entries.is_empty() {
         return Err("no host entries to probe".to_string());
@@ -12190,6 +12199,21 @@ for line in sys.stdin:
         }));
 
         assert_eq!(connection_remote_endpoint(&config), ("broker.internal".to_string(), 8443));
+    }
+
+    #[test]
+    fn sqlserver_connection_remote_endpoint_parses_comma_and_colon_port() {
+        let mut config = mysql_config(None);
+        config.db_type = DatabaseType::SqlServer;
+        config.host = "gg.test.com,9005".to_string();
+        config.port = 1433;
+        assert_eq!(connection_remote_endpoint(&config), ("gg.test.com".to_string(), 9005));
+
+        config.host = "tcp:sql.example.com,1444".to_string();
+        assert_eq!(connection_remote_endpoint(&config), ("sql.example.com".to_string(), 1444));
+
+        config.host = "sql.example.com".to_string();
+        assert_eq!(connection_remote_endpoint(&config), ("sql.example.com".to_string(), 1433));
     }
 
     #[test]
