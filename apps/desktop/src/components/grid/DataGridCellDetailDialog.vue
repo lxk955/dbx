@@ -12,7 +12,7 @@ import { useCellDetailEditor, type UseCellDetailEditorReturn } from "@/composabl
 import { useTheme } from "@/composables/useTheme";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { BINARY_CELL_DOWNLOAD_MODES, isBinaryCellColumnType, binaryCellUtf8Text, isBlobCellColumnType, type BinaryCellDownloadMode } from "@/lib/dataGrid/binaryCellDownload";
-import { isGeometryColumnType } from "@/lib/dataGrid/cellDetailPresentation";
+import { cellDetailPreviewText, isGeometryColumnType } from "@/lib/dataGrid/cellDetailPresentation";
 import { isHexGeometry, renderWktOnCanvas } from "@/lib/dataGrid/geometryPreview";
 import type { DataGridCellDetail } from "@/lib/dataGrid/dataGridDetail";
 import type { DatabaseType } from "@/types/database";
@@ -49,7 +49,7 @@ const jsonFormatted = computed(() => settingsStore.editorSettings.cellDetailJson
 const jsonView = computed(() => jsonFormatted.value && !!props.detail?.formattedJson);
 const wordWrapEnabled = computed(() => settingsStore.editorSettings.wordWrap);
 const binaryTextPreview = computed(() => (props.detail && isBlobCellColumnType(props.detail.type) ? binaryCellUtf8Text(props.detail.value, props.detail.type, props.databaseType) : null));
-const presentedValuePreview = computed(() => (binaryTextPreview.value === null ? props.detail?.rawValuePreview : props.detail?.displayValuePreview) ?? "");
+const presentedValuePreview = computed(() => (binaryTextPreview.value === null && props.detail ? cellDetailPreviewText(props.detail, props.databaseType) : props.detail?.displayValuePreview) ?? "");
 
 function toggleWordWrap() {
   settingsStore.updateEditorSettings({ wordWrap: !wordWrapEnabled.value });
@@ -252,7 +252,8 @@ watch(
             :style="valueTransformOpen ? { display: 'none' } : null"
             class="dbx-data-grid-value-font max-h-[44vh] overflow-auto rounded border bg-muted/20 p-3 text-xs whitespace-pre-wrap break-words"
             :class="[detail.value === null ? 'italic text-muted-foreground' : '', detail.imagePreviewUrl ? 'col-start-1 row-start-2' : '']"
-            >{{ presentedValuePreview }}</pre>
+            >{{ presentedValuePreview }}</pre
+          >
           <div v-if="detail.isValuePreviewTruncated && !jsonView" :style="valueTransformOpen ? { display: 'none' } : null" :class="detail.imagePreviewUrl ? 'col-start-1' : ''" class="text-[11px] text-muted-foreground">
             {{ t("grid.largeValuePreviewHint", { count: detail.rawValuePreview.length }) }}
           </div>
