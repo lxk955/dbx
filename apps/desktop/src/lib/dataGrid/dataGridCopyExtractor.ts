@@ -53,7 +53,7 @@ export const DATA_GRID_DEFAULT_COPY_PREFERENCES: readonly DataGridCopyPreference
 
 export const DATA_GRID_EXTRACTOR_CONTRACT_VERSION = 1 as const;
 // v3：复制/导出 SQL 的「包含数据库名称」默认恢复开启（带库名/模式名，#12146），
-// 历史被 v2 迁移归位为 false 的持久化配置升级到新默认 true。
+// 缺省值使用新默认 true，已保存的显式 false 保持不变。
 export const DATA_GRID_EXTRACTOR_OPTIONS_MIGRATION_VERSION = 3 as const;
 
 export const DATA_GRID_COPY_EXTRACTOR_DESCRIPTORS: Record<DataGridCopyExtractorId, { category: DataGridExtractorCategory; separatorBefore?: boolean }> = {
