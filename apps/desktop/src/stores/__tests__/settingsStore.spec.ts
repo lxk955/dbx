@@ -692,15 +692,13 @@ describe("normalizeEditorSettings", () => {
     expect(configured.dataGridExtractorOptions.dsv.nullText).toBe("NULL");
   });
 
-  it("defaults missing database-name preferences to true and preserves saved opt-outs in v3 (#12146)", () => {
-    const missing = normalizeEditorSettings({ dataGridExtractorOptionsMigrationVersion: 2 });
-    expect(missing.dataGridExtractorOptions.sql.includeDatabaseName).toBe(true);
+  it("restores the copy extractor database-name opt-in default when migrating to v3 (#12146)", () => {
     const legacy = normalizeEditorSettings({
       dataGridExtractorOptionsMigrationVersion: 2,
       dataGridExtractorOptions: { sql: { includeDatabaseName: false } },
     });
-    // Saved false values cannot be distinguished from a deliberate opt-out.
-    expect(legacy.dataGridExtractorOptions.sql.includeDatabaseName).toBe(false);
+    // v2 中被重置为 false 的历史配置重新恢复为新默认：复制/导出 SQL 默认带库名/模式名
+    expect(legacy.dataGridExtractorOptions.sql.includeDatabaseName).toBe(true);
     expect(legacy.dataGridExtractorOptionsMigrationVersion).toBe(DATA_GRID_EXTRACTOR_OPTIONS_MIGRATION_VERSION);
 
     const currentExplicitFalse = normalizeEditorSettings({
