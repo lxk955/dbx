@@ -910,7 +910,7 @@ const currentSqlVariableSyntaxCompatibilityMode = computed<string | undefined>((
   if (activeTab?.connectionId) {
     const activeConn = connectionStore.getConfig(activeTab.connectionId);
     const connDbType = activeConn ? (effectiveDatabaseTypeForConnection(activeConn) ?? activeConn.db_type) : undefined;
-    if (connDbType === dbType || activeTab.databaseType === dbType) {
+    if (connDbType === dbType) {
       if (dbType === "opengauss" || dbType === "gaussdb") {
         return connectionStore.databaseCompatibilityMode(activeTab.connectionId, activeTab.database || activeConn?.database);
       }
@@ -923,12 +923,12 @@ const currentSqlVariableSyntaxCompatibilityMode = computed<string | undefined>((
   if (connectionStore.activeConnectionId) {
     const activeConn = connectionStore.getConfig(connectionStore.activeConnectionId);
     const connDbType = activeConn ? (effectiveDatabaseTypeForConnection(activeConn) ?? activeConn.db_type) : undefined;
-    if (connDbType === dbType) {
+    if (activeConn && connDbType === dbType) {
       if (dbType === "opengauss" || dbType === "gaussdb") {
         return connectionStore.databaseCompatibilityMode(activeConn.id, activeConn.database);
       }
       if (dbType === "kingbase") {
-        return activeConn?.database_info?.compatibilityMode;
+        return activeConn.database_info?.compatibilityMode;
       }
     }
   }

@@ -155,15 +155,11 @@ export function normalizeSqlVariableSyntaxOverrides(value: unknown, compatibilit
       if (typeof val !== "boolean") continue;
 
       if (key === "substitution" && isModeDependent) {
-        if (applicableMode !== undefined) {
-          if (val !== defaults[key]) {
-            partial[key] = val;
-          }
-        } else {
-          // Without an applicable compatibility mode context, retain any explicit boolean
-          // override because it deviates from either Oracle mode (default true) or PG mode (default false).
-          partial[key] = val;
-        }
+        // Mode-dependent databases (openGauss, GaussDB, Kingbase) have different substitution
+        // defaults depending on compatibility mode (A/Oracle mode is true, B/PG mode is false).
+        // Retain any explicit boolean override (true or false) so that the user's intent is
+        // preserved across mode changes, settings save/reopen, and runtime execution.
+        partial[key] = val;
       } else if (val !== defaults[key]) {
         partial[key] = val;
       }

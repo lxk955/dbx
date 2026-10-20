@@ -281,22 +281,18 @@ describe("normalizeSqlVariableSyntaxOverrides", () => {
     expect(normalizeSqlVariableSyntaxOverrides({ kingbase: { substitution: true } })).toEqual({ kingbase: { substitution: true } });
   });
 
-  it("evaluates mode-dependent defaults when an applicable compatibilityMode is supplied", () => {
-    // openGauss in A mode defaults substitution to true: false deviates and is kept; true matches and is dropped
+  it("preserves explicit substitution overrides for mode-dependent databases regardless of compatibilityMode", () => {
+    // openGauss substitution: false and true are always preserved across A, B, and unspecified modes
     expect(normalizeSqlVariableSyntaxOverrides({ opengauss: { substitution: false } }, "A")).toEqual({ opengauss: { substitution: false } });
-    expect(normalizeSqlVariableSyntaxOverrides({ opengauss: { substitution: true } }, "A")).toEqual({});
-
-    // openGauss in B mode defaults substitution to false: true deviates and is kept; false matches and is dropped
+    expect(normalizeSqlVariableSyntaxOverrides({ opengauss: { substitution: true } }, "A")).toEqual({ opengauss: { substitution: true } });
     expect(normalizeSqlVariableSyntaxOverrides({ opengauss: { substitution: true } }, "B")).toEqual({ opengauss: { substitution: true } });
-    expect(normalizeSqlVariableSyntaxOverrides({ opengauss: { substitution: false } }, "B")).toEqual({});
+    expect(normalizeSqlVariableSyntaxOverrides({ opengauss: { substitution: false } }, "B")).toEqual({ opengauss: { substitution: false } });
 
-    // Kingbase in oracle mode defaults substitution to true: false deviates and is kept; true matches and is dropped
+    // Kingbase substitution: false and true are always preserved across oracle, pg, and unspecified modes
     expect(normalizeSqlVariableSyntaxOverrides({ kingbase: { substitution: false } }, "oracle")).toEqual({ kingbase: { substitution: false } });
-    expect(normalizeSqlVariableSyntaxOverrides({ kingbase: { substitution: true } }, "oracle")).toEqual({});
-
-    // Kingbase in pg mode defaults substitution to false: true deviates and is kept; false matches and is dropped
+    expect(normalizeSqlVariableSyntaxOverrides({ kingbase: { substitution: true } }, "oracle")).toEqual({ kingbase: { substitution: true } });
     expect(normalizeSqlVariableSyntaxOverrides({ kingbase: { substitution: true } }, "pg")).toEqual({ kingbase: { substitution: true } });
-    expect(normalizeSqlVariableSyntaxOverrides({ kingbase: { substitution: false } }, "pg")).toEqual({});
+    expect(normalizeSqlVariableSyntaxOverrides({ kingbase: { substitution: false } }, "pg")).toEqual({ kingbase: { substitution: false } });
   });
 
   it("does not let unrelated compatibility modes affect another database type during normalization", () => {
