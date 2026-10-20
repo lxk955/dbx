@@ -304,11 +304,7 @@ struct SqlServerEndpoint<'a> {
 
 fn sqlserver_endpoint(host: &str) -> SqlServerEndpoint<'_> {
     let trimmed = host.trim();
-    let without_tcp = if trimmed.to_ascii_lowercase().starts_with("tcp:") {
-        trimmed[4..].trim()
-    } else {
-        trimmed
-    };
+    let without_tcp = if trimmed.to_ascii_lowercase().starts_with("tcp:") { trimmed[4..].trim() } else { trimmed };
     if let Some((server, instance)) = without_tcp.split_once('\\') {
         if !server.trim().is_empty() && !instance.trim().is_empty() {
             return SqlServerEndpoint { host: server.trim(), instance_name: Some(instance.trim()) };

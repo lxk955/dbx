@@ -1173,12 +1173,7 @@ impl ConnectionConfig {
             config.host = normalized_host;
             if let Some(port) = parsed_port {
                 config.port = port;
-                let mut ext = config
-                    .external_config
-                    .as_ref()
-                    .and_then(|v| v.as_object())
-                    .cloned()
-                    .unwrap_or_default();
+                let mut ext = config.external_config.as_ref().and_then(|v| v.as_object()).cloned().unwrap_or_default();
                 ext.insert("portExplicit".to_string(), serde_json::Value::Bool(true));
                 config.external_config = Some(serde_json::Value::Object(ext));
             }
@@ -3091,11 +3086,7 @@ pub fn normalize_sqlserver_host_port(raw_host: &str) -> (String, Option<u16>) {
         return (String::new(), None);
     }
 
-    let without_tcp = if trimmed.to_ascii_lowercase().starts_with("tcp:") {
-        trimmed[4..].trim()
-    } else {
-        trimmed
-    };
+    let without_tcp = if trimmed.to_ascii_lowercase().starts_with("tcp:") { trimmed[4..].trim() } else { trimmed };
 
     // Bracketed IPv6: [fe80::1],9005 or [::1]:9005 or [::1]
     if without_tcp.starts_with('[') {
@@ -4225,22 +4216,13 @@ mod tests {
 
     #[test]
     fn normalize_sqlserver_host_port_handles_commas_colons_and_tcp_prefix() {
-        assert_eq!(
-            super::normalize_sqlserver_host_port("gg.test.com,9005"),
-            ("gg.test.com".to_string(), Some(9005))
-        );
+        assert_eq!(super::normalize_sqlserver_host_port("gg.test.com,9005"), ("gg.test.com".to_string(), Some(9005)));
         assert_eq!(
             super::normalize_sqlserver_host_port("tcp:gg.test.com,9005"),
             ("gg.test.com".to_string(), Some(9005))
         );
-        assert_eq!(
-            super::normalize_sqlserver_host_port("tcp:gg.test.com"),
-            ("gg.test.com".to_string(), None)
-        );
-        assert_eq!(
-            super::normalize_sqlserver_host_port("gg.test.com:9005"),
-            ("gg.test.com".to_string(), Some(9005))
-        );
+        assert_eq!(super::normalize_sqlserver_host_port("tcp:gg.test.com"), ("gg.test.com".to_string(), None));
+        assert_eq!(super::normalize_sqlserver_host_port("gg.test.com:9005"), ("gg.test.com".to_string(), Some(9005)));
         assert_eq!(
             super::normalize_sqlserver_host_port(" 192.168.1.100, 14333 "),
             ("192.168.1.100".to_string(), Some(14333))
@@ -4253,26 +4235,11 @@ mod tests {
             super::normalize_sqlserver_host_port(r"tcp:192.168.1.10\SQL2022"),
             (r"192.168.1.10\SQL2022".to_string(), None)
         );
-        assert_eq!(
-            super::normalize_sqlserver_host_port("[::1],9005"),
-            ("[::1]".to_string(), Some(9005))
-        );
-        assert_eq!(
-            super::normalize_sqlserver_host_port("[::1]:9005"),
-            ("[::1]".to_string(), Some(9005))
-        );
-        assert_eq!(
-            super::normalize_sqlserver_host_port("[fe80::1]"),
-            ("[fe80::1]".to_string(), None)
-        );
-        assert_eq!(
-            super::normalize_sqlserver_host_port("localhost"),
-            ("localhost".to_string(), None)
-        );
-        assert_eq!(
-            super::normalize_sqlserver_host_port(""),
-            ("".to_string(), None)
-        );
+        assert_eq!(super::normalize_sqlserver_host_port("[::1],9005"), ("[::1]".to_string(), Some(9005)));
+        assert_eq!(super::normalize_sqlserver_host_port("[::1]:9005"), ("[::1]".to_string(), Some(9005)));
+        assert_eq!(super::normalize_sqlserver_host_port("[fe80::1]"), ("[fe80::1]".to_string(), None));
+        assert_eq!(super::normalize_sqlserver_host_port("localhost"), ("localhost".to_string(), None));
+        assert_eq!(super::normalize_sqlserver_host_port(""), ("".to_string(), None));
     }
 
     #[test]
