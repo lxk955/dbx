@@ -6727,6 +6727,7 @@ export default withEnglishFallback({
     options: "Seçenekler",
     packageParts: "{count} SQL bölümü",
     skipRelationalConstraints: "İçe aktarma sırasında ilişkisel kısıtlamaları geçici olarak devre dışı bırak",
+    closeOnSuccess: "Tamamlandığında iletişim kutusunu kapat",
     continueOnError: "Hatada devam et",
     runInBackground: "Arka planda çalıştır",
     cancelling: "İptal ediliyor...",

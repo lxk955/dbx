@@ -7500,6 +7500,7 @@ export default withEnglishFallback({
     options: "Opciones",
     packageParts: "{count} partes SQL",
     skipRelationalConstraints: "Desactivar temporalmente las restricciones relacionales durante la importación",
+    closeOnSuccess: "Cerrar cuadro de diálogo al finalizar",
     continueOnError: "Continuar en caso de error",
     runInBackground: "Ejecutar en segundo plano",
     cancelling: "Cancelando...",
