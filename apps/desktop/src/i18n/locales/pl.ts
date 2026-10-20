@@ -1751,6 +1751,7 @@ export default withEnglishFallback({
     selectCatalog: "Wybierz katalog",
     searchCatalog: "Szukaj katalogów...",
     selectDatabase: "Wybierz bazę danych",
+    selectConnectionRequired: "Najpierw wybierz połączenie",
     selectDatabaseRequired: "Najpierw wybierz bazę danych",
     searchDatabase: "Szukaj baz danych...",
     selectSchema: "Wybierz schemat",

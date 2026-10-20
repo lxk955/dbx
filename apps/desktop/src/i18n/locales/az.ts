@@ -1441,6 +1441,7 @@ export default withEnglishFallback({
     selectCatalog: "Kataloq seç",
     searchCatalog: "Kataloqları axtar...",
     selectDatabase: "Verilənlər bazası seç",
+    selectConnectionRequired: "Əvvəlcə əlaqə seçin",
     selectDatabaseRequired: "Əvvəlcə verilənlər bazası seçin",
     searchDatabase: "Verilənlər bazalarını axtar...",
     selectSchema: "Sxem seç",
