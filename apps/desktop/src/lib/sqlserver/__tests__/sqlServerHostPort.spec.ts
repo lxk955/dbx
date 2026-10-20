@@ -83,4 +83,8 @@ describe("parseSqlServerHostPort", () => {
       portExplicit: false,
     });
   });
+
+  it.each(["[::1],70000", "[::1]:oops", "[::1]:0", "[::1]unexpected", "server:1e3", "server,0x599"])("preserves invalid endpoint text instead of selecting a different port: %s", (host) => {
+    expect(parseSqlServerHostPort(host, 1433)).toEqual({ host, port: 1433, portExplicit: false });
+  });
 });

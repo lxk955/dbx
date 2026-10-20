@@ -3081,6 +3081,13 @@ fn gaussdb_single_host_port(host: &str, default_port: u16) -> (String, u16) {
 }
 
 pub fn normalize_sqlserver_host_port(raw_host: &str) -> (String, Option<u16>) {
+    let parse_port = |value: &str| {
+        let value = value.trim();
+        if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        value.parse::<u16>().ok().filter(|port| *port > 0)
+    };
     let trimmed = raw_host.trim();
     if trimmed.is_empty() {
         return (String::new(), None);
@@ -3094,13 +3101,11 @@ pub fn normalize_sqlserver_host_port(raw_host: &str) -> (String, Option<u16>) {
             let bracketed = &without_tcp[..=close];
             let remainder = without_tcp[close + 1..].trim();
             if let Some(port_str) = remainder.strip_prefix(',').or_else(|| remainder.strip_prefix(':')) {
-                if let Ok(port) = port_str.trim().parse::<u16>() {
-                    if port > 0 {
-                        return (bracketed.to_string(), Some(port));
-                    }
+                if let Some(port) = parse_port(port_str) {
+                    return (bracketed.to_string(), Some(port));
                 }
             }
-            return (bracketed.to_string(), None);
+            return (if remainder.is_empty() { bracketed } else { without_tcp }.to_string(), None);
         }
     }
 
@@ -3108,10 +3113,8 @@ pub fn normalize_sqlserver_host_port(raw_host: &str) -> (String, Option<u16>) {
     if let Some((server_part, port_part)) = without_tcp.rsplit_once(',') {
         let candidate_host = server_part.trim();
         let candidate_port = port_part.trim();
-        if let Ok(port) = candidate_port.parse::<u16>() {
-            if port > 0 {
-                return (candidate_host.to_string(), Some(port));
-            }
+        if let Some(port) = parse_port(candidate_port) {
+            return (candidate_host.to_string(), Some(port));
         }
     }
 
@@ -3120,10 +3123,8 @@ pub fn normalize_sqlserver_host_port(raw_host: &str) -> (String, Option<u16>) {
         if let Some((server_part, port_part)) = without_tcp.rsplit_once(':') {
             let candidate_host = server_part.trim();
             let candidate_port = port_part.trim();
-            if let Ok(port) = candidate_port.parse::<u16>() {
-                if port > 0 {
-                    return (candidate_host.to_string(), Some(port));
-                }
+            if let Some(port) = parse_port(candidate_port) {
+                return (candidate_host.to_string(), Some(port));
             }
         }
     }
@@ -4263,6 +4264,13 @@ mod tests {
         assert_eq!(canonical_tcp.host, "sql.example.com");
         assert_eq!(canonical_tcp.port, 1444);
         assert!(canonical_tcp.sqlserver_port_explicit());
+    }
+
+    #[test]
+    fn sqlserver_invalid_endpoint_text_is_not_silently_retargeted() {
+        for host in ["[::1],70000", "[::1]:oops", "[::1]:0", "[::1]unexpected", "server:1e3", "server,0x599"] {
+            assert_eq!(super::normalize_sqlserver_host_port(host), (host.to_string(), None));
+        }
     }
 
     #[test]

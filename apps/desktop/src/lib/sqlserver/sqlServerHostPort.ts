@@ -24,11 +24,11 @@ export function parseSqlServerHostPort(rawHost: string, currentPort?: number): S
       if (remainder.startsWith(",") || remainder.startsWith(":")) {
         const portStr = remainder.slice(1).trim();
         const parsed = Number(portStr);
-        if (Number.isInteger(parsed) && parsed > 0 && parsed <= 65535) {
+        if (/^[0-9]+$/.test(portStr) && Number.isInteger(parsed) && parsed > 0 && parsed <= 65535) {
           return { host: bracketed, port: parsed, portExplicit: true };
         }
       }
-      return { host: bracketed, port: currentPort, portExplicit: false };
+      return { host: remainder ? host : bracketed, port: currentPort, portExplicit: false };
     }
   }
 
@@ -38,7 +38,7 @@ export function parseSqlServerHostPort(rawHost: string, currentPort?: number): S
     const candidateHost = host.slice(0, commaIdx).trim();
     const portStr = host.slice(commaIdx + 1).trim();
     const parsed = Number(portStr);
-    if (Number.isInteger(parsed) && parsed > 0 && parsed <= 65535) {
+    if (/^[0-9]+$/.test(portStr) && Number.isInteger(parsed) && parsed > 0 && parsed <= 65535) {
       return { host: candidateHost, port: parsed, portExplicit: true };
     }
   }
@@ -50,7 +50,7 @@ export function parseSqlServerHostPort(rawHost: string, currentPort?: number): S
     const candidateHost = host.slice(0, colonIdx).trim();
     const portStr = host.slice(colonIdx + 1).trim();
     const parsed = Number(portStr);
-    if (Number.isInteger(parsed) && parsed > 0 && parsed <= 65535) {
+    if (/^[0-9]+$/.test(portStr) && Number.isInteger(parsed) && parsed > 0 && parsed <= 65535) {
       return { host: candidateHost, port: parsed, portExplicit: true };
     }
   }
