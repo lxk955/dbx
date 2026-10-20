@@ -4476,7 +4476,7 @@ async function refreshSavedRows(request: { dirtyRows: ReadonlyMap<number, Readon
   const planResult = buildDataGridSavedRowRefreshPlan({
     context: props.context,
     infiniteScroll: infiniteScrollEnabled.value,
-    filterActive: !!currentWhereInput() || hasLocalColumnFilters.value || (dataGridSearchMode.value === "filter" && !!deferredClientSearchText.value),
+    filterActive: !!currentWhereInput() || hasLocalColumnFilters.value,
     orderActive: !!effectiveOrderBy(),
     columns: request.columns,
     sourceColumns: props.sourceColumns,
