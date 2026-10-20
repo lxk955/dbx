@@ -4,10 +4,12 @@
 // the placeholder parameter dialog (`sqlParameters.ts`, six syntaxes) and the
 // `@set name = value;` expansion (`sqlVariables.ts`). This module lets users opt
 // out of individual syntaxes per database type. SQL syntaxes default to `true`,
-// except Neo4j's `:label` patterns, which are not named parameters.
+// except Neo4j's `:label` patterns, which are not named parameters, and Oracle
+// substitution variables (`&name`, `&&name`), which default to enabled only for
+// Oracle and Oracle-compatible dialects/modes.
 //
-// Storage is sparse: only syntaxes explicitly turned off (`false`) are persisted,
-// keyed by database type. Unset values use the database-specific defaults.
+// Storage is sparse: only syntaxes that deviate from the database-specific defaults
+// are persisted, keyed by database type. Unset values use the database-specific defaults.
 
 import type { DatabaseType } from "@/types/database";
 import type { SqlParameterSyntax } from "@/lib/sql/sqlParameters";
@@ -29,7 +31,7 @@ export const DEFAULT_SQL_VARIABLE_SYNTAX_TOGGLES: SqlVariableSyntaxToggles = {
   shell: true,
   mybatis: true,
   sqlserver: true,
-  substitution: true,
+  substitution: false,
   atSet: true,
 };
 
@@ -55,13 +57,35 @@ export type SqlVariableSyntaxOverrides = Partial<Record<DatabaseType, Partial<Sq
 // Database types offered in the settings selector — every connectable type.
 export const SQL_VARIABLE_SYNTAX_DATABASE_TYPES: DatabaseType[] = manifestDatabaseTypes();
 
+const ORACLE_SUBSTITUTION_DATABASE_TYPES = new Set<DatabaseType>(["oracle", "oceanbase-oracle", "dameng", "yashandb", "oscar"]);
+
+export function isOracleSubstitutionDatabase(dbType?: DatabaseType, compatibilityMode?: string): boolean {
+  if (!dbType) return false;
+  if (ORACLE_SUBSTITUTION_DATABASE_TYPES.has(dbType)) return true;
+  if (dbType === "opengauss" || dbType === "gaussdb") return compatibilityMode?.trim().toUpperCase() === "A";
+  if (dbType === "kingbase") return compatibilityMode?.trim().toLowerCase() === "oracle";
+  return false;
+}
+
+export function defaultSqlVariableSyntaxToggles(dbType?: DatabaseType, compatibilityMode?: string): SqlVariableSyntaxToggles {
+  return {
+    positional: true,
+    named: dbType !== "neo4j" && dbType !== "nebula",
+    shell: true,
+    mybatis: true,
+    sqlserver: true,
+    substitution: isOracleSubstitutionDatabase(dbType, compatibilityMode),
+    atSet: true,
+  };
+}
+
 /**
  * Resolve the effective toggles for a database type. The global gate disables
  * every syntax without modifying the saved overrides. Otherwise, any syntax not
- * explicitly disabled in `overrides` is enabled. A pure function safe to call
+ * explicitly overridden uses database-specific defaults. A pure function safe to call
  * on every execution.
  */
-export function resolveSqlVariableSyntaxToggles(overrides: SqlVariableSyntaxOverrides | undefined, dbType: DatabaseType | undefined, enabled = true): SqlVariableSyntaxToggles {
+export function resolveSqlVariableSyntaxToggles(overrides: SqlVariableSyntaxOverrides | undefined, dbType: DatabaseType | undefined, enabled = true, compatibilityMode?: string): SqlVariableSyntaxToggles {
   if (!enabled) {
     return {
       positional: false,
@@ -73,15 +97,16 @@ export function resolveSqlVariableSyntaxToggles(overrides: SqlVariableSyntaxOver
       atSet: false,
     };
   }
+  const defaults = defaultSqlVariableSyntaxToggles(dbType, compatibilityMode);
   const partial = dbType ? overrides?.[dbType] : undefined;
   return {
-    positional: partial?.positional ?? true,
-    named: dbType === "neo4j" || dbType === "nebula" ? false : (partial?.named ?? true),
-    shell: partial?.shell ?? true,
-    mybatis: partial?.mybatis ?? true,
-    sqlserver: partial?.sqlserver ?? true,
-    substitution: partial?.substitution ?? true,
-    atSet: partial?.atSet ?? true,
+    positional: partial?.positional ?? defaults.positional,
+    named: dbType === "neo4j" || dbType === "nebula" ? false : (partial?.named ?? defaults.named),
+    shell: partial?.shell ?? defaults.shell,
+    mybatis: partial?.mybatis ?? defaults.mybatis,
+    sqlserver: partial?.sqlserver ?? defaults.sqlserver,
+    substitution: partial?.substitution ?? defaults.substitution,
+    atSet: partial?.atSet ?? defaults.atSet,
   };
 }
 
@@ -92,16 +117,21 @@ export function enabledSqlParameterSyntaxes(toggles: SqlVariableSyntaxToggles): 
 
 /**
  * Normalize persisted overrides into a sparse structure: drop non-object entries
- * and only keep syntaxes explicitly set to `false`. Absence resolves to enabled.
+ * and only keep syntaxes that differ from database-specific defaults.
  */
 export function normalizeSqlVariableSyntaxOverrides(value: unknown): SqlVariableSyntaxOverrides {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const result: SqlVariableSyntaxOverrides = {};
   for (const [dbType, raw] of Object.entries(value as Record<string, unknown>)) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const defaults = defaultSqlVariableSyntaxToggles(dbType as DatabaseType);
     const partial: Partial<SqlVariableSyntaxToggles> = {};
     for (const key of SQL_VARIABLE_SYNTAX_KEYS) {
-      if ((raw as Record<string, unknown>)[key] === false) partial[key] = false;
+      if ((dbType === "neo4j" || dbType === "nebula") && key === "named") continue;
+      const val = (raw as Record<string, unknown>)[key];
+      if (typeof val === "boolean" && val !== defaults[key]) {
+        partial[key] = val;
+      }
     }
     if (Object.keys(partial).length > 0) result[dbType as DatabaseType] = partial;
   }

@@ -1,5 +1,6 @@
 import type { DatabaseType } from "@/types/database";
 import { collectSqlDatabaseLinkStarts } from "@/lib/sql/sqlDatabaseLinks";
+import { isOracleSubstitutionDatabase } from "@/lib/sql/sqlVariableSyntax";
 
 export type SqlParameterValueKind = "string" | "number" | "boolean" | "null" | "raw";
 
@@ -381,7 +382,13 @@ function findSqlParameterOccurrences(sql: string, options?: SqlParameterOptions)
   const nativeSqlServerParameters = collectNativeSqlServerParameters(sql, databaseType);
   const supportsNamedParameters = databaseType !== "saphana" && databaseType !== "neo4j" && databaseType !== "nebula";
   const enabledSyntaxes = options?.enabledSyntaxes ? new Set(options.enabledSyntaxes) : null;
-  const isSyntaxEnabled = (syntax: SqlParameterSyntax) => !enabledSyntaxes || enabledSyntaxes.has(syntax);
+  const isSyntaxEnabled = (syntax: SqlParameterSyntax) => {
+    if (enabledSyntaxes) return enabledSyntaxes.has(syntax);
+    if (syntax === "substitution") {
+      return isOracleSubstitutionDatabase(databaseType, options?.compatibilityMode);
+    }
+    return true;
+  };
   const databaseLinkStarts = isSyntaxEnabled("sqlserver") ? collectSqlDatabaseLinkStarts(sql, databaseType) : new Set<number>();
   const complexTypeFieldSeparators = supportsNamedParameters && isSyntaxEnabled("named") ? collectComplexTypeFieldSeparators(sql, databaseType) : new Set<number>();
   const duckDbStructFieldSeparators = supportsNamedParameters && isSyntaxEnabled("named") && databaseType === "duckdb" ? collectDuckDbStructFieldSeparators(sql) : new Set<number>();

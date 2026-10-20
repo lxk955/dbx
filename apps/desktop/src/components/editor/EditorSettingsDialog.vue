@@ -272,6 +272,7 @@ import { executableStatementRangeCacheForDoc, executableStatementRangeStartingAt
 import { EMPTY_TABLE_COLUMN_TEMPLATE_DATA_TYPE, parseTableColumnTemplateFields, TABLE_COLUMN_TEMPLATE_DATABASE_TYPES, tableColumnTemplateRowsToSettings } from "@/lib/table/tableColumnTemplates";
 import {
   DEFAULT_SQL_VARIABLE_SYNTAX_TOGGLES,
+  defaultSqlVariableSyntaxToggles,
   normalizeSqlVariableSyntaxOverrides,
   resolveSqlVariableSyntaxToggles,
   SQL_VARIABLE_SYNTAX_DATABASE_TYPES,
@@ -907,22 +908,25 @@ function sqlVariableSyntaxToggle(key: keyof SqlVariableSyntaxToggles): boolean {
 function setSqlVariableSyntaxToggle(key: keyof SqlVariableSyntaxToggles, value: boolean) {
   const dbType = editSqlVariableSyntaxDatabaseType.value;
   if ((dbType === "neo4j" || dbType === "nebula") && key === "named") return;
+  const defaults = defaultSqlVariableSyntaxToggles(dbType);
+  const current = resolveSqlVariableSyntaxToggles(editSqlVariableSyntaxOverrides.value, dbType);
   const merged: SqlVariableSyntaxToggles = {
-    ...DEFAULT_SQL_VARIABLE_SYNTAX_TOGGLES,
-    ...editSqlVariableSyntaxOverrides.value[dbType],
+    ...current,
     [key]: value,
   };
   const next: SqlVariableSyntaxOverrides = {
     ...editSqlVariableSyntaxOverrides.value,
   };
-  // Keep storage sparse: an all-enabled type has no entry; otherwise persist only the disabled syntaxes.
-  if (SQL_VARIABLE_SYNTAX_KEYS.every((toggleKey) => merged[toggleKey])) {
+  const partial: Partial<SqlVariableSyntaxToggles> = {};
+  for (const toggleKey of SQL_VARIABLE_SYNTAX_KEYS) {
+    if ((dbType === "neo4j" || dbType === "nebula") && toggleKey === "named") continue;
+    if (merged[toggleKey] !== defaults[toggleKey]) {
+      partial[toggleKey] = merged[toggleKey];
+    }
+  }
+  if (Object.keys(partial).length === 0) {
     delete next[dbType];
   } else {
-    const partial: Partial<SqlVariableSyntaxToggles> = {};
-    for (const toggleKey of SQL_VARIABLE_SYNTAX_KEYS) {
-      if (!merged[toggleKey]) partial[toggleKey] = false;
-    }
     next[dbType] = partial;
   }
   editSqlVariableSyntaxOverrides.value = next;
