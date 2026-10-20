@@ -1113,7 +1113,7 @@ function requestActiveEditorExecute(source?: "pointer" | "keyboard", tabId?: str
   void tryExecute(undefined, targetTabId ? { tabId: targetTabId } : undefined);
 }
 
-function requestActiveEditorExecuteAll(source?: "pointer" | "keyboard", tabId?: string) {
+function requestActiveEditorExecuteAll(_source?: "pointer" | "keyboard", tabId?: string) {
   pendingToolbarExecutionSnapshot.value = undefined;
   const targetTabId = tabId ?? activeTab.value?.id;
   if (contentAreaRef.value?.requestQueryEditorExecuteAll?.(targetTabId)) return;

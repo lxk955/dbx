@@ -1358,7 +1358,7 @@ function runKeymapExtension(codeMirrorKeymap: (typeof import("@codemirror/view")
     ? []
     : createQueryEditorExecutionShortcutBindings(
         shortcuts.executeAllSql,
-        requestExecuteAll,
+        () => requestExecuteAll(),
         (currentView) => shouldBlockExecutionShortcut(undefined, currentView),
         () => !props.isExecuting,
       );
