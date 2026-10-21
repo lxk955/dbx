@@ -107,16 +107,19 @@ export function dataGridCellEditorText(options: { value: GridCellValue | undefin
 }
 
 function coerceUuidTextValue(options: CoerceDataGridCellValueOptions): GridCellValue | undefined {
+  if (!isUuidColumnType(options.columnInfo?.data_type)) return undefined;
   const originalUuid = decodeBinaryUuidText(options.oldValue, options.columnInfo?.data_type);
-  if (originalUuid === null) return undefined;
-  if (options.value === originalUuid) return options.oldValue;
-  if (options.value.trim() === "") return null;
-  if (isUuidColumnType(options.columnInfo?.data_type)) {
+  if (originalUuid !== null) {
+    if (options.value === originalUuid) return options.oldValue;
+    if (options.value.trim() === "") return null;
     return options.value.trim();
   }
-  if (typeof options.oldValue === "string" && options.oldValue.length === 74) {
-    return binaryCellBytesToHexValue(new TextEncoder().encode(options.value.trim()));
+  if (typeof options.oldValue === "string") {
+    if (options.value === options.oldValue) return options.oldValue;
+    if (options.value.trim() === "") return null;
+    return options.value.trim();
   }
+  if (options.value.trim() === "") return null;
   return options.value.trim();
 }
 

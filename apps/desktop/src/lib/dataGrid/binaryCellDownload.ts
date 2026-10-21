@@ -136,6 +136,7 @@ export function parseBinaryCellHexValue(value: CellValue): Uint8Array | null {
 }
 
 export function decodeBinaryUuidText(value: unknown, columnType?: string): string | null {
+  if (!isUuidColumnType(columnType)) return null;
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
 
@@ -152,12 +153,10 @@ export function decodeBinaryUuidText(value: unknown, columnType?: string): strin
     }
   }
 
-  if (isUuidColumnType(columnType)) {
-    const matchRaw = trimmed.match(UUID_HEX_RAW_RE);
-    if (matchRaw) {
-      const hex = matchRaw[1].toLowerCase();
-      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
-    }
+  const matchRaw = trimmed.match(UUID_HEX_RAW_RE);
+  if (matchRaw) {
+    const hex = matchRaw[1].toLowerCase();
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
   }
 
   return null;
