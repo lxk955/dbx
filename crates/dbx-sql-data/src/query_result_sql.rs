@@ -2249,10 +2249,7 @@ fn references_sequence_pseudocolumn(statement: &Statement) -> bool {
 fn has_top_level_lock(sql: &str) -> bool {
     let tokens = top_level_sql_tokens(sql);
     tokens.iter().enumerate().any(|(index, token)| {
-        token.text == "FOR"
-            && tokens
-                .get(index + 1)
-                .is_some_and(|next| next.text == "UPDATE" || next.text == "SHARE")
+        token.text == "FOR" && tokens.get(index + 1).is_some_and(|next| next.text == "UPDATE" || next.text == "SHARE")
     })
 }
 
@@ -2281,9 +2278,7 @@ fn oracle_rownum_wrapper_is_unsupported(statement: &str) -> bool {
 }
 
 fn oceanbase_rownum_wrapper_is_unsupported(statement: &str) -> bool {
-    !rownum_wrapper_projection_is_safe(statement)
-        || has_top_level_rownum(statement)
-        || has_top_level_lock(statement)
+    !rownum_wrapper_projection_is_safe(statement) || has_top_level_rownum(statement) || has_top_level_lock(statement)
 }
 
 fn rownum_wrapper_is_unsupported(statement: &str, database_type: DatabaseType) -> bool {
