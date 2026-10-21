@@ -43,6 +43,22 @@ function makeSettings(overrides: Partial<EditorSettings> = {}): EditorSettings {
 }
 
 describe("EDITOR_SETTINGS_DRAFT_KEYS", () => {
+  it("tracks the result-tab click setting in the draft without changing saved settings", () => {
+    const settings = makeSettings({ pinResultTabOnClick: true });
+    const draft = editorSettingsDraftFromSettings(settings);
+    const base = editorSettingsDraftFromSettings(settings);
+    draft.pinResultTabOnClick = false;
+    expect(settings.pinResultTabOnClick).toBe(true);
+    expect(editorSettingsDraftChanged(draft, base)).toBe(true);
+    expect(editorSettingsPatchFromDraft(draft, base)).toMatchObject({ pinResultTabOnClick: false });
+  });
+
+  it("captures and saves the column comment placement preference", () => {
+    const base = editorSettingsDraftFromSettings(makeSettings({ dataGridColumnCommentsInInfoArea: false, dataGridTransposeMetadataInInfoColumn: false }));
+    const draft = editorSettingsDraftFromSettings(makeSettings({ dataGridColumnCommentsInInfoArea: true, dataGridTransposeMetadataInInfoColumn: true }));
+    expect(draft.dataGridColumnCommentsInInfoArea).toBe(true);
+    expect(editorSettingsPatchFromDraft(draft, base)).toEqual({ dataGridColumnCommentsInInfoArea: true, dataGridTransposeMetadataInInfoColumn: true });
+  });
   it("keeps connection and query timeout ownership outside editor settings", () => {
     expect(EDITOR_SETTINGS_DRAFT_KEYS).not.toContain("globalConnectTimeoutSecs");
     expect(EDITOR_SETTINGS_DRAFT_KEYS).not.toContain("globalQueryTimeoutSecs");
@@ -54,6 +70,24 @@ describe("EDITOR_SETTINGS_DRAFT_KEYS", () => {
 
   it("includes the DDL open mode", () => {
     expect(EDITOR_SETTINGS_DRAFT_KEYS).toContain("ddlOpenMode");
+  });
+
+  it("includes caretBrowsingEnabled (#11827)", () => {
+    expect(EDITOR_SETTINGS_DRAFT_KEYS).toContain("caretBrowsingEnabled");
+    const draft = editorSettingsDraftFromSettings(makeSettings({ caretBrowsingEnabled: true } as Partial<EditorSettings>));
+    expect(draft.caretBrowsingEnabled).toBe(true);
+  });
+
+  it("includes queryResultExportFileNameSource (#12092)", () => {
+    expect(EDITOR_SETTINGS_DRAFT_KEYS).toContain("queryResultExportFileNameSource");
+    const draft = editorSettingsDraftFromSettings(makeSettings({ queryResultExportFileNameSource: "tab-title" } as Partial<EditorSettings>));
+    expect(draft.queryResultExportFileNameSource).toBe("tab-title");
+  });
+
+  it("includes colorizeConnectionTabsScope (#12955)", () => {
+    expect(EDITOR_SETTINGS_DRAFT_KEYS).toContain("colorizeConnectionTabsScope");
+    const draft = editorSettingsDraftFromSettings(makeSettings({ colorizeConnectionTabsScope: "active" } as Partial<EditorSettings>));
+    expect(draft.colorizeConnectionTabsScope).toBe("active");
   });
 
   it("includes continueOnErrorOnBatch", () => {
@@ -69,6 +103,12 @@ describe("EDITOR_SETTINGS_DRAFT_KEYS", () => {
 
   it("includes the saved SQL open target mode", () => {
     expect(EDITOR_SETTINGS_DRAFT_KEYS).toContain("savedSqlOpenTargetMode");
+  });
+
+  it("includes aiSqlApplyTargetMode (#12438)", () => {
+    expect(EDITOR_SETTINGS_DRAFT_KEYS).toContain("aiSqlApplyTargetMode");
+    const draft = editorSettingsDraftFromSettings(makeSettings({ aiSqlApplyTargetMode: "new" } as Partial<EditorSettings>));
+    expect(draft.aiSqlApplyTargetMode).toBe("new");
   });
 
   it("includes the privacy-safe welcome page mode", () => {
@@ -184,6 +224,15 @@ describe("EDITOR_SETTINGS_DRAFT_KEYS", () => {
     expect(draft.functionCompletionIncludeParams).toBe(false);
     expect(editorSettingsDraftChanged(draft, base)).toBe(true);
     expect(editorSettingsPatchFromDraft(draft, base)).toEqual({ functionCompletionIncludeParams: false });
+  });
+
+  it("includes sequenceCompletionEnabled in draft keys, draft conversion, and patch", () => {
+    expect(EDITOR_SETTINGS_DRAFT_KEYS).toContain("sequenceCompletionEnabled");
+    const draft = editorSettingsDraftFromSettings(makeSettings({ sequenceCompletionEnabled: false }));
+    const base = editorSettingsDraftFromSettings(makeSettings({ sequenceCompletionEnabled: true }));
+    expect(draft.sequenceCompletionEnabled).toBe(false);
+    expect(editorSettingsDraftChanged(draft, base)).toBe(true);
+    expect(editorSettingsPatchFromDraft(draft, base)).toEqual({ sequenceCompletionEnabled: false });
   });
 });
 

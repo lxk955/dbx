@@ -502,6 +502,16 @@ pub trait DbxBackend: Send + Sync {
         let _ = (connection, database, options);
         Err("Documentation snapshots are not supported by this backend.".to_string())
     }
+    /// Local documentation notes for a connection. The default keeps backends
+    /// without notes support working: AI schema tools then use database
+    /// comments only.
+    async fn load_docs_annotations(
+        &self,
+        connection: &ConnectionConfig,
+    ) -> Result<Option<dbx_core::docs::annotations::AnnotationFile>, String> {
+        let _ = connection;
+        Ok(None)
+    }
     /// Tool-capable plugins for the external `dbx` MCP surface, with their
     /// discovered `mcp/tools` listings. Author opt-in: installed +
     /// compatible + backend entrypoint + a manifest `external_tools: true`
@@ -832,7 +842,12 @@ impl LocalBackend {
         // A local CLI/MCP process may share an already provisioned desktop
         // Keychain/credential-store key. Preflight only reads that provider;
         // it never provisions a key or migrates legacy credentials.
-        let storage = Storage::open_unmigrated(path).await?.with_secret_key_creation(false);
+        let data_dir = path.parent().unwrap_or_else(|| Path::new("."));
+        let mut storage = Storage::open_unmigrated(path).await?.with_secret_key_creation(false);
+        if dbx_core::persistence::secret_codec::managed_key_path(data_dir).is_file() {
+            storage =
+                storage.with_secret_key_policy(dbx_core::persistence::secret_codec::SecretKeyPolicy::ManagedDataDir);
+        }
         let migration = storage.inspect_data_migration().await?;
         if !migration.is_ready() {
             // The migration wizard may have already completed on Desktop with
@@ -856,7 +871,7 @@ impl LocalBackend {
         }
         let configs = storage.load_connections().await?;
         let desktop_settings = storage.load_desktop_settings().await.unwrap_or_default();
-        let data_dir = path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
+        let data_dir = data_dir.to_path_buf();
         let plugin_dir = local_plugin_dir(&desktop_settings, &data_dir);
         let agent_dir = local_agent_dir(&desktop_settings, &data_dir);
         let state = Arc::new(AppState::new_with_plugin_and_agent_dir_and_app_version(
@@ -901,7 +916,7 @@ impl LocalBackend {
             let tools: Value = match self
                 .state
                 .plugin_host
-                .invoke(&plugin.manifest.id, "mcp/tools", json!({}), None, Some(std::time::Duration::from_secs(30)))
+                .probe(&plugin.manifest.id, "mcp/tools", json!({}), Some(std::time::Duration::from_secs(30)))
                 .await
             {
                 Ok(tools) => tools,
@@ -975,14 +990,14 @@ impl LocalBackend {
             })
             .map(|plugin| (plugin.manifest.id.clone(), plugin.manifest.name.clone()))
             .collect();
-        // Probe every candidate's sidecar concurrently; the probes share the
-        // plugin sidecar sessions, so repeated listings are cheap.
+        // Discovery uses short-lived sessions: merely listing tools must not keep every
+        // installed plugin loaded in every independent MCP host.
         let probes = candidates.into_iter().map(|(plugin_id, plugin_name)| {
             let state = Arc::clone(&self.state);
             async move {
                 let listing = state
                     .plugin_host
-                    .invoke::<Value>(&plugin_id, "mcp/tools", json!({}), None, Some(PLUGIN_TOOLS_PROBE_TIMEOUT))
+                    .probe::<Value>(&plugin_id, "mcp/tools", json!({}), Some(PLUGIN_TOOLS_PROBE_TIMEOUT))
                     .await;
                 (plugin_id, plugin_name, listing)
             }
@@ -1094,6 +1109,21 @@ fn local_agent_dir(settings: &DesktopSettings, data_dir: &Path) -> PathBuf {
 
 #[async_trait]
 impl DbxBackend for LocalBackend {
+    async fn load_docs_annotations(
+        &self,
+        connection: &ConnectionConfig,
+    ) -> Result<Option<dbx_core::docs::annotations::AnnotationFile>, String> {
+        // Resolve against the same data directory the desktop app uses: an
+        // explicit docs_notes_path wins, otherwise the connection's notes file
+        // lives under <data_dir>/docs-notes.
+        let path = dbx_core::docs::annotations::resolve_notes_path(
+            &connection.id,
+            connection.docs_notes_path.as_deref(),
+            &self.data_dir,
+        );
+        dbx_core::docs::annotations::load_annotations(&path)
+    }
+
     async fn approve_high_risk_sql(&self, connection_id: &str, database: &str, sql: &str) -> Result<String, String> {
         let port = tokio::fs::read_to_string(self.data_dir.join("mcp-bridge-port"))
             .await
@@ -1564,6 +1594,22 @@ impl DbxBackend for LocalBackend {
 
 #[async_trait]
 impl DbxBackend for WebBackend {
+    async fn load_docs_annotations(
+        &self,
+        connection: &ConnectionConfig,
+    ) -> Result<Option<dbx_core::docs::annotations::AnnotationFile>, String> {
+        self.ensure_connected(connection).await?;
+        self.request(
+            reqwest::Method::POST,
+            "/api/docs/annotations/load",
+            Some(json!({ "connectionId": connection.id })),
+        )
+        .await?
+        .json::<Option<dbx_core::docs::annotations::AnnotationFile>>()
+        .await
+        .map_err(|error| format!("Invalid docs annotations response: {error}"))
+    }
+
     async fn load_mcp_global_policy(&self) -> Result<McpGlobalPolicy, String> {
         self.request(reqwest::Method::GET, "/api/app-settings/mcp-policy", None)
             .await?
@@ -2870,6 +2916,8 @@ fn infer_document_columns(documents: &[Value]) -> Vec<ColumnInfo> {
             name,
             data_type,
             resolved_schema: None,
+            resolved_table: None,
+            resolved_object_type: None,
             is_nullable: true,
             column_default: None,
             is_primary_key: false,
@@ -4580,6 +4628,25 @@ mod tests {
         let storage = Storage::open_unmigrated(&database_path).await.unwrap();
         assert!(storage.inspect_data_migration().await.unwrap().needs_migration);
         assert!(storage.load_connections().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn local_backend_uses_portable_data_directory_key() {
+        let data_dir = tempfile::tempdir().unwrap();
+        let database_path = data_dir.path().join("dbx.db");
+        let storage = Storage::open_unmigrated(&database_path)
+            .await
+            .unwrap()
+            .with_secret_key_policy(dbx_core::persistence::secret_codec::SecretKeyPolicy::ManagedDataDir);
+        storage.set_secret("portable", "password", "portable-secret").await.unwrap();
+        drop(storage);
+
+        let backend = LocalBackend::open(&database_path).await.unwrap();
+
+        assert_eq!(
+            backend.state.storage.get_secret("portable", "password").await.unwrap().as_deref(),
+            Some("portable-secret")
+        );
     }
 
     #[tokio::test]

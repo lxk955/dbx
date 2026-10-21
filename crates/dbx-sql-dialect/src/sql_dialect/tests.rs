@@ -16,6 +16,23 @@ fn transfer_identifier_policy_preserves_legacy_output() {
 }
 
 #[test]
+fn backtick_family_predicate_matches_quoting() {
+    // `uses_backtick_identifier_quoting` is the single source of truth the "Standard
+    // SQL" export dialect consults to decide when to deviate from ANSI double
+    // quotes. It must agree with what `quote_table_identifier` actually emits, so a
+    // new backtick-family engine cannot silently drift between the two.
+    for &database_type in DatabaseType::ALL {
+        let quoted = quote_table_identifier(Some(database_type), "tbl");
+        let emits_backtick = quoted.starts_with('`');
+        assert_eq!(
+            uses_backtick_identifier_quoting(Some(database_type)),
+            emits_backtick,
+            "{database_type:?} quoting/backtick-family mismatch: {quoted}"
+        );
+    }
+}
+
+#[test]
 fn quotes_identifiers_by_database_type() {
     assert_eq!(quote_table_identifier(Some(DatabaseType::Nebula), "tag`name"), "`tag\\`name`");
     assert_eq!(quote_table_identifier(Some(DatabaseType::Mysql), "user`name"), "`user``name`");
@@ -33,6 +50,12 @@ fn quotes_identifiers_by_database_type() {
     assert_eq!(quote_table_identifier(Some(DatabaseType::Gaussdb), "\"MixedCase\""), "\"MixedCase\"");
     assert_eq!(quote_table_identifier(Some(DatabaseType::OpenGauss), "\"MixedCase\""), "\"MixedCase\"");
     assert_eq!(quote_table_identifier(Some(DatabaseType::Informix), "users_1"), "users_1");
+    // SUNDB folds unquoted names to uppercase, so a simple lowercase name must stay
+    // unquoted; quoting it preserved the case and the statement found no such table (#11986).
+    assert_eq!(quote_table_identifier(Some(DatabaseType::Sundb), "rs_salest_budget"), "rs_salest_budget");
+    assert_eq!(quote_table_identifier(Some(DatabaseType::Sundb), "YEAR"), "YEAR");
+    assert_eq!(quote_table_identifier(Some(DatabaseType::Sundb), "user name"), "\"user name\"");
+    assert_eq!(quote_table_identifier(Some(DatabaseType::Sundb), "user\"name"), "\"user\"\"name\"");
     assert_eq!(quote_table_identifier(Some(DatabaseType::Jdbc), "users_1"), "users_1");
     assert_eq!(quote_table_identifier(Some(DatabaseType::Jdbc), "user name"), "user name");
     assert_eq!(quote_table_identifier(Some(DatabaseType::Iotdb), "root.test.device2"), "root.test.device2");
@@ -247,7 +270,7 @@ fn maps_table_pagination_strategy_by_database_type() {
     );
     assert_eq!(
         pagination_strategy(Some(DatabaseType::Oracle), PaginationContext::UserQuery),
-        TablePaginationStrategy::Unbounded
+        TablePaginationStrategy::Rownum
     );
     assert_eq!(table_pagination_strategy(Some(DatabaseType::Jdbc)), TablePaginationStrategy::AgentMaxRows);
     // Both Spanner dialects support `LIMIT n OFFSET m`; pin the fallback.
@@ -688,6 +711,32 @@ fn builds_table_data_where_and_schema_queries() {
         }),
         "SELECT FIRST 100 * FROM gbasedbt.connection_smoke"
     );
+    assert_eq!(
+        build_table_data_select_sql(TableDataSelectSqlOptions {
+            database_type: Some(DatabaseType::Gbase8s),
+            schema: Some("gbasedbt".to_string()),
+            table_name: "v_orders".to_string(),
+            limit: Some(100),
+            ..Default::default()
+        }),
+        "SELECT FIRST 100 * FROM v_orders"
+    );
+    assert_eq!(
+        build_table_data_select_sql(TableDataSelectSqlOptions {
+            database_type: Some(DatabaseType::Gbase8s),
+            identifier_quote: Some(String::new()),
+            schema: Some("gbasedbt".to_string()),
+            table_name: "v_orders".to_string(),
+            limit: Some(100),
+            ..Default::default()
+        }),
+        "SELECT FIRST 100 * FROM v_orders"
+    );
+    assert_eq!(
+        build_count_table_sql(Some(DatabaseType::Gbase8s), Some("gbasedbt"), "v_orders"),
+        "SELECT COUNT(*) AS row_count FROM v_orders"
+    );
+    assert_eq!(qualified_table_name(Some(DatabaseType::Gbase8s), Some("gbasedbt"), "v_orders"), "v_orders");
     assert_eq!(
         build_table_data_select_sql(TableDataSelectSqlOptions {
             database_type: Some(DatabaseType::Gaussdb),
@@ -1271,6 +1320,75 @@ fn explicit_table_data_order_is_preserved() {
 }
 
 #[test]
+fn selects_hidden_postgres_tuple_identity_only_for_known_unkeyed_base_tables() {
+    let base = TableDataSelectSqlOptions {
+        database_type: Some(DatabaseType::Postgres),
+        schema: Some("public".to_string()),
+        table_name: "duplicate_rows".to_string(),
+        table_type: Some("TABLE".to_string()),
+        columns: vec!["id".to_string(), "value".to_string()],
+        limit: Some(20),
+        include_row_id: true,
+        ..Default::default()
+    };
+
+    assert_eq!(
+        build_table_data_select_sql(base.clone()),
+        "SELECT tableoid::text || ':' || ctid::text || ':' || xmin::text AS \"__DBX_ROWID\", * FROM \"public\".\"duplicate_rows\" LIMIT 20;"
+    );
+
+    // The sidebar's `listTables` path spells relkind 'r' as `BASE TABLE`; the
+    // locator must be injected for that spelling too.
+    let base_table_spelling = build_table_data_select_sql(TableDataSelectSqlOptions {
+        table_type: Some("BASE TABLE".to_string()),
+        ..base.clone()
+    });
+    assert!(base_table_spelling.contains("ctid"), "BASE TABLE must receive the locator: {base_table_spelling}");
+
+    for table_type in ["PARTITIONED TABLE", "FOREIGN TABLE", "VIEW"] {
+        let sql = build_table_data_select_sql(TableDataSelectSqlOptions {
+            table_type: Some(table_type.to_string()),
+            ..base.clone()
+        });
+        assert!(!sql.contains("ctid"), "{table_type} must not receive a synthetic tuple key: {sql}");
+    }
+
+    let unknown_type = build_table_data_select_sql(TableDataSelectSqlOptions { table_type: None, ..base.clone() });
+    assert!(!unknown_type.contains("ctid"));
+
+    let keyed = build_table_data_select_sql(TableDataSelectSqlOptions { primary_keys: vec!["id".to_string()], ..base });
+    assert!(!keyed.contains("ctid"));
+}
+
+#[test]
+fn hologres_plugin_connections_receive_the_tableoid_locator_for_keyless_tables() {
+    // t8y2/dbx#12647: Hologres connects through the plain PostgreSQL plugin
+    // type, so the frontend gate enables the keyless-table locator and the
+    // click-to-open SELECT projects `tableoid`. Hologres' query translation
+    // layer rejects `tableoid` ("Variable tableoid ... can't be found in query
+    // translation"), so every keyless table fails to open. Hologres also
+    // reports a plain PG-11-style `server_version`, so the gate cannot be
+    // driven off the version string alone. This pins the exact statement the
+    // client emits today; the fix must stop projecting `tableoid` for engines
+    // without system-column support without regressing vanilla PostgreSQL.
+    let sql = build_table_data_select_sql(TableDataSelectSqlOptions {
+        database_type: Some(DatabaseType::Postgres),
+        schema: Some("public".to_string()),
+        table_name: "hologres_keyless_events".to_string(),
+        table_type: Some("TABLE".to_string()),
+        primary_keys: Vec::new(),
+        limit: Some(200),
+        include_row_id: true,
+        ..Default::default()
+    });
+
+    assert_eq!(
+        sql,
+        "SELECT tableoid::text || ':' || ctid::text || ':' || xmin::text AS \"__DBX_ROWID\", * FROM \"public\".\"hologres_keyless_events\" LIMIT 200;"
+    );
+}
+
+#[test]
 fn builds_iris_table_data_sql_with_literal_top_and_ordinary_object() {
     let sql = build_table_data_select_sql(TableDataSelectSqlOptions {
         database_type: Some(DatabaseType::Iris),
@@ -1769,6 +1887,12 @@ fn postgres_family_table_data_quoting_resolves_folded_identifiers() {
     assert_eq!(quote_gaussdb_jdbc_identifier("mss_check_sales_item", "\""), "mss_check_sales_item");
     assert_eq!(quote_gaussdb_jdbc_identifier("MSS_CHECK_SALES_ITEM", "\""), "\"MSS_CHECK_SALES_ITEM\"");
     assert_eq!(quote_gaussdb_jdbc_identifier("term", "\""), "term");
+    // DBX-owned derived-table aliases travel through this same helper when the
+    // query builders count or paginate: simple-lower, never referenced by the
+    // outer query, so they stay bare instead of becoming `"dbx_count"`, which
+    // GaussDB M mode reads as a string literal (DBX-LEGACY-0001).
+    assert_eq!(quote_gaussdb_jdbc_identifier("dbx_count", "\""), "dbx_count");
+    assert_eq!(quote_gaussdb_jdbc_identifier("dbx_page", "\""), "dbx_page");
 
     assert_eq!(
         table_data_qualified_table_name(

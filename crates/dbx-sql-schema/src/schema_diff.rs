@@ -3219,6 +3219,19 @@ fn column_types_equal_for_dialects(
     if source_type.eq_ignore_ascii_case(target_type) {
         return true;
     }
+    match (source_dialect, target_dialect) {
+        (Some(DialectKind::SqlServer), Some(DialectKind::Postgres))
+            if source_type.eq_ignore_ascii_case("uniqueidentifier") && target_type.eq_ignore_ascii_case("uuid") =>
+        {
+            return true;
+        }
+        (Some(DialectKind::Postgres), Some(DialectKind::SqlServer))
+            if source_type.eq_ignore_ascii_case("uuid") && target_type.eq_ignore_ascii_case("uniqueidentifier") =>
+        {
+            return true;
+        }
+        _ => {}
+    }
     if source_dialect != Some(DialectKind::Mysql) || target_dialect != Some(DialectKind::Mysql) {
         return false;
     }
@@ -3268,6 +3281,8 @@ fn column_type_similarity_score(source_type: &str, target_type: &str) -> f64 {
         ("boolean", "bool"),
         ("timestamp", "datetime"),
         ("datetime", "timestamp"),
+        ("uniqueidentifier", "uuid"),
+        ("uuid", "uniqueidentifier"),
     ];
     if exact_matches.contains(&(s.as_str(), t.as_str())) {
         return 1.0;
@@ -4247,6 +4262,20 @@ fn column_def(col: &ColumnInfo, db_type: DatabaseType, source_dialect: Option<Di
     column_def_with_charset(col, db_type, source_dialect, false)
 }
 
+fn kingbase_generation_clause(
+    col: &ColumnInfo,
+    db_type: DatabaseType,
+    source_dialect: Option<DialectKind>,
+) -> Option<&str> {
+    if db_type != DatabaseType::Kingbase || !matches!(source_dialect, None | Some(DialectKind::Postgres)) {
+        return None;
+    }
+    col.extra.as_deref().map(str::trim).filter(|extra| {
+        let normalized = extra.to_ascii_lowercase();
+        normalized.starts_with("generated ") || normalized == "identity" || normalized.starts_with("identity(")
+    })
+}
+
 fn column_def_with_charset(
     col: &ColumnInfo,
     db_type: DatabaseType,
@@ -4266,7 +4295,18 @@ fn column_def_with_charset(
             definition.push_str(&format!(" COLLATE {}", quote_id(collation, db_type)));
         }
     }
-    definition.push_str(&column_modifier_tail(&profile, col, &col.data_type, db_type, source_dialect, false));
+    let generation = kingbase_generation_clause(col, db_type, source_dialect);
+    if let Some(clause) = generation {
+        definition.push_str(&format!(" {clause}"));
+    }
+    definition.push_str(&column_modifier_tail(
+        &profile,
+        col,
+        &col.data_type,
+        db_type,
+        source_dialect,
+        generation.is_some(),
+    ));
     // Suffix-style auto-increment is only valid in MySQL-family ALTER clauses
     // (ADD/MODIFY/CHANGE). Other dialects' identity clauses are order-sensitive
     // inside ADD COLUMN, so keep omitting them outside the MySQL family.
@@ -4337,19 +4377,7 @@ fn starts_with_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
 /// database) is left untouched, since it already resolves correctly wherever
 /// the sync script runs.
 fn rewrite_ddl_header_qualifier(ddl: &str, header_keywords: &[&str], schema: Option<&str>, qualified: &str) -> String {
-    let leading_ws = ddl.len() - ddl.trim_start().len();
-    let body = &ddl[leading_ws..];
-    let Some(keyword) = header_keywords.iter().find(|keyword| starts_with_ignore_ascii_case(body, keyword)) else {
-        return ddl.to_string();
-    };
-
-    let mut idx = skip_ascii_whitespace(ddl, leading_ws + keyword.len());
-    if starts_with_ignore_ascii_case(&ddl[idx..], "IF NOT EXISTS") {
-        idx = skip_ascii_whitespace(ddl, idx + "IF NOT EXISTS".len());
-    }
-
-    let ident_start = idx;
-    let Some(parsed) = parse_qualified_identifier(ddl, idx) else {
+    let Some((ident_start, parsed)) = parse_ddl_header_name(ddl, header_keywords) else {
         return ddl.to_string();
     };
     let Some((schema_start, schema_end)) = parsed.schema_span else {
@@ -4365,6 +4393,90 @@ fn rewrite_ddl_header_qualifier(ddl: &str, header_keywords: &[&str], schema: Opt
         return ddl.to_string();
     }
     format!("{}{}{}", &ddl[..ident_start], qualified, &ddl[parsed.end..])
+}
+
+/// Locates the object name that follows one of `header_keywords` at the start
+/// of `ddl`, returning its start offset and parsed span.
+fn parse_ddl_header_name(ddl: &str, header_keywords: &[&str]) -> Option<(usize, ParsedDdlName)> {
+    let leading_ws = ddl.len() - ddl.trim_start().len();
+    let body = &ddl[leading_ws..];
+    let keyword = header_keywords.iter().find(|keyword| starts_with_ignore_ascii_case(body, keyword))?;
+
+    let mut idx = skip_ascii_whitespace(ddl, leading_ws + keyword.len());
+    if starts_with_ignore_ascii_case(&ddl[idx..], "IF NOT EXISTS") {
+        idx = skip_ascii_whitespace(ddl, idx + "IF NOT EXISTS".len());
+    }
+    parse_qualified_identifier(ddl, idx).map(|parsed| (idx, parsed))
+}
+
+/// Oracle's native table DDL qualifies more than its `CREATE TABLE` head with
+/// the source schema: foreign key `REFERENCES`, and the `CREATE INDEX` and
+/// `COMMENT ON` statements the agent appends. Rewriting only the head left
+/// those pointing at the source schema, so the sync script failed on the target
+/// or ran them against the source schema (#12048).
+/// After the head rewrite, every `"SOURCE".` qualifier in code is moved to the
+/// target schema. References to other schemas, string literals, and comments
+/// keep their text.
+fn rewrite_oracle_native_table_ddl(ddl: &str, schema: Option<&str>, qualified: &str) -> String {
+    let source_schema = parse_ddl_header_name(ddl, TABLE_DDL_HEADER_KEYWORDS)
+        .and_then(|(_, parsed)| parsed.schema_span)
+        .map(|(start, end)| strip_identifier_quotes(&ddl[start..end]));
+    let rewritten = rewrite_ddl_header_qualifier(ddl, TABLE_DDL_HEADER_KEYWORDS, schema, qualified);
+    let target_schema = schema.map(str::trim).filter(|schema| !schema.is_empty());
+    match (source_schema, target_schema) {
+        (Some(source), Some(target)) if source != target => {
+            rewrite_quoted_schema_qualifier(&rewritten, &source, &quote_id(target, DatabaseType::Oracle))
+        }
+        _ => rewritten,
+    }
+}
+
+/// Replaces each double-quoted `source_schema` identifier that is followed by
+/// `.` with `target_qualifier`, skipping single-quoted literals, `--` and
+/// `/* */` comments.
+fn rewrite_quoted_schema_qualifier(sql: &str, source_schema: &str, target_qualifier: &str) -> String {
+    let source = format!("\"{}\"", source_schema.replace('"', "\"\""));
+    let bytes = sql.as_bytes();
+    let mut out = String::with_capacity(sql.len());
+    let mut copied = 0;
+    let mut idx = 0;
+    while idx < bytes.len() {
+        let skip_to = match bytes[idx] {
+            b'\'' => {
+                let mut end = idx + 1;
+                while end < bytes.len() {
+                    if bytes[end] == b'\'' {
+                        if bytes.get(end + 1) == Some(&b'\'') {
+                            end += 2;
+                            continue;
+                        }
+                        break;
+                    }
+                    end += 1;
+                }
+                end + 1
+            }
+            b'-' if bytes.get(idx + 1) == Some(&b'-') => {
+                sql[idx..].find('\n').map_or(bytes.len(), |offset| idx + offset)
+            }
+            b'/' if bytes.get(idx + 1) == Some(&b'*') => {
+                sql[idx + 2..].find("*/").map_or(bytes.len(), |offset| idx + 2 + offset + 2)
+            }
+            b'"' => {
+                let end = parse_identifier_segment_end(sql, idx).unwrap_or(bytes.len());
+                if sql[idx..end] == source && sql[end..].starts_with('.') {
+                    out.push_str(&sql[copied..idx]);
+                    out.push_str(target_qualifier);
+                    copied = end;
+                }
+                end
+            }
+            _ => idx + 1,
+        };
+        idx = skip_to.min(bytes.len());
+    }
+    out.push_str(&sql[copied..]);
+    out
 }
 
 struct ParsedDdlName {
@@ -4520,6 +4632,7 @@ fn is_postgres_family_ddl(db_type: DatabaseType) -> bool {
             | DatabaseType::Vertica
             | DatabaseType::Exasol
             | DatabaseType::Uxdb
+            | DatabaseType::Gbase8c
     )
 }
 
@@ -5661,6 +5774,15 @@ fn generate_create_table_sql(
             }
             continue;
         }
+        if let Some(clause) = kingbase_generation_clause(col, db_type, source_dialect) {
+            let mut definition = format!("{col_name} {mapped_type} {clause}");
+            definition.push_str(&column_modifier_tail(&profile, col, &mapped_type, db_type, source_dialect, true));
+            col_defs.push(definition);
+            if col.is_primary_key {
+                pk_cols.push(col_name);
+            }
+            continue;
+        }
         let is_int = type_looks_integer(&mapped_type);
         let auto_build = apply_auto_inc_to_column_def(&profile, &col_name, &mapped_type, col, is_int);
 
@@ -6009,6 +6131,30 @@ pub fn generate_schema_sync_sql(
     .0
 }
 
+/// Header that turns MySQL's session-scoped foreign key validation off.
+pub const MYSQL_DISABLE_FOREIGN_KEY_CHECKS: &str = "SET FOREIGN_KEY_CHECKS = 0;";
+/// Trailer that restores MySQL's session default for foreign key validation.
+pub const MYSQL_ENABLE_FOREIGN_KEY_CHECKS: &str = "SET FOREIGN_KEY_CHECKS = 1;";
+
+/// Wrap a generated deploy script in MySQL's FOREIGN_KEY_CHECKS toggle.
+///
+/// The deploy path runs the whole script on one checked-out connection inside a
+/// single transaction, so the header suppresses foreign key validation for every
+/// statement in between and the trailer restores the session default before that
+/// connection returns to the pool.
+///
+/// Only MySQL gets the wrapper: FOREIGN_KEY_CHECKS is a MySQL session variable,
+/// and PostgreSQL, Oracle and the rest reject the statement outright, so a client
+/// that asks for the option on another engine cannot make the plan unexecutable.
+/// A script without executable statements is returned unchanged; wrapping it
+/// would turn "nothing to deploy" into a runnable two-statement script.
+pub fn wrap_script_with_foreign_key_checks(sql: &str, db_type: DatabaseType) -> String {
+    if db_type != DatabaseType::Mysql || sql.trim().is_empty() {
+        return sql.to_string();
+    }
+    format!("{MYSQL_DISABLE_FOREIGN_KEY_CHECKS}\n{sql}\n{MYSQL_ENABLE_FOREIGN_KEY_CHECKS}")
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn generate_schema_sync_sql_plan(
     diffs: &[TableDiff],
@@ -6022,6 +6168,7 @@ pub fn generate_schema_sync_sql_plan(
     source_dialect: Option<DialectKind>,
     field_mappings: &[FieldMapping],
     enable_rollback: bool,
+    ignore_foreign_key_checks: bool,
 ) -> SchemaSyncSqlPlan {
     let (sync_sql, _) = generate_schema_sync_sql_inner(
         diffs,
@@ -6035,11 +6182,14 @@ pub fn generate_schema_sync_sql_plan(
         source_dialect,
         field_mappings,
     );
+    let sync_sql =
+        if ignore_foreign_key_checks { wrap_script_with_foreign_key_checks(&sync_sql, db_type) } else { sync_sql };
 
     let (rollback_sync_sql, missing_rollback_objects) = if enable_rollback {
         let dependency_graph = DependencyGraph { nodes: HashMap::new(), topological_order: Vec::new() };
         let rollback_graph = RollbackGraph::from_forward_diffs(diffs, &[], &dependency_graph);
         let (sql, missing) = generate_rollback_sync_sql_with_missing(&rollback_graph, db_type, schema, cascade_delete);
+        let sql = if ignore_foreign_key_checks { wrap_script_with_foreign_key_checks(&sql, db_type) } else { sql };
         (Some(sql), missing)
     } else {
         (None, Vec::new())
@@ -6308,7 +6458,11 @@ fn generate_schema_sync_sql_inner(
                 // Prefer native source DDL when the target profile wants it
                 // (MySQL-family), or as fallback without a structured snapshot.
                 if let Some(ddl) = &diff.ddl {
-                    let ddl = rewrite_ddl_header_qualifier(ddl, TABLE_DDL_HEADER_KEYWORDS, schema, &table);
+                    let ddl = if db_type == DatabaseType::Oracle {
+                        rewrite_oracle_native_table_ddl(ddl, schema, &table)
+                    } else {
+                        rewrite_ddl_header_qualifier(ddl, TABLE_DDL_HEADER_KEYWORDS, schema, &table)
+                    };
                     lines.push(format!("-- Create {}: {}", diff.object_type.as_deref().unwrap_or("table"), diff.name));
                     lines.push(format!("{};", ddl.trim_end().trim_end_matches(';')));
                     lines.push(String::new());
@@ -6423,7 +6577,14 @@ fn generate_schema_sync_sql_inner(
                             } else {
                                 String::new()
                             };
-                            let definition = column_def(&convert_col(source), db_type, source_dialect);
+                            // A MySQL column added without its own `CHARACTER SET`/`COLLATE`
+                            // inherits the target table default, so a source column that differs
+                            // from that default would show up again as a collation change on the
+                            // next comparison (#11802).
+                            let include_charset =
+                                effective_source_dialect(source_dialect, db_type) == DialectKind::Mysql;
+                            let definition =
+                                column_def_with_charset(&convert_col(source), db_type, source_dialect, include_charset);
                             // Oracle has no `COLUMN` keyword here: it parenthesizes the whole
                             // definition (`ADD (AMT NUMBER(12,2))`) instead.
                             parts.push(if profile.add_column_uses_column_keyword {
@@ -6876,6 +7037,9 @@ mod tests {
 
     fn index(overrides: IndexInfo) -> IndexInfo {
         IndexInfo {
+            key_directions: Vec::new(),
+            visibility: None,
+            key_metadata_complete: false,
             name: if overrides.name.is_empty() { "idx_users_email".to_string() } else { overrides.name },
             columns: if overrides.columns.is_empty() { vec!["email".to_string()] } else { overrides.columns },
             is_unique: overrides.is_unique,
@@ -6908,6 +7072,8 @@ mod tests {
             name: name.to_string(),
             data_type: data_type.to_string(),
             resolved_schema: None,
+            resolved_table: None,
+            resolved_object_type: None,
             is_nullable: false,
             column_default: None,
             is_primary_key: false,
@@ -7044,6 +7210,41 @@ mod tests {
     }
 
     #[test]
+    fn mysql_added_column_keeps_source_charset_and_collation() {
+        let mut options = mysql_charset_options(true);
+        let mut name = options.source_details[0].columns[0].clone();
+        name.collation = Some("utf8mb4_general_ci".to_string());
+        options.source_details[0].columns = vec![column("id", "int", None), name, column("amount", "int", None)];
+        options.target_details[0].columns = vec![column("id", "int", None)];
+
+        let result = prepare_schema_diff(options);
+
+        assert!(
+            result.sync_sql.contains(
+                "ADD COLUMN `name` varchar(64) CHARACTER SET `utf8mb4` COLLATE `utf8mb4_general_ci` NOT NULL AFTER `id`"
+            ),
+            "{}",
+            result.sync_sql
+        );
+        assert!(result.sync_sql.contains("ADD COLUMN `amount` int NOT NULL AFTER `name`"), "{}", result.sync_sql);
+    }
+
+    #[test]
+    fn added_column_charset_is_not_carried_across_dialects() {
+        let mut options = mysql_charset_options(true);
+        let name = options.source_details[0].columns[0].clone();
+        options.source_details[0].columns = vec![column("id", "int", None), name];
+        options.target_details[0].columns = vec![column("id", "int", None)];
+        options.source_dialect = Some(DialectKind::Postgres);
+
+        let result = prepare_schema_diff(options);
+
+        assert!(result.sync_sql.contains("ADD COLUMN `name`"), "{}", result.sync_sql);
+        assert!(!result.sync_sql.contains("CHARACTER SET"), "{}", result.sync_sql);
+        assert!(!result.sync_sql.contains("COLLATE"), "{}", result.sync_sql);
+    }
+
+    #[test]
     fn goldendb_charset_metadata_uses_the_mysql_dialect() {
         let mut options = mysql_charset_options(true);
         options.database_type = DatabaseType::Goldendb;
@@ -7068,6 +7269,9 @@ mod tests {
         target_column.column_default = Some("target".to_string());
         target_column.comment = Some("target comment".to_string());
         options.source_details[0].indexes.push(index(IndexInfo {
+            key_directions: Vec::new(),
+            visibility: None,
+            key_metadata_complete: false,
             name: "uq_users_name".to_string(),
             columns: vec!["name".to_string()],
             is_unique: true,
@@ -7837,6 +8041,7 @@ mod tests {
             Some(DialectKind::SqlServer),
             &[],
             true,
+            false,
         );
         let rollback = plan.rollback_sync_sql.expect("rollback SQL");
 
@@ -7981,6 +8186,7 @@ mod tests {
             Some(DialectKind::SqlServer),
             &[],
             true,
+            false,
         );
         let rollback = plan.rollback_sync_sql.expect("rollback SQL");
 
@@ -8201,6 +8407,9 @@ mod tests {
     fn sqlserver_drops_changed_indexes_and_defaults_before_columns() {
         let target_column = ColumnInfo { column_default: Some("((0))".into()), ..column("legacy_status", "int", None) };
         let target_index = IndexInfo {
+            key_directions: Vec::new(),
+            visibility: None,
+            key_metadata_complete: false,
             name: "idx_events_legacy_status".into(),
             columns: vec!["legacy_status".into()],
             is_unique: false,
@@ -8266,6 +8475,9 @@ mod tests {
         let source_column = column("amount", "bigint", None);
         let target_column = column("amount", "int", None);
         let unchanged_index = IndexInfo {
+            key_directions: Vec::new(),
+            visibility: None,
+            key_metadata_complete: false,
             name: "idx_events_amount".into(),
             columns: vec!["amount".into()],
             is_unique: false,
@@ -8336,6 +8548,9 @@ mod tests {
     #[test]
     fn sqlserver_index_and_foreign_key_forms_follow_tsql() {
         let btree = IndexInfo {
+            key_directions: Vec::new(),
+            visibility: None,
+            key_metadata_complete: false,
             name: "idx_events_status".into(),
             columns: vec!["status".into()],
             is_unique: true,
@@ -8357,6 +8572,9 @@ mod tests {
         assert!(!btree_sql.contains("BTREE"));
 
         let columnstore = IndexInfo {
+            key_directions: Vec::new(),
+            visibility: None,
+            key_metadata_complete: false,
             name: "ix_events_analytics".into(),
             columns: Vec::new(),
             is_unique: false,
@@ -9070,6 +9288,9 @@ mod tests {
     fn detects_modified_indexes_not_only_added_or_removed_indexes() {
         let diffs = diff_indexes(
             &[index(IndexInfo {
+                key_directions: Vec::new(),
+                visibility: None,
+                key_metadata_complete: false,
                 name: "idx_orders_status".to_string(),
                 columns: vec!["status".to_string(), "created_at".to_string()],
                 is_unique: false,
@@ -9084,6 +9305,9 @@ mod tests {
                 constraint_backed: false,
             })],
             &[index(IndexInfo {
+                key_directions: Vec::new(),
+                visibility: None,
+                key_metadata_complete: false,
                 name: "idx_orders_status".to_string(),
                 columns: vec!["status".to_string()],
                 is_unique: true,
@@ -9107,6 +9331,9 @@ mod tests {
     #[test]
     fn detects_opclass_change_in_postgres_index() {
         let source_index = index(IndexInfo {
+            key_directions: Vec::new(),
+            visibility: None,
+            key_metadata_complete: false,
             name: "idx_name_trgm".to_string(),
             columns: vec!["name".to_string()],
             is_unique: false,
@@ -9121,6 +9348,9 @@ mod tests {
             constraint_backed: false,
         });
         let target_index = index(IndexInfo {
+            key_directions: Vec::new(),
+            visibility: None,
+            key_metadata_complete: false,
             name: "idx_name_trgm".to_string(),
             columns: vec!["name".to_string()],
             is_unique: false,
@@ -9150,6 +9380,9 @@ mod tests {
     fn detects_mysql_functional_index_changes_and_preserves_expression_ddl() {
         let functional_key_part = "((case when (`STATUS` = _utf8mb4'online') then _utf8mb4'online' else NULL end))";
         let source_index = index(IndexInfo {
+            key_directions: Vec::new(),
+            visibility: None,
+            key_metadata_complete: false,
             name: "test_UNIQUE".to_string(),
             columns: vec!["attr".to_string(), "attr2".to_string(), functional_key_part.to_string()],
             is_unique: true,
@@ -9164,6 +9397,9 @@ mod tests {
             constraint_backed: false,
         });
         let target_index = index(IndexInfo {
+            key_directions: Vec::new(),
+            visibility: None,
+            key_metadata_complete: false,
             name: "test_UNIQUE".to_string(),
             columns: vec!["attr".to_string(), "attr2".to_string()],
             is_unique: true,
@@ -9218,12 +9454,48 @@ mod tests {
     }
 
     #[test]
+    fn kingbase_agent_index_metadata_survives_sync_ddl() {
+        let index: IndexInfo = serde_json::from_value(serde_json::json!({
+            "name": "expression_idx", "columns": ["lower(name)", "id"],
+            "is_unique": false, "is_primary": false, "filter": "active = 1",
+            "index_type": "btree", "included_columns": ["payload"], "comment": null,
+            "key_is_expression": [true, false], "key_options": [0, 3]
+        }))
+        .unwrap();
+        let ddl = create_index_sql("orders", &index, DatabaseType::Kingbase, Some("public"));
+        assert!(ddl.contains("(lower(name) ASC NULLS LAST, \"id\" DESC NULLS FIRST)"), "{ddl}");
+        assert!(ddl.contains("INCLUDE (\"payload\") WHERE active = 1"), "{ddl}");
+        assert!(!ddl.contains("\"lower(name)\""), "{ddl}");
+    }
+
+    #[test]
+    fn kingbase_index_ddl_keeps_long_expressions_and_non_btree_option_semantics() {
+        let expression = format!("coalesce(lower(name), '{}')", "synthetic".repeat(20));
+        for index_type in ["btree", "gin", "gist"] {
+            let index: IndexInfo = serde_json::from_value(serde_json::json!({
+                "name": "expression_idx", "columns": [expression],
+                "is_unique": false, "is_primary": false, "filter": "active = 1",
+                "index_type": index_type, "included_columns": [], "comment": null,
+                "key_is_expression": [true], "key_options": [3]
+            }))
+            .unwrap();
+            let ddl = create_index_sql("orders", &index, DatabaseType::Kingbase, Some("public"));
+            assert!(ddl.contains(&expression), "{ddl}");
+            assert_eq!(ddl.contains("DESC NULLS FIRST"), index_type == "btree", "{ddl}");
+            assert!(ddl.ends_with("WHERE active = 1;"), "{ddl}");
+        }
+    }
+
+    #[test]
     fn preserves_bare_expression_in_postgres_family_unique_index_ddl() {
         // Regression for #6295: highgo/postgres-family expression index key parts (e.g. from
         // pg_get_indexdef) arrived as raw expression text in IndexInfo.columns; quoting the
         // whole expression as an identifier turned it into a literal (and nonexistent) column.
         let expression_key_part = "COALESCE(height, '-1'::integer::double precision)";
         let new_index = index(IndexInfo {
+            key_directions: Vec::new(),
+            visibility: None,
+            key_metadata_complete: false,
             name: "uq_tankong_sta_type_time".to_string(),
             columns: vec![
                 "sta_id".to_string(),
@@ -9292,6 +9564,9 @@ mod tests {
         let expression_key_part =
             "(((category)::text = ANY ((ARRAY['industrial'::character varying, 'macro'::character varying])::text[])))";
         let new_index = index(IndexInfo {
+            key_directions: Vec::new(),
+            visibility: None,
+            key_metadata_complete: false,
             name: "index_repro_rank".to_string(),
             columns: vec![
                 "((has_current_analysis AND (NOT dirty) AND researchable))".to_string(),
@@ -9363,6 +9638,9 @@ mod tests {
         // `indoption` is only meaningful for B-tree keys, so a GIN index must not gain
         // `ASC NULLS LAST` suffixes even when the introspection reports the flags.
         let new_index = index(IndexInfo {
+            key_directions: Vec::new(),
+            visibility: None,
+            key_metadata_complete: false,
             name: "idx_payload_gin".to_string(),
             columns: vec!["payload".to_string()],
             is_unique: false,
@@ -9426,6 +9704,9 @@ mod tests {
         // parts from pg_get_indexdef are left unquoted.
         let expression_key_part = "COALESCE(height, '-1'::integer::double precision)";
         let new_index = index(IndexInfo {
+            key_directions: Vec::new(),
+            visibility: None,
+            key_metadata_complete: false,
             name: "uq_weird_columns".to_string(),
             columns: vec![
                 "order item".to_string(),
@@ -9501,6 +9782,9 @@ mod tests {
     fn quotes_expression_like_column_names_without_agent_provenance() {
         for db_type in [DatabaseType::Kingbase, DatabaseType::Vastbase] {
             let new_index = index(IndexInfo {
+                key_directions: Vec::new(),
+                visibility: None,
+                key_metadata_complete: false,
                 name: "idx_weird_columns".to_string(),
                 columns: vec!["order item".to_string(), "a(b)".to_string(), "a::b".to_string()],
                 key_is_expression: Vec::new(),
@@ -9620,6 +9904,9 @@ mod tests {
                 diff_type: "modified".to_string(),
                 name: "idx_orders_status".to_string(),
                 source: Some(index(IndexInfo {
+                    key_directions: Vec::new(),
+                    visibility: None,
+                    key_metadata_complete: false,
                     name: "idx_orders_status".to_string(),
                     columns: vec!["status".to_string(), "created_at".to_string()],
                     is_unique: true,
@@ -9935,12 +10222,141 @@ mod tests {
             None,
             &[],
             true,
+            false,
         );
 
         assert!(plan.sync_sql.contains("ADD COLUMN `nickname`"), "{}", plan.sync_sql);
         let rollback = plan.rollback_sync_sql.expect("rollback SQL");
         assert!(rollback.contains("DROP COLUMN `nickname`"), "{rollback}");
         assert_eq!(plan.rollback_completeness, RollbackCompleteness::Complete);
+    }
+
+    /// One-column MySQL/PostgreSQL table diff used by the foreign-key-check wrapper tests.
+    fn added_nickname_column_diff() -> TableDiff {
+        TableDiff {
+            diff_type: "modified".to_string(),
+            object_type: Some("table".to_string()),
+            name: "users".to_string(),
+            target_name: None,
+            columns: Some(vec![ColumnDiff {
+                diff_type: "added".to_string(),
+                name: "nickname".to_string(),
+                source: Some(column("nickname", "varchar(64)", None)),
+                target: None,
+                changes: Vec::new(),
+                add_position: None,
+            }]),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn foreign_key_check_wrapper_brackets_mysql_scripts_and_leaves_other_engines_alone() {
+        let script = "ALTER TABLE `users` ADD COLUMN `nickname` varchar(64);";
+        assert_eq!(
+            wrap_script_with_foreign_key_checks(script, DatabaseType::Mysql),
+            format!("{MYSQL_DISABLE_FOREIGN_KEY_CHECKS}\n{script}\n{MYSQL_ENABLE_FOREIGN_KEY_CHECKS}")
+        );
+        for db_type in [DatabaseType::Postgres, DatabaseType::SqlServer, DatabaseType::Oracle, DatabaseType::Sqlite] {
+            assert_eq!(
+                wrap_script_with_foreign_key_checks(script, db_type),
+                script,
+                "{db_type:?} must keep the script unchanged"
+            );
+        }
+    }
+
+    #[test]
+    fn foreign_key_check_wrapper_leaves_scripts_without_statements_alone() {
+        for script in ["", "   \n\t"] {
+            assert_eq!(wrap_script_with_foreign_key_checks(script, DatabaseType::Mysql), script);
+        }
+    }
+
+    #[test]
+    fn mysql_plan_brackets_forward_and_rollback_sql_when_foreign_key_checks_are_ignored() {
+        let plan = generate_schema_sync_sql_plan(
+            &[added_nickname_column_diff()],
+            &[],
+            &[],
+            &[],
+            &[],
+            DatabaseType::Mysql,
+            Some("shop"),
+            false,
+            None,
+            &[],
+            true,
+            true,
+        );
+
+        assert!(plan.sync_sql.starts_with(MYSQL_DISABLE_FOREIGN_KEY_CHECKS), "{}", plan.sync_sql);
+        assert!(plan.sync_sql.ends_with(MYSQL_ENABLE_FOREIGN_KEY_CHECKS), "{}", plan.sync_sql);
+        let rollback = plan.rollback_sync_sql.expect("rollback SQL");
+        assert!(rollback.starts_with(MYSQL_DISABLE_FOREIGN_KEY_CHECKS), "{rollback}");
+        assert!(rollback.ends_with(MYSQL_ENABLE_FOREIGN_KEY_CHECKS), "{rollback}");
+    }
+
+    #[test]
+    fn mysql_plan_keeps_the_plain_script_when_foreign_key_checks_are_not_ignored() {
+        let plan = generate_schema_sync_sql_plan(
+            &[added_nickname_column_diff()],
+            &[],
+            &[],
+            &[],
+            &[],
+            DatabaseType::Mysql,
+            Some("shop"),
+            false,
+            None,
+            &[],
+            true,
+            false,
+        );
+
+        assert!(!plan.sync_sql.contains("FOREIGN_KEY_CHECKS"), "{}", plan.sync_sql);
+        let rollback = plan.rollback_sync_sql.expect("rollback SQL");
+        assert!(!rollback.contains("FOREIGN_KEY_CHECKS"), "{rollback}");
+    }
+
+    #[test]
+    fn postgres_plan_ignores_the_foreign_key_check_option() {
+        let plan = generate_schema_sync_sql_plan(
+            &[added_nickname_column_diff()],
+            &[],
+            &[],
+            &[],
+            &[],
+            DatabaseType::Postgres,
+            Some("public"),
+            false,
+            None,
+            &[],
+            false,
+            true,
+        );
+
+        assert!(plan.sync_sql.contains("ADD COLUMN"), "{}", plan.sync_sql);
+        assert!(!plan.sync_sql.contains("FOREIGN_KEY_CHECKS"), "{}", plan.sync_sql);
+    }
+
+    #[test]
+    fn empty_plan_is_not_wrapped_even_when_foreign_key_checks_are_ignored() {
+        let plan = generate_schema_sync_sql_plan(
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            DatabaseType::Mysql,
+            None,
+            false,
+            None,
+            &[],
+            false,
+            true,
+        );
+        assert_eq!(plan.sync_sql, "");
     }
 
     #[test]
@@ -9957,6 +10373,8 @@ mod tests {
                     name: "status".to_string(),
                     data_type: "text".to_string(),
                     resolved_schema: None,
+                    resolved_table: None,
+                    resolved_object_type: None,
                     is_nullable: true,
                     column_default: None,
                     is_primary_key: false,
@@ -9979,6 +10397,9 @@ mod tests {
                 diff_type: "added".to_string(),
                 name: "idx_orders_status".to_string(),
                 source: Some(index(IndexInfo {
+                    key_directions: Vec::new(),
+                    visibility: None,
+                    key_metadata_complete: false,
                     name: "idx_orders_status".to_string(),
                     columns: vec!["status".to_string()],
                     is_unique: false,
@@ -10711,6 +11132,9 @@ mod tests {
                     column("User ID", "bigint", None),
                 ],
                 indexes: vec![index(IndexInfo {
+                    key_directions: Vec::new(),
+                    visibility: None,
+                    key_metadata_complete: false,
                     name: "Order Status IDX".to_string(),
                     columns: vec!["Status".to_string()],
                     is_unique: true,
@@ -10777,6 +11201,9 @@ mod tests {
                     column("user-id", "bigint", None),
                 ],
                 indexes: vec![index(IndexInfo {
+                    key_directions: Vec::new(),
+                    visibility: None,
+                    key_metadata_complete: false,
                     name: "status-index".to_string(),
                     columns: vec!["status".to_string()],
                     is_unique: true,
@@ -10833,6 +11260,9 @@ mod tests {
                     column("parent id", "TEXT", None),
                 ],
                 indexes: vec![index(IndexInfo {
+                    key_directions: Vec::new(),
+                    visibility: None,
+                    key_metadata_complete: false,
                     name: "active status index".to_string(),
                     columns: vec!["status".to_string()],
                     is_unique: false,
@@ -11442,6 +11872,66 @@ mod tests {
     }
 
     #[test]
+    fn kingbase_agent_generation_metadata_survives_added_column_ddl() {
+        for clause in [
+            "GENERATED ALWAYS AS ((quantity * price)) STORED",
+            "GENERATED ALWAYS AS IDENTITY",
+            "GENERATED BY DEFAULT AS IDENTITY",
+            "IDENTITY(10,5)",
+        ] {
+            let column: ColumnInfo = serde_json::from_value(serde_json::json!({
+                "name": "value", "data_type": "integer", "is_nullable": false,
+                "column_default": null, "is_primary_key": false, "extra": clause
+            }))
+            .unwrap();
+            assert_eq!(
+                column_def(&column, DatabaseType::Kingbase, None),
+                format!("\"value\" integer {clause} NOT NULL")
+            );
+            let (ddl, missing) = generate_create_table_sql(
+                "orders",
+                &[ColumnDiff {
+                    diff_type: "added".to_string(),
+                    name: column.name.clone(),
+                    source: Some(column.clone()),
+                    target: None,
+                    changes: vec![],
+                    add_position: None,
+                }],
+                &[],
+                &[],
+                None,
+                DatabaseType::Kingbase,
+                Some("public"),
+                Some(DialectKind::Postgres),
+                &[],
+                &[],
+            );
+            assert!(missing.is_empty());
+            assert!(ddl.contains(&format!("{clause} NOT NULL")), "{ddl}");
+            assert!(!ddl.contains(" DEFAULT nextval"), "{ddl}");
+        }
+    }
+
+    #[test]
+    fn kingbase_generation_preservation_does_not_change_other_dialects() {
+        let mut column = column("value", "integer", None);
+        column.extra = Some("GENERATED ALWAYS AS (price * quantity) STORED".to_string());
+        for database_type in
+            [DatabaseType::Postgres, DatabaseType::Mysql, DatabaseType::Oracle, DatabaseType::SqlServer]
+        {
+            assert!(kingbase_generation_clause(&column, database_type, None).is_none());
+        }
+        for source in [DialectKind::Mysql, DialectKind::Oracle, DialectKind::SqlServer] {
+            assert!(kingbase_generation_clause(&column, DatabaseType::Kingbase, Some(source)).is_none());
+        }
+        column.column_default = Some("nextval('legacy_sequence')".to_string());
+        let definition = column_def(&column, DatabaseType::Kingbase, None);
+        assert!(definition.contains("GENERATED ALWAYS AS (price * quantity) STORED"));
+        assert!(!definition.contains("legacy_sequence"), "{definition}");
+    }
+
+    #[test]
     fn sqlserver_add_column_places_identity_after_type() {
         let mut source = column("seq", "int", None);
         source.extra = Some("auto_increment".to_string());
@@ -11960,6 +12450,9 @@ mod tests {
                 diff_type: "added".to_string(),
                 name: "idx_name".to_string(),
                 source: Some(index(IndexInfo {
+                    key_directions: Vec::new(),
+                    visibility: None,
+                    key_metadata_complete: false,
                     name: "idx_name".to_string(),
                     columns: vec!["name2".to_string()],
                     is_unique: false,
@@ -12005,6 +12498,9 @@ mod tests {
                 name: "idx_old".to_string(),
                 source: None,
                 target: Some(index(IndexInfo {
+                    key_directions: Vec::new(),
+                    visibility: None,
+                    key_metadata_complete: false,
                     name: "idx_old".to_string(),
                     columns: vec!["name".to_string()],
                     is_unique: false,
@@ -12424,6 +12920,9 @@ mod tests {
     fn index_type_diff_btree_vs_hash() {
         let diffs = diff_indexes(
             &[index(IndexInfo {
+                key_directions: Vec::new(),
+                visibility: None,
+                key_metadata_complete: false,
                 name: "idx_t".into(),
                 columns: vec!["a".into()],
                 is_unique: false,
@@ -12438,6 +12937,9 @@ mod tests {
                 constraint_backed: false,
             })],
             &[index(IndexInfo {
+                key_directions: Vec::new(),
+                visibility: None,
+                key_metadata_complete: false,
                 name: "idx_t".into(),
                 columns: vec!["a".into()],
                 is_unique: false,
@@ -12460,6 +12962,9 @@ mod tests {
     fn index_type_fulltext_detected() {
         let diffs = diff_indexes(
             &[index(IndexInfo {
+                key_directions: Vec::new(),
+                visibility: None,
+                key_metadata_complete: false,
                 name: "idx_t".into(),
                 columns: vec!["content".into()],
                 is_unique: false,
@@ -12474,6 +12979,9 @@ mod tests {
                 constraint_backed: false,
             })],
             &[index(IndexInfo {
+                key_directions: Vec::new(),
+                visibility: None,
+                key_metadata_complete: false,
                 name: "idx_t".into(),
                 columns: vec!["content".into()],
                 is_unique: false,
@@ -12496,6 +13004,9 @@ mod tests {
     fn index_column_order_different() {
         let diffs = diff_indexes(
             &[index(IndexInfo {
+                key_directions: Vec::new(),
+                visibility: None,
+                key_metadata_complete: false,
                 name: "idx_t".into(),
                 columns: vec!["a".into(), "b".into()],
                 is_unique: false,
@@ -12510,6 +13021,9 @@ mod tests {
                 constraint_backed: false,
             })],
             &[index(IndexInfo {
+                key_directions: Vec::new(),
+                visibility: None,
+                key_metadata_complete: false,
                 name: "idx_t".into(),
                 columns: vec!["b".into(), "a".into()],
                 is_unique: false,
@@ -12533,6 +13047,9 @@ mod tests {
     fn index_included_columns_diff() {
         let diffs = diff_indexes(
             &[index(IndexInfo {
+                key_directions: Vec::new(),
+                visibility: None,
+                key_metadata_complete: false,
                 name: "idx_t".into(),
                 columns: vec!["a".into()],
                 is_unique: true,
@@ -12547,6 +13064,9 @@ mod tests {
                 constraint_backed: false,
             })],
             &[index(IndexInfo {
+                key_directions: Vec::new(),
+                visibility: None,
+                key_metadata_complete: false,
                 name: "idx_t".into(),
                 columns: vec!["a".into()],
                 is_unique: true,
@@ -12569,6 +13089,9 @@ mod tests {
     fn index_included_columns_added() {
         let diffs = diff_indexes(
             &[index(IndexInfo {
+                key_directions: Vec::new(),
+                visibility: None,
+                key_metadata_complete: false,
                 name: "idx_t".into(),
                 columns: vec!["a".into()],
                 is_unique: true,
@@ -12583,6 +13106,9 @@ mod tests {
                 constraint_backed: false,
             })],
             &[index(IndexInfo {
+                key_directions: Vec::new(),
+                visibility: None,
+                key_metadata_complete: false,
                 name: "idx_t".into(),
                 columns: vec!["a".into()],
                 is_unique: true,
@@ -12605,6 +13131,9 @@ mod tests {
     fn index_filter_change() {
         let diffs = diff_indexes(
             &[index(IndexInfo {
+                key_directions: Vec::new(),
+                visibility: None,
+                key_metadata_complete: false,
                 name: "idx_t".into(),
                 columns: vec!["status".into()],
                 is_unique: false,
@@ -12619,6 +13148,9 @@ mod tests {
                 constraint_backed: false,
             })],
             &[index(IndexInfo {
+                key_directions: Vec::new(),
+                visibility: None,
+                key_metadata_complete: false,
                 name: "idx_t".into(),
                 columns: vec!["status".into()],
                 is_unique: false,
@@ -12643,6 +13175,9 @@ mod tests {
         let diffs = diff_indexes(
             &[
                 index(IndexInfo {
+                    key_directions: Vec::new(),
+                    visibility: None,
+                    key_metadata_complete: false,
                     name: "idx_new".into(),
                     columns: vec!["a".into()],
                     is_unique: true,
@@ -12657,6 +13192,9 @@ mod tests {
                     constraint_backed: false,
                 }),
                 index(IndexInfo {
+                    key_directions: Vec::new(),
+                    visibility: None,
+                    key_metadata_complete: false,
                     name: "idx_modified".into(),
                     columns: vec!["a".into(), "b".into()],
                     is_unique: false,
@@ -12673,6 +13211,9 @@ mod tests {
             ],
             &[
                 index(IndexInfo {
+                    key_directions: Vec::new(),
+                    visibility: None,
+                    key_metadata_complete: false,
                     name: "idx_removed".into(),
                     columns: vec!["c".into()],
                     is_unique: false,
@@ -12687,6 +13228,9 @@ mod tests {
                     constraint_backed: false,
                 }),
                 index(IndexInfo {
+                    key_directions: Vec::new(),
+                    visibility: None,
+                    key_metadata_complete: false,
                     name: "idx_modified".into(),
                     columns: vec!["a".into()],
                     is_unique: true,
@@ -13066,6 +13610,9 @@ mod tests {
                     diff_type: "added".to_string(),
                     name: "idx_name".into(),
                     source: Some(index(IndexInfo {
+                        key_directions: Vec::new(),
+                        visibility: None,
+                        key_metadata_complete: false,
                         name: "idx_name".into(),
                         columns: vec!["name2".into()],
                         is_unique: false,
@@ -13087,6 +13634,9 @@ mod tests {
                     name: "idx_old".into(),
                     source: None,
                     target: Some(index(IndexInfo {
+                        key_directions: Vec::new(),
+                        visibility: None,
+                        key_metadata_complete: false,
                         name: "idx_old".into(),
                         columns: vec!["name".into()],
                         is_unique: false,
@@ -13175,6 +13725,8 @@ mod tests {
             name: "c".into(),
             data_type: "varchar(100)".into(),
             resolved_schema: None,
+            resolved_table: None,
+            resolved_object_type: None,
             is_nullable: true,
             column_default: Some("'default'".into()),
             comment: Some("new".into()),
@@ -13193,6 +13745,8 @@ mod tests {
             name: "c".into(),
             data_type: "varchar(50)".into(),
             resolved_schema: None,
+            resolved_table: None,
+            resolved_object_type: None,
             is_nullable: false,
             column_default: None,
             comment: Some("old".into()),
@@ -13500,6 +14054,9 @@ mod tests {
             diff_type: "added".into(),
             name: "idx_del_flag".into(),
             source: Some(IndexInfo {
+                key_directions: Vec::new(),
+                visibility: None,
+                key_metadata_complete: false,
                 name: "idx_del_flag".into(),
                 columns: vec!["del_flag".into()],
                 is_unique: false,
@@ -13539,6 +14096,40 @@ mod tests {
         );
         assert!(sql.to_ascii_uppercase().contains("DATETIME"), "datetime stays DATETIME: {sql}");
         assert!(sql.contains("CREATE INDEX"), "index: {sql}");
+    }
+
+    #[test]
+    fn mysql_to_dameng_create_table_uses_native_identity_clause() {
+        let columns = vec![ColumnDiff {
+            diff_type: "added".into(),
+            name: "id".into(),
+            source: Some(ColumnInfo {
+                name: "id".into(),
+                data_type: "int".into(),
+                is_nullable: false,
+                is_primary_key: true,
+                extra: Some("auto_increment".into()),
+                ..Default::default()
+            }),
+            target: None,
+            changes: vec![],
+            add_position: None,
+        }];
+        let (sql, missing) = generate_create_table_sql(
+            "tb_user",
+            &columns,
+            &[],
+            &[],
+            None,
+            DatabaseType::Dameng,
+            None,
+            Some(DialectKind::Mysql),
+            &[],
+            &[],
+        );
+        assert!(missing.is_empty(), "{missing:?}");
+        assert!(sql.contains("IDENTITY(1,1)"), "Dameng must use its native clause: {sql}");
+        assert!(!sql.contains("GENERATED BY DEFAULT AS IDENTITY"), "Dameng must not use Oracle syntax: {sql}");
     }
 
     fn check_auto_increment(sql: &str, tgt: DialectKind) {
@@ -13756,6 +14347,9 @@ mod tests {
             diff_type: "added".into(),
             name: "idx_views".into(),
             source: Some(IndexInfo {
+                key_directions: Vec::new(),
+                visibility: None,
+                key_metadata_complete: false,
                 name: "idx_views".into(),
                 columns: vec!["views".into()],
                 is_unique: false,
@@ -15174,6 +15768,9 @@ mod tests {
 
     fn named_index(name: &str, columns: &[&str], is_unique: bool) -> IndexInfo {
         index(IndexInfo {
+            key_directions: Vec::new(),
+            visibility: None,
+            key_metadata_complete: false,
             name: name.to_string(),
             columns: columns.iter().map(|column| (*column).to_string()).collect(),
             is_unique,
@@ -15578,5 +16175,79 @@ mod tests {
 
         assert!(sql.contains("CREATE OR REPLACE FORCE VIEW DBX_TGT.V_NEW"), "{sql}");
         assert!(!sql.contains("DBX_TEST.V_NEW"), "{sql}");
+    }
+
+    #[test]
+    fn added_oracle_table_native_ddl_moves_dependent_statements_to_target_schema() {
+        // Issue #12048: only the CREATE TABLE head moved to the target schema, so the
+        // appended index and comments, and the foreign key, still named the source schema.
+        let ddl = [
+            "CREATE TABLE \"MESDEMO\".\"YZCM_F\" ",
+            "   (\t\"ID\" NUMBER, ",
+            "\t\"PID\" NUMBER, ",
+            "\t\"OID\" NUMBER, ",
+            "\t CONSTRAINT \"PK_YZCM_F\" PRIMARY KEY (\"ID\") ENABLE, ",
+            "\t CONSTRAINT \"FK_YZCM_F_P\" FOREIGN KEY (\"PID\")",
+            "\t  REFERENCES \"MESDEMO\".\"YZCM_P\" (\"ID\") ENABLE, ",
+            "\t CONSTRAINT \"FK_YZCM_F_O\" FOREIGN KEY (\"OID\")",
+            "\t  REFERENCES \"SHARED\".\"ORGS\" (\"ID\") ENABLE",
+            "   ) TABLESPACE \"USERS\";",
+            "",
+            "CREATE INDEX \"MESDEMO\".\"IDX_YZCM_F_PID\" ON \"MESDEMO\".\"YZCM_F\" (\"PID\") ",
+            "  TABLESPACE \"USERS\";",
+            "",
+            "-- copied from \"MESDEMO\".\"YZCM_F\"",
+            "COMMENT ON TABLE \"MESDEMO\".\"YZCM_F\" IS 'mirrors \"MESDEMO\".\"YZCM_F\"';",
+            "",
+            "COMMENT ON COLUMN \"MESDEMO\".\"YZCM_F\".\"PID\" IS 'parent id'",
+        ]
+        .join("\n");
+        let diffs = vec![TableDiff {
+            diff_type: "added".to_string(),
+            object_type: Some("table".to_string()),
+            name: "YZCM_F".to_string(),
+            ddl: Some(ddl),
+            ..TableDiff::default()
+        }];
+
+        let sql = generate_schema_sync_sql(
+            &diffs,
+            &[],
+            &[],
+            &[],
+            &[],
+            DatabaseType::Oracle,
+            Some("MESDATA"),
+            false,
+            Some(DialectKind::Oracle),
+            &[],
+        );
+
+        assert!(sql.contains("CREATE TABLE MESDATA.YZCM_F"), "{sql}");
+        assert!(sql.contains("REFERENCES MESDATA.\"YZCM_P\""), "{sql}");
+        assert!(sql.contains("CREATE INDEX MESDATA.\"IDX_YZCM_F_PID\" ON MESDATA.\"YZCM_F\""), "{sql}");
+        assert!(sql.contains("COMMENT ON TABLE MESDATA.\"YZCM_F\" IS 'mirrors \"MESDEMO\".\"YZCM_F\"'"), "{sql}");
+        assert!(sql.contains("COMMENT ON COLUMN MESDATA.\"YZCM_F\".\"PID\""), "{sql}");
+        assert!(sql.contains("REFERENCES \"SHARED\".\"ORGS\""), "{sql}");
+        assert!(sql.contains("-- copied from \"MESDEMO\".\"YZCM_F\""), "{sql}");
+        assert_eq!(sql.matches("\"MESDEMO\".").count(), 2, "only the literal and the comment keep it: {sql}");
+    }
+
+    #[test]
+    fn uniqueidentifier_and_uuid_cross_dialect_equivalence() {
+        assert!(column_types_equal_for_dialects(
+            "uniqueidentifier",
+            "uuid",
+            Some(DialectKind::SqlServer),
+            Some(DialectKind::Postgres),
+        ));
+        assert!(column_types_equal_for_dialects(
+            "uuid",
+            "uniqueidentifier",
+            Some(DialectKind::Postgres),
+            Some(DialectKind::SqlServer),
+        ));
+        assert_eq!(column_type_similarity_score("uniqueidentifier", "uuid"), 1.0);
+        assert_eq!(column_type_similarity_score("uuid", "uniqueidentifier"), 1.0);
     }
 }

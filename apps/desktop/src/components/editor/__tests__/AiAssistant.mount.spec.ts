@@ -182,6 +182,7 @@ vi.mock("@/lib/backend/api", async (importOriginal) => {
       return result ? Promise.resolve(result) : Promise.reject(new Error("readUserSkills not configured"));
     },
     loadAiConfigs: empty,
+    saveAiConfigItem: () => Promise.resolve(),
     listPlugins: empty,
     loadPromptTemplates: empty,
     getAiGlobalCustomInstructions: () => Promise.resolve(""),
@@ -195,6 +196,7 @@ vi.mock("@/lib/backend/api", async (importOriginal) => {
     getColumns: empty,
     listIndexes: empty,
     listForeignKeys: empty,
+    loadDocsAnnotations: () => Promise.resolve(null),
   };
 });
 
@@ -250,7 +252,7 @@ function stubResizeObserver(): Array<{ callback: ResizeObserverCallback; targets
 async function mountPanel(aiConfigLoaded: boolean, connection?: ConnectionConfig, configureSettings?: (settings: ReturnType<typeof useSettingsStore>) => void, pluginRecommendations?: PluginAiRecommendationHostUpdate, extraConnections: ConnectionConfig[] = []) {
   const pinia = createPinia();
   const errors: unknown[] = [];
-  const panelRef = ref<{ openExternalContext: (request: AiExternalContextRequest) => void } | null>(null);
+  const panelRef = ref<{ openExternalContext: (request: AiExternalContextRequest) => void; selectConversationById: (convId: string) => void } | null>(null);
   const app = createApp({ render: () => h(TooltipProvider, () => h(AiAssistant, { ref: panelRef, connection, pluginRecommendations })) });
   app.use(pinia);
   app.use(i18n);
@@ -269,7 +271,7 @@ async function mountPanel(aiConfigLoaded: boolean, connection?: ConnectionConfig
   });
   // Let mount-time loads settle so their failures surface here too.
   await new Promise((resolve) => setTimeout(resolve, 20));
-  return { errors, container, panelRef };
+  return { errors, container, panelRef, pinia };
 }
 
 describe("AiAssistant mount", () => {
@@ -618,6 +620,51 @@ describe("AiAssistant mount", () => {
     expect(errors.map(String)).toEqual([]);
   });
 
+  it("allows deleting manually entered AI models from the model selector popover", async () => {
+    let currentSettings: any;
+    const { errors, container } = await mountPanel(true, undefined, (settings) => {
+      aiAssistantMountApi.tauriRuntime = true;
+      currentSettings = settings;
+      settings.aiConfigs = [
+        {
+          id: "cli-default",
+          name: "Claude Code",
+          provider: "claude-code-cli",
+          apiKey: "",
+          authMethod: "api-key",
+          endpoint: "",
+          model: "default",
+          models: [{ name: "my-custom-model" }],
+          apiStyle: "completions",
+          isDefault: true,
+        },
+      ];
+      settings.activeModel = { configId: "cli-default", modelId: "my-custom-model" };
+    });
+
+    const trigger = container.querySelector<HTMLButtonElement>(".ai-model-selector-trigger");
+    expect(trigger).not.toBeNull();
+    trigger!.click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const popover = container.querySelector('[data-slot="popover-content"]');
+    expect(popover).not.toBeNull();
+
+    // Default model should not have delete button
+    expect(popover!.querySelector('[data-remove-model="default"]')).toBeNull();
+
+    // Manually added model should have delete button
+    const deleteButton = popover!.querySelector<HTMLButtonElement>('[data-remove-model="my-custom-model"]');
+    expect(deleteButton).not.toBeNull();
+
+    deleteButton!.click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Config should have model removed
+    expect(currentSettings.aiConfigs[0].models).toEqual([]);
+    expect(errors.map(String)).toEqual([]);
+  });
+
   // These states settle through requestAnimationFrame plus async measurement, and the component
   // measures asynchronously, so they can lag the DOM. Budget by event-loop turns rather than
   // wall-clock: a CI worker's event loop can stall for seconds behind another worker's module
@@ -863,6 +910,81 @@ describe("AiAssistant mount", () => {
   }
 
   const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+  // #12075 review: a draft can never be reopened, so its picker selection must not
+  // travel into a conversation opened from the list. The leak only surfaced one
+  // step later — reopening that conversation showed the abandoned draft's pick
+  // instead of the value it had recorded.
+  it("does not hand an abandoned draft's picker selection to a conversation opened from the list", async () => {
+    aiAssistantMountApi.conversations = [storedConversation({ id: "conv-b", connectionId: "", database: "", connectionName: "", assistantMode: "ask", assistantAction: "optimize" }), storedConversation({ id: "conv-c", connectionId: "", database: "", connectionName: "" })];
+    const { errors, container, panelRef } = await mountPanel(true, undefined, (settings) => {
+      configureAiPanel(settings);
+      // Nothing is restored, so the panel opens on a draft (conversationId "").
+      settings.restoreLastConversation = false;
+    });
+    expect(errors.map(String)).toEqual([]);
+
+    const modeTrigger = () => container.querySelector<HTMLButtonElement>(".ai-mode-action-trigger")!;
+    // Pick Agent on the draft. It has no id yet, so nothing may be persisted.
+    modeTrigger().click();
+    await settle();
+    Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+      .find((button) => button.textContent?.trim() === i18n.global.t("ai.modes.agent"))!
+      .click();
+    await settle();
+    expect(modeTrigger().textContent).toContain(i18n.global.t("ai.modes.agent"));
+    expect(aiAssistantMountApi.savedConversations).toEqual([]);
+
+    // Open a stored conversation, leave it, and come back to it.
+    panelRef.value!.selectConversationById("conv-b");
+    await settle();
+    expect(modeTrigger().textContent).toContain(i18n.global.t("ai.actions.optimize"));
+    panelRef.value!.selectConversationById("conv-c");
+    await settle();
+    panelRef.value!.selectConversationById("conv-b");
+    await settle();
+
+    // B still shows what B recorded: the abandoned draft's Agent pick is gone.
+    expect(modeTrigger().textContent).toContain(i18n.global.t("ai.actions.optimize"));
+    expect(modeTrigger().textContent).not.toContain(i18n.global.t("ai.modes.agent"));
+    expect(aiAssistantMountApi.savedConversations).toEqual([]);
+    expect(errors.map(String)).toEqual([]);
+  });
+
+  // #12075: a capability that comes back must restore the conversation's own
+  // recording. The app's connections load after the panel opens, so a plugin
+  // conversation can legitimately be on screen with no resolvable connection and
+  // has to recover Agent mode once the connection is there. A one-way downgrade
+  // stranded it on Ask, and `send()` reads the shown mode — so an Agent
+  // conversation would keep sending as Ask for the rest of the session.
+  it("restores a plugin conversation's recorded Agent mode when its connection becomes available", async () => {
+    aiAssistantMountApi.conversations = [
+      storedConversation({
+        id: "conv-plugin",
+        connectionId: "postgres",
+        connectionName: "PostgreSQL",
+        assistantMode: "agent",
+        assistantAction: "general",
+        pluginContext: { pluginId: "sample.plugin", pluginName: "Sample", title: "Cluster", capturedAt: "2026-09-27T00:00:00.000Z", data: { connectionId: "postgres" } },
+      }),
+    ];
+    // No connection registered yet: the panel opens before the connections load.
+    const { errors, container, pinia } = await mountPanel(true, undefined, (settings) => {
+      configureAiPanel(settings);
+      settings.restoreLastConversation = true;
+    });
+    await settle();
+    const modeTrigger = () => container.querySelector<HTMLButtonElement>(".ai-mode-action-trigger")!;
+    // Degraded: without a connection this plugin conversation cannot offer Agent.
+    expect(modeTrigger().textContent).toContain(i18n.global.t("ai.modes.ask"));
+
+    useConnectionStore(pinia).connections = [POSTGRES];
+    await settle();
+
+    // The connection arrived: the recorded Agent mode comes back on its own.
+    expect(modeTrigger().textContent).toContain(i18n.global.t("ai.modes.agent"));
+    expect(errors.map(String)).toEqual([]);
+  });
 
   it("reuses the chat already on the selection's namespace and attaches the chip there", async () => {
     aiAssistantMountApi.conversations = [storedConversation({ id: "conv-b", connectionId: "postgres", database: "app", connectionName: "PostgreSQL" })];
@@ -1736,6 +1858,58 @@ describe("AiAssistant mount", () => {
     expect(popover.textContent).toContain("custom copy");
     expect(popover.querySelectorAll(".ai-skill-duplicate-name").length).toBe(0);
     expect(popover.querySelector(".ai-skill-duplicate-note")).toBeNull();
+    expect(errors.map(String)).toEqual([]);
+  });
+
+  it("supports collapsing and expanding selected skill chips to conserve composer space", async () => {
+    configureSkillCatalog();
+    const { errors, container } = await mountPanel(true, POSTGRES, configureAiPanel);
+
+    await selectSkill(container);
+    expect(container.querySelectorAll(".ai-skill-chip").length).toBe(1);
+    const collapseButton = container.querySelector<HTMLButtonElement>(".ai-skills-collapse-toggle");
+    expect(collapseButton).not.toBeNull();
+    expect(collapseButton?.textContent).toContain(i18n.global.t("ai.skillsCollapse"));
+    expect(container.querySelector(".ai-skills-expand-toggle")).toBeNull();
+
+    // Collapse
+    collapseButton!.click();
+    await settle();
+
+    expect(container.querySelectorAll(".ai-skill-chip").length).toBe(0);
+    expect(container.querySelector(".ai-skills-collapse-toggle")).toBeNull();
+    const expandButton = container.querySelector<HTMLButtonElement>(".ai-skills-expand-toggle");
+    expect(expandButton).not.toBeNull();
+    expect(expandButton?.textContent).toContain(i18n.global.t("ai.skillsSelectedCount", { count: 1 }));
+
+    // Expand
+    expandButton!.click();
+    await settle();
+
+    expect(container.querySelectorAll(".ai-skill-chip").length).toBe(1);
+    expect(container.querySelector(".ai-skills-collapse-toggle")).not.toBeNull();
+    expect(container.querySelector(".ai-skills-expand-toggle")).toBeNull();
+    expect(errors.map(String)).toEqual([]);
+  });
+
+  it("displays loaded status in collapsed expand button when skills are loaded", async () => {
+    configureSkillCatalog();
+    configureSkillRead();
+    const { errors, container } = await mountPanel(true, POSTGRES, configureAiPanel);
+
+    await selectSkill(container);
+    skillChip(container)!.click();
+    await settle();
+    expect(skillChip(container)!.textContent).toContain(i18n.global.t("ai.skillsLoadedState"));
+
+    // Collapse
+    container.querySelector<HTMLButtonElement>(".ai-skills-collapse-toggle")!.click();
+    await settle();
+
+    const expandButton = container.querySelector<HTMLButtonElement>(".ai-skills-expand-toggle");
+    expect(expandButton).not.toBeNull();
+    expect(expandButton?.textContent).toContain(i18n.global.t("ai.skillsLoadedState"));
+
     expect(errors.map(String)).toEqual([]);
   });
 });

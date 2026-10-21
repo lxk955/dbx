@@ -1094,4 +1094,120 @@ describe("ScheduledDatabaseBackupSettings schedule dialog", () => {
     expect(mocks.saveSchedule).not.toHaveBeenCalled();
     expect(mocks.toast).toHaveBeenCalledWith("backup destination unavailable", 5000);
   });
+
+  it("closes the backup connection picker on outside scroll but preserves it when scrolling inside the popover", async () => {
+    mocks.connections.push({ id: "mysql-1", name: "Local MySQL", db_type: "mysql" });
+    await mountSettings();
+
+    addScheduleButton().click();
+    await flush();
+
+    const trigger = currentDialog().querySelector<HTMLButtonElement>("[data-backup-connection-picker]");
+    if (!trigger) throw new Error("Connection picker trigger not found");
+
+    trigger.click();
+    await flush();
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+    const popoverContent = document.body.querySelector<HTMLElement>('[data-slot="popover-content"]');
+    expect(popoverContent).not.toBeNull();
+
+    // Scroll inside the popover list should not close the picker
+    const internalList = popoverContent?.querySelector<HTMLElement>(".overflow-y-auto");
+    if (!internalList) throw new Error("Internal popover scrollable list not found");
+    internalList.dispatchEvent(new Event("scroll", { bubbles: true }));
+    await flush();
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+    // Scroll outside the popover (e.g. dialog content or window) should close the picker
+    window.dispatchEvent(new Event("scroll"));
+    await flush();
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("closes the history connection picker on outside scroll", async () => {
+    mocks.connections.push({ id: "mysql-1", name: "Local MySQL", db_type: "mysql" });
+    mocks.runs.push({
+      id: "run-1",
+      scheduleName: "Run 1",
+      connectionId: "mysql-1",
+      connectionName: "Local MySQL",
+      trigger: "scheduled",
+      source: "scheduled",
+      status: "success",
+      startedAt: "2026-09-08T02:00:00.000Z",
+      files: [],
+    });
+    await mountSettings();
+
+    const trigger = document.body.querySelector<HTMLButtonElement>("[data-backup-history-connection-picker]");
+    if (!trigger) throw new Error("History connection picker trigger not found");
+
+    trigger.click();
+    await flush();
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+    window.dispatchEvent(new Event("scroll"));
+    await flush();
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("supports setting permanent retention for scheduled backup", async () => {
+    mocks.connections.push({ id: "mysql-1", name: "Local MySQL", db_type: "mysql" });
+    await mountSettings();
+
+    addScheduleButton().click();
+    await flush();
+    buttonWithTitle(String(i18n.global.t("databaseBackup.selectDestination"))).click();
+    await flush();
+
+    const checkbox = currentDialog().querySelector<HTMLInputElement>("[data-backup-retention-forever]");
+    if (!checkbox) throw new Error("Permanent retention checkbox not found");
+
+    expect(checkbox.checked).toBe(false);
+
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event("change"));
+    await flush();
+
+    expect(currentDialog().textContent).toContain(String(i18n.global.t("databaseBackup.keepForever")));
+
+    saveScheduleButton().click();
+    await flush();
+
+    expect(mocks.saveSchedule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        retentionCount: 0,
+      }),
+    );
+  });
+
+  it("displays keep forever in schedule list for schedules with retentionCount 0 and preserves or updates it on edit", async () => {
+    mocks.connections.push({ id: "mysql-1", name: "Local MySQL", db_type: "mysql" });
+    mocks.schedules.push(schedule({ id: "schedule-perm", retentionCount: 0 }));
+    await mountSettings();
+
+    expect(document.body.textContent).toContain(String(i18n.global.t("databaseBackup.keepForever")));
+
+    buttonWithTitle(String(i18n.global.t("databaseBackup.edit"))).click();
+    await flush();
+
+    const checkbox = currentDialog().querySelector<HTMLInputElement>("[data-backup-retention-forever]");
+    if (!checkbox) throw new Error("Permanent retention checkbox not found");
+
+    expect(checkbox.checked).toBe(true);
+
+    checkbox.checked = false;
+    checkbox.dispatchEvent(new Event("change"));
+    await flush();
+
+    saveScheduleButton().click();
+    await flush();
+
+    expect(mocks.saveSchedule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        retentionCount: 10,
+      }),
+    );
+  });
 });

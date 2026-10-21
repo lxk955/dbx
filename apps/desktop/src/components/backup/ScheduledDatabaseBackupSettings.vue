@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { isTauriRuntime } from "@/lib/backend/tauriRuntime";
 import { useI18n } from "vue-i18n";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +26,7 @@ import {
   databaseBackupRunDirectory,
   databaseBackupRunDirectoryPatternIsValid,
   nextDatabaseBackupRunAt,
+  normalizeDatabaseBackupRetention,
   normalizeDatabaseBackupTablePatterns,
   supportsScheduledDatabaseBackup,
   type DatabaseBackupExecutionConfig,
@@ -155,8 +156,40 @@ const weekdays = computed(() => [
   { value: 6, label: t("databaseBackup.weekdays.saturday") },
 ]);
 
+function handleHistoryScrollOutside(event: Event) {
+  if (!historyConnectionPickerOpen.value) return;
+  const target = event.target;
+  if (target instanceof HTMLElement && target.closest?.('[data-slot="popover-content"]')) return;
+  historyConnectionPickerOpen.value = false;
+}
+
 watch(historyConnectionPickerOpen, (open) => {
-  if (!open) historyConnectionSearch.value = "";
+  if (!open) {
+    window.removeEventListener("scroll", handleHistoryScrollOutside, { capture: true });
+    historyConnectionSearch.value = "";
+    return;
+  }
+  window.addEventListener("scroll", handleHistoryScrollOutside, { capture: true, passive: true });
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("scroll", handleHistoryScrollOutside, { capture: true });
+});
+
+watch(scheduleDialogOpen, async (open) => {
+  if (open) {
+    await nextTick();
+    const dialogs = document.querySelectorAll<HTMLElement>(".dbx-backup-dialog");
+    for (const dialog of dialogs) dialog.scrollTop = 0;
+  }
+});
+
+watch(oneShotDialogOpen, async (open) => {
+  if (open) {
+    await nextTick();
+    const dialogs = document.querySelectorAll<HTMLElement>(".dbx-backup-dialog");
+    for (const dialog of dialogs) dialog.scrollTop = 0;
+  }
 });
 
 /**
@@ -211,6 +244,18 @@ function newScheduleDraft(connectionId = sqlConnections.value[0]?.id ?? ""): Dat
 }
 
 const draft = ref<DatabaseBackupSchedule>(newScheduleDraft());
+const previousPositiveRetention = ref(10);
+
+function togglePermanentRetention(forever: boolean) {
+  if (forever) {
+    if (draft.value.retentionCount > 0) {
+      previousPositiveRetention.value = draft.value.retentionCount;
+    }
+    draft.value.retentionCount = 0;
+  } else {
+    draft.value.retentionCount = previousPositiveRetention.value > 0 ? previousPositiveRetention.value : 10;
+  }
+}
 const oneShotDraft = ref<DatabaseBackupExecutionConfig>(newBackupConfig());
 const activeDraft = computed<DatabaseBackupExecutionConfig>(() => (oneShotDialogOpen.value ? oneShotDraft.value : draft.value));
 const activeOneShotRun = computed(() => activeRuns.value.find((run) => run.source === "one-shot"));
@@ -429,6 +474,7 @@ async function openCreateSchedule() {
   editingScheduleId.value = "";
   const nextDraft = newScheduleDraft();
   draft.value = nextDraft;
+  previousPositiveRetention.value = nextDraft.retentionCount > 0 ? nextDraft.retentionCount : 10;
   resetDatabaseScope(nextDraft);
   scheduleDialogOpen.value = true;
 }
@@ -438,6 +484,7 @@ async function openEditSchedule(schedule: DatabaseBackupSchedule) {
   oneShotDialogOpen.value = false;
   editingScheduleId.value = schedule.id;
   draft.value = { ...schedule, databases: [...schedule.databases], tablePatterns: [...schedule.tablePatterns] };
+  previousPositiveRetention.value = schedule.retentionCount > 0 ? schedule.retentionCount : 10;
   allDatabases.value = schedule.databases.length === 0;
   selectedDatabases.value = [...schedule.databases];
   tablePatternsInput.value = schedule.tablePatterns.join(", ");
@@ -529,6 +576,7 @@ async function submitSchedule() {
     if (desktop) setLastBackupDirectory(draft.value.destinationDirectory);
     await saveSchedule({
       ...draft.value,
+      retentionCount: normalizeDatabaseBackupRetention(draft.value.retentionCount),
       databases: allDatabases.value ? [] : [...selectedDatabases.value],
       ...backupTablePayload(draft.value),
     });
@@ -821,7 +869,7 @@ async function restoreBackup(run: DatabaseBackupRun, file: DatabaseBackupFile) {
             <span>{{ databaseScopeLabel(schedule) }}</span>
             <span v-if="schedule.tableFilterMode !== 'all'">{{ tableScopeLabel(schedule) }}</span>
             <span>{{ t("databaseBackup.nextRun", { time: formatDate(schedule.nextRunAt) }) }}</span>
-            <span>{{ t("databaseBackup.keepRuns", { count: schedule.retentionCount }) }}</span>
+            <span>{{ schedule.retentionCount === 0 ? t("databaseBackup.keepForever") : t("databaseBackup.keepRuns", { count: schedule.retentionCount }) }}</span>
           </div>
         </div>
         <div class="flex items-center justify-end gap-1">
@@ -862,7 +910,7 @@ async function restoreBackup(run: DatabaseBackupRun, file: DatabaseBackupFile) {
                 <ChevronDown class="ml-2 h-4 w-4 shrink-0 opacity-50" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="end" class="w-[var(--reka-popover-trigger-width)] p-1">
+            <PopoverContent align="end" :hide-when-detached="true" class="w-[var(--reka-popover-trigger-width)] p-1">
               <div class="relative">
                 <Search class="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input v-model="historyConnectionSearch" data-backup-history-connection-search class="h-9 pl-8" :aria-label="t('databaseBackup.searchHistoryConnections')" :placeholder="t('databaseBackup.searchHistoryConnections')" />
@@ -1064,8 +1112,15 @@ async function restoreBackup(run: DatabaseBackupRun, file: DatabaseBackupFile) {
             </Select>
           </div>
           <div class="space-y-2">
-            <Label>{{ t("databaseBackup.retention") }}</Label>
-            <Input v-model.number="draft.retentionCount" type="number" min="1" max="100" />
+            <div class="flex items-center justify-between">
+              <Label>{{ t("databaseBackup.retention") }}</Label>
+              <label class="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+                <input data-backup-retention-forever type="checkbox" class="h-3.5 w-3.5 rounded border-border accent-primary" :checked="draft.retentionCount === 0" @change="togglePermanentRetention(($event.target as HTMLInputElement).checked)" />
+                {{ t("databaseBackup.keepForever") }}
+              </label>
+            </div>
+            <Input v-if="draft.retentionCount !== 0" v-model.number="draft.retentionCount" type="number" min="1" max="1000" />
+            <Input v-else disabled :model-value="t('databaseBackup.keepForever')" class="cursor-not-allowed bg-muted text-muted-foreground" />
           </div>
         </div>
         <div class="space-y-2">

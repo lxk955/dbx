@@ -29,11 +29,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function mountEditor(overrides: Partial<QueryEditorProps> = {}) {
+async function mountEditor(overrides: Partial<QueryEditorProps> = {}, vimEnabled = false) {
   const pinia = createPinia();
   setActivePinia(pinia);
   const settingsStore = useSettingsStore();
   const connectionStore = useConnectionStore();
+  settingsStore.editorSettings.vimModeEnabled = vimEnabled;
   settingsStore.editorSettings.showExecutionTargetPicker = false;
   settingsStore.editorSettings.executeMode = "current";
   settingsStore.editorSettings.executeAllOnBlankLine = false;
@@ -86,6 +87,23 @@ function foldedRangeCount(view: EditorView): number {
 }
 
 describe("QueryEditor component split integration", () => {
+  it("keeps composing Vim navigation and committed IME text out of the SQL model", async () => {
+    const { view, props } = await mountEditor({}, true);
+    const original = props.modelValue;
+    view.contentDOM.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    const event = new KeyboardEvent("keydown", { key: "Process", code: "KeyL", keyCode: 229, isComposing: true, bubbles: true, cancelable: true });
+    view.contentDOM.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.selection.main.head).toBe(1);
+    const position = view.state.selection.main.head;
+    const handled = view.state.facet(EditorView.inputHandler).some((handler) => handler(view, position, position, "hjkl", () => view.state.update({ changes: { from: position, insert: "hjkl" } })));
+    expect(handled).toBe(true);
+    view.contentDOM.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "hjkl" }));
+    await nextTick();
+    expect(view.state.doc.toString()).toBe(original);
+    expect(props.modelValue).toBe(original);
+  });
+
   it("executes each IRIS query separately after the Contains operator", async () => {
     const first = "select * from oec_order_adminstatus where STAT_Code [ '123'";
     const second = "select top 10 * from Ens_HOSDocument";
@@ -131,6 +149,7 @@ describe("QueryEditor component split integration", () => {
       "cancelGutterExecutionViewport",
       "shouldBlockExecutionShortcut",
       "requestExecute",
+      "requestExecuteAll",
       "requestExecuteInNewResultTab",
       "requestPreviewChanges",
       "captureExecutionSnapshot",
@@ -173,6 +192,24 @@ describe("QueryEditor component split integration", () => {
     expect(source.selectedSql).toBe(executeMode === "current" ? "SELECT 2" : props.modelValue);
     expect(source.selectionFrom).toBe(executeMode === "current" ? 10 : 0);
     expect(source.selectionTo).toBe(executeMode === "current" ? 18 : props.modelValue.length);
+  });
+
+  it.each(["current", "all"] as const)("executes the full document despite a selection and the %s execution mode", async (executeMode) => {
+    const { editor, host, view, props, settingsStore, onExecute } = await mountEditor();
+    settingsStore.editorSettings.executeMode = executeMode;
+    settingsStore.editorSettings.showExecutionTargetPicker = true;
+    view.dispatch({ selection: EditorSelection.range(10, 18) });
+
+    expect(editor.requestExecuteAll()).toBe(true);
+    await nextTick();
+
+    expect(onExecute).toHaveBeenCalledTimes(1);
+    const snapshot = onExecute.mock.calls[0][0];
+    expect(snapshot.fullSql).toBe(props.modelValue);
+    expect(snapshot.selectedSql).toBe(props.modelValue);
+    expect(snapshot.selectionFrom).toBe(0);
+    expect(snapshot.selectionTo).toBe(props.modelValue.length);
+    expect(host.querySelector('[role="listbox"]')).toBeNull();
   });
 
   it("keeps the new-result-tab shortcut independent of the optional picker", async () => {

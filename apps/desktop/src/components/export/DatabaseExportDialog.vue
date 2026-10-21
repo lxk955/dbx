@@ -24,7 +24,7 @@ import { isQueryTimeoutErrorMessage } from "@/lib/sql/queryError";
 import type { SqlInsertDialect, SqlInsertMode } from "@/lib/export/sqlInsertMode";
 import { revealExportedPath } from "@/lib/export/exportPath";
 import { translateBackendError } from "@/i18n/backend-errors";
-import { loadSavedDatabaseExportOptions, MAX_SPLIT_SQL_PART_MB, MIN_SPLIT_SQL_PART_MB, saveDatabaseExportOptions, sortDatabaseTableNames } from "@/lib/export/databaseExportOptions";
+import { databaseExportFileStem, loadSavedDatabaseExportOptions, MAX_SPLIT_SQL_PART_MB, MIN_SPLIT_SQL_PART_MB, saveDatabaseExportOptions, sortDatabaseTableNames } from "@/lib/export/databaseExportOptions";
 import { notifyExportComplete } from "@/lib/export/exportReveal";
 
 const { t } = useI18n();
@@ -326,8 +326,16 @@ async function loadTables(preferredTable = "", preferredTables: string[] = []) {
     const tableInfos = await api.listTables(connectionId.value, database.value, schema.value);
     const names = sortDatabaseTableNames(tableInfos.map((table) => table.name));
     tables.value = names;
-    const preferredSet = new Set(preferredTables.filter((name) => names.includes(name)));
-    selectedTables.value = preferredSet.size > 0 ? names.filter((name) => preferredSet.has(name)) : preferredTable && names.includes(preferredTable) ? [preferredTable] : [...names];
+    // Kingbase 系的 listTables 同时返回视图（relkind v/m）；预填里命中视图的项
+    // 必须走 include_objects 通道，否则后端对象门会静默丢弃它们。
+    const viewTypeNames = new Set(tableInfos.filter((table) => table.table_type.toUpperCase().includes("VIEW")).map((table) => table.name));
+    const preferredSet = new Set(preferredTables.filter((name) => names.includes(name) && !viewTypeNames.has(name)));
+    const nonTablePrefills = preferredTables.filter((name) => !names.includes(name) || viewTypeNames.has(name));
+    if (nonTablePrefills.length > 0) {
+      includeObjects.value = true;
+    }
+    const matchedTableNames = names.filter((name) => preferredSet.has(name));
+    selectedTables.value = preferredSet.size > 0 || nonTablePrefills.length > 0 ? [...matchedTableNames, ...nonTablePrefills] : preferredTable && names.includes(preferredTable) ? [preferredTable] : [...names];
   } catch (e: any) {
     tableError.value = e?.message || String(e);
   } finally {
@@ -403,7 +411,7 @@ async function startExport() {
 
   if (isTauriRuntime()) {
     try {
-      const safeName = sanitizeFileName(database.value || "database");
+      const safeName = sanitizeFileName(databaseExportFileStem(database.value || "database", selectedTables.value) || "database");
       const path = await promptExportSavePath({
         defaultFileName: `${safeName}.${splitSqlOutput.value ? "zip" : "sql"}`,
         filters: [{ name: splitSqlOutput.value ? "ZIP" : "SQL", extensions: [splitSqlOutput.value ? "zip" : "sql"] }],

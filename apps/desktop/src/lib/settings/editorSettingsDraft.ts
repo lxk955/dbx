@@ -4,10 +4,12 @@ import { normalizeResultPageSize } from "@/lib/dataGrid/paginationPageSize";
 import { normalizeQueryResultMaxRows } from "@/lib/dataGrid/queryResultRowLimit";
 import { normalizeExternalSqlEditorMaxMb } from "@/lib/sql/sqlFileOpen";
 import { normalizeCompletionTriggerMode } from "@/lib/sql/sqlCompletionTriggerPolicy";
+import { normalizeExcludedCompletionItems } from "@/lib/editor/excludedCompletions";
 import { normalizeSqlTableCompletionSchemaQualification } from "@/lib/sql/sqlCompletionSchemaQualification";
 import { normalizeTableHoverLookupMode } from "@/lib/editor/hoverTableLookup";
 import { normalizeRedisKeyTemplates } from "@/lib/redis/redisKeyTemplates";
 import { normalizeCsvNullMode } from "@/lib/export/csvNullMode";
+import { normalizeAiSqlApplyTargetMode } from "@/lib/ai/aiSqlTargetTab";
 
 export const EDITOR_SETTINGS_DRAFT_KEYS = [
   "fontFamily",
@@ -32,6 +34,7 @@ export const EDITOR_SETTINGS_DRAFT_KEYS = [
   "insertSpaceAfterCompletion",
   "sqlServerSpaceConfirmsCompletion",
   "functionCompletionIncludeParams",
+  "sequenceCompletionEnabled",
   "snippetTriggerKey",
   "sortCompletionColumnsAlphabetically",
   "selectFirstCompletionOnOpen",
@@ -39,6 +42,7 @@ export const EDITOR_SETTINGS_DRAFT_KEYS = [
   "showWhitespace",
   "ddlOpenMode",
   "vimModeEnabled",
+  "caretBrowsingEnabled",
   "doubleClickStringSelectionMode",
   "autoCloseBrackets",
   "restoreSqlFromSourcePasteEnabled",
@@ -47,22 +51,27 @@ export const EDITOR_SETTINGS_DRAFT_KEYS = [
   "confirmUnsavedSqlClose",
   "appCloseUnsavedTabsMode",
   "savedSqlOpenTargetMode",
+  "aiSqlApplyTargetMode",
   "welcomePageMode",
   "appLayout",
   "webLogoPosition",
   "tabLayout",
   "tabPlacement",
   "colorizeConnectionTabs",
+  "colorizeConnectionTabsScope",
   "tabGroupMode",
   "tabSortMode",
   "tabMaxWidth",
+  "tabGroupRows",
   "showColumnCommentsInHeader",
+  "dataGridColumnCommentsInInfoArea",
   "showColumnTypesInHeader",
   "showColumnHeaderTooltips",
   "showResultSourceDatabase",
   "resultTabNamingMode",
   "resultTabPreferComments",
   "dataGridShowTransposeFieldMetadata",
+  "dataGridTransposeMetadataInInfoColumn",
   "colorizeDataGridCellTypes",
   "dataGridTypeColorSchemes",
   "activeDataGridTypeColorSchemeId",
@@ -74,6 +83,7 @@ export const EDITOR_SETTINGS_DRAFT_KEYS = [
   "dataGridKeepFilterEditorExpanded",
   "dataGridTextFilterPanelHeight",
   "defaultAutoKeepResults",
+  "pinResultTabOnClick",
   "multiStatementDefaultView",
   "defaultExplainView",
   "dataGridAutoTransposeSingleRow",
@@ -133,6 +143,7 @@ export const EDITOR_SETTINGS_DRAFT_KEYS = [
   "sidebarObjectInfoMode",
   "sidebarAllowHorizontalScroll",
   "sidebarShowTooltips",
+  "sidebarShowUserAdmin",
   "sidebarIndent",
   "sidebarFontSize",
   "sidebarDensity",
@@ -143,9 +154,12 @@ export const EDITOR_SETTINGS_DRAFT_KEYS = [
   "redisDatabaseDisplayLimit",
   "exportBatchSize",
   "preferredExportPath",
+  "damengClientBinDir",
   "autoOpenExportFolder",
+  "applyColumnFormattersOnExport",
   "csvQuoteMode",
   "csvNullMode",
+  "queryResultExportFileNameSource",
   "exportRowLimitEnabled",
   "exportRowLimit",
   "queryExportKeysetOptimizationEnabled",
@@ -160,7 +174,9 @@ export const EDITOR_SETTINGS_DRAFT_KEYS = [
   "sqlVariableSyntaxOverrides",
   "continueOnErrorOnBatch",
   "clickTableNavigationTarget",
+  "objectBrowserAutoOpenDetailPanel",
   "completionTriggerMode",
+  "excludedCompletionItems",
   "defaultTransactionMode",
   "keepExplicitTransactionInAutoCommit",
 ] as const satisfies readonly (keyof EditorSettings)[];
@@ -187,6 +203,7 @@ function normalizedDraftValue(key: EditorSettingsDraftKey, value: unknown): unkn
   if (key === "queryResultMaxRows") return normalizeQueryResultMaxRowsDraft(value);
   if (key === "externalSqlEditorMaxMb") return normalizeExternalSqlEditorMaxMb(value);
   if (key === "completionTriggerMode") return normalizeCompletionTriggerMode(value);
+  if (key === "excludedCompletionItems") return normalizeExcludedCompletionItems(value);
   if (key === "tableCompletionSchemaQualification") return normalizeSqlTableCompletionSchemaQualification(value);
   if (key === "tableHoverLookupMode") return normalizeTableHoverLookupMode(value);
   if (key === "redisKeyTemplates") return normalizeRedisKeyTemplates(value);
@@ -194,6 +211,8 @@ function normalizedDraftValue(key: EditorSettingsDraftKey, value: unknown): unkn
   if (key === "backgroundImage") return normalizeBackgroundImageSettings(value);
   if (key === "snippetTriggerKey") return value === "space" || value === "both" ? value : "tab";
   if (key === "webLogoPosition") return value === "right" || value === "hidden" ? value : "left";
+  if (key === "aiSqlApplyTargetMode") return normalizeAiSqlApplyTargetMode(value);
+  if (key === "colorizeConnectionTabsScope") return value === "active" ? "active" : "all";
   return value;
 }
 

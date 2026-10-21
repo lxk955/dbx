@@ -16,14 +16,18 @@ use rusqlite::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+#[cfg(feature = "mq-admin")]
+use dbx_types::mqtt::{MqttMessage, MqttMessageDirection};
+
 use crate::ai::{
     AiChatMessage, AiChatSelectionState, AiConfig, AiConfigItem, AiConversation, AiProvider, AiRun, AiRunFifoCategory,
     AiRunStatus,
 };
 use crate::connection_secrets::{
-    plugin_connection_secret_key, CASSANDRA_KEYSTORE_PASSWORD_KEY, CASSANDRA_TLS_SECRET_PREFIX,
-    CASSANDRA_TRUSTSTORE_PASSWORD_KEY, MQTT_AUTH_PASSWORD_KEY, MQTT_AUTH_SECRET_PREFIX, MQ_AUTH_API_KEY_VALUE_KEY,
-    MQ_AUTH_CLIENT_SECRET_KEY, MQ_AUTH_PASSWORD_KEY, MQ_AUTH_SECRET_PREFIX, MQ_AUTH_TOKEN_KEY, MQ_TOKEN_SIGNING_KEY,
+    is_rocketmq_connection, normalize_rocketmq_credentials, plugin_connection_secret_key,
+    CASSANDRA_KEYSTORE_PASSWORD_KEY, CASSANDRA_TLS_SECRET_PREFIX, CASSANDRA_TRUSTSTORE_PASSWORD_KEY,
+    MQTT_AUTH_PASSWORD_KEY, MQTT_AUTH_SECRET_PREFIX, MQ_AUTH_API_KEY_VALUE_KEY, MQ_AUTH_CLIENT_SECRET_KEY,
+    MQ_AUTH_PASSWORD_KEY, MQ_AUTH_SECRET_PREFIX, MQ_AUTH_TOKEN_KEY, MQ_TOKEN_SIGNING_KEY,
     MQ_TOKEN_SIGNING_SECRET_PREFIX, NACOS_AUTH_PASSWORD_KEY, NACOS_AUTH_SECRET_PREFIX,
     NACOS_RNACOS_CONSOLE_PASSWORD_KEY, PLUGIN_CONNECTION_SECRET_PREFIX, SALESFORCE_AUTH_CLIENT_SECRET_KEY,
     SALESFORCE_AUTH_PASSWORD_KEY, SALESFORCE_AUTH_REFRESH_TOKEN_KEY, SALESFORCE_AUTH_SECRET_PREFIX,
@@ -83,6 +87,25 @@ const PLUGIN_DATA_GRANTS_KEY: &str = "plugin_data_grants";
 const MAX_PLUGIN_DATA_GRANTS_PER_PLUGIN: usize = 512;
 const APP_STATE_AI_GLOBAL_INSTRUCTIONS_KEY: &str = "ai_global_custom_instructions";
 const APP_STATE_AI_CHAT_SELECTION_KEY: &str = "ai_chat_selection_v1";
+// Keep the existing key so previously persisted publish records remain readable.
+const MQTT_MESSAGE_HISTORY_STATE_KEY_PREFIX: &str = "mqtt.sent_history.";
+#[cfg(feature = "mq-admin")]
+const MQTT_MESSAGE_HISTORY_MAX_MESSAGES: usize = 200;
+#[cfg(feature = "mq-admin")]
+const MQTT_MESSAGE_HISTORY_MAX_BYTES: usize = 8 * 1024 * 1024;
+
+#[cfg(feature = "mq-admin")]
+fn mqtt_history_message_identity(message: &MqttMessage) -> (String, String, Option<String>, u8, bool, bool, u64) {
+    (
+        message.topic.clone(),
+        message.payload_base64.clone(),
+        message.payload_text.clone(),
+        message.qos,
+        message.retain,
+        message.direction == MqttMessageDirection::Sent,
+        message.received_at_ms,
+    )
+}
 const SNIPPET_SYNC_IDS_KEY: &str = "snippet_sync_ids";
 const SNIPPET_PENDING_CLEANUPS_KEY: &str = "snippet_pending_legacy_cleanups";
 const USER_DATA_TABLES: &[&str] = &[
@@ -278,6 +301,7 @@ pub struct MigrationPreflight {
     pub migration_id: String,
     pub state: MigrationState,
     pub needs_migration: bool,
+    pub key_recovery_required: bool,
     pub key_provider_available: bool,
     pub key_status: MigrationKeyStatus,
     /// Desktop may provision a new local key only for plaintext-only data.
@@ -304,10 +328,9 @@ pub struct MigrationPreflight {
 
 impl MigrationPreflight {
     pub fn is_ready(&self) -> bool {
-        // A brand-new desktop profile has no secrets and may provision its
-        // first key lazily. Strict headless profiles report missing keys as
-        // `needs_migration`, so no additional provider check is needed here.
-        !self.needs_migration && matches!(self.state, MigrationState::Succeeded | MigrationState::NotRequired)
+        !self.needs_migration
+            && !self.key_recovery_required
+            && matches!(self.state, MigrationState::Succeeded | MigrationState::NotRequired)
     }
 }
 
@@ -1139,6 +1162,8 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         messages_json TEXT NOT NULL DEFAULT '[]',
         queued_input TEXT,
         plugin_context_json TEXT,
+        assistant_mode TEXT,
+        assistant_action TEXT,
         created_at TEXT NOT NULL DEFAULT '',
         updated_at TEXT NOT NULL DEFAULT ''
     )",
@@ -1221,6 +1246,7 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         updated_at TEXT NOT NULL DEFAULT ''
     )",
     "CREATE TABLE IF NOT EXISTS saved_sql_files (
+        is_default_query INTEGER NOT NULL DEFAULT 0,
         id TEXT PRIMARY KEY,
         connection_id TEXT NOT NULL,
         folder_id TEXT,
@@ -1417,6 +1443,44 @@ impl Storage {
     pub fn with_secret_key_creation(mut self, allowed: bool) -> Self {
         self.secret_key_creation_allowed = allowed;
         self
+    }
+
+    pub async fn prepare_portable_secret_key(&self) -> Result<bool, String> {
+        self.prepare_portable_secret_key_with(SecretCodec::from_platform_store).await
+    }
+
+    async fn prepare_portable_secret_key_with<F>(&self, platform_key: F) -> Result<bool, String>
+    where
+        F: FnOnce() -> Result<Option<SecretCodec>, String>,
+    {
+        if !matches!(self.secret_key_policy, SecretKeyPolicy::ManagedDataDir) {
+            return Err("Portable key preparation requires a managed data-directory key".to_string());
+        }
+        match SecretCodec::resolve(SecretKeyPolicy::ManagedDataDir, self.data_dir(), false) {
+            Ok(_) => return Ok(false),
+            Err(error) if error == "MISSING_MANAGED_KEY" => {}
+            Err(error) => return Err(error),
+        }
+        let has_ciphertext = self
+            .with_conn(|conn| {
+                conn.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM connection_secrets WHERE secret_enc IS NOT NULL AND secret_enc <> '')",
+                    [],
+                    |row| row.get::<_, bool>(0),
+                )
+                .map_err(|error| error.to_string())
+            })
+            .await?;
+        if !has_ciphertext {
+            return Ok(false);
+        }
+        let Some(codec) = platform_key()? else {
+            return Ok(false);
+        };
+        self.validate_existing_encrypted_data(codec).await.map_err(|_| "SECRET_KEY_MISMATCH".to_string())?;
+        codec.persist_managed_data_dir_key(self.data_dir())?;
+        self.invalidate_secret_codec();
+        Ok(true)
     }
 
     /// Compatibility builder for callers that require an externally managed key.
@@ -1830,11 +1894,12 @@ impl Storage {
         let source_changed = stored.source_fingerprint.as_deref().is_some_and(|value| value != current_fingerprint);
         let state = if matches!(stored.state, MigrationState::Failed | MigrationState::Running) {
             stored.state.clone()
-        } else if fatal_key_error
-            || missing_required_key
-            || missing_existing_key
-            || (has_legacy_data
-                && (source_changed || matches!(stored.state, MigrationState::Succeeded | MigrationState::NotRequired)))
+        } else if has_legacy_data
+            && (fatal_key_error
+                || missing_required_key
+                || missing_existing_key
+                || source_changed
+                || matches!(stored.state, MigrationState::Succeeded | MigrationState::NotRequired))
         {
             MigrationState::Pending
         } else if !has_legacy_data && matches!(stored.state, MigrationState::Pending) {
@@ -1842,11 +1907,10 @@ impl Storage {
         } else {
             stored.state.clone()
         };
-        let needs_migration = fatal_key_error
-            || missing_required_key
-            || missing_existing_key
-            || matches!(state, MigrationState::Failed | MigrationState::Running)
+        let needs_migration = matches!(state, MigrationState::Failed | MigrationState::Running)
             || (has_legacy_data && !matches!(state, MigrationState::Succeeded | MigrationState::NotRequired));
+        let key_recovery_required =
+            !needs_migration && (fatal_key_error || missing_required_key || missing_existing_key);
         let (error_code, error_message) = if let Some(code) = key_error_code.clone() {
             let message = match code.as_str() {
                 "MISSING_MANAGED_KEY" => {
@@ -1893,6 +1957,7 @@ impl Storage {
             migration_id: SECRET_STORE_MIGRATION_ID.to_string(),
             state,
             needs_migration,
+            key_recovery_required,
             key_provider_available,
             key_status,
             key_creation_allowed,
@@ -2697,6 +2762,9 @@ fn connection_secret_in_tx_exists(
 }
 
 fn connection_config_has_inline_secrets(config: &ConnectionConfig) -> bool {
+    let mut normalized = config.clone();
+    normalize_rocketmq_credentials(&mut normalized);
+    let config = &normalized;
     if !config.password.is_empty()
         || config.url_params.as_deref().is_some_and(|value| !value.is_empty())
         || config.init_script.as_deref().is_some_and(|value| !value.is_empty())
@@ -3122,6 +3190,7 @@ fn ensure_saved_sql_columns_sync(conn: &Connection) -> Result<(), String> {
     const FOLDER_COLUMNS: &[(&str, &str)] =
         &[("parent_folder_id", "TEXT"), ("order_index", "INTEGER NOT NULL DEFAULT 0")];
     const FILE_COLUMNS: &[(&str, &str)] = &[
+        ("is_default_query", "INTEGER NOT NULL DEFAULT 0"),
         ("catalog_name", "TEXT"),
         ("order_index", "INTEGER NOT NULL DEFAULT 0"),
         ("open_count", "INTEGER NOT NULL DEFAULT 0"),
@@ -3130,6 +3199,12 @@ fn ensure_saved_sql_columns_sync(conn: &Connection) -> Result<(), String> {
 
     ensure_table_columns(conn, "saved_sql_folders", FOLDER_COLUMNS)?;
     ensure_table_columns(conn, "saved_sql_files", FILE_COLUMNS)?;
+    conn.execute_batch(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_saved_sql_default_scope
+         ON saved_sql_files(connection_id, COALESCE(catalog_name, ''), database_name)
+         WHERE is_default_query = 1;",
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -3182,6 +3257,12 @@ fn ensure_ai_conversations_columns_sync(conn: &Connection) -> Result<(), String>
         // [`backfill_ai_conversation_connections`].
         ("connection_id", "TEXT NOT NULL DEFAULT ''"),
         ("schema_name", "TEXT"),
+        // Per-conversation picker selection (#12075). Plain TEXT and nullable:
+        // a legacy row keeps NULL, which the frontend reads as "no recorded
+        // choice" and resolves through the plugin context and then the settings
+        // default.
+        ("assistant_mode", "TEXT"),
+        ("assistant_action", "TEXT"),
     ];
 
     ensure_table_columns(conn, "ai_conversations", COLUMNS)
@@ -6073,8 +6154,8 @@ impl Storage {
             let tx = conn.transaction().map_err(|e| e.to_string())?;
             tx.execute(
                 "INSERT INTO ai_conversations \
-                 (id, title, connection_name, connection_id, database, schema_name, messages_json, queued_input, created_at, updated_at, plugin_context_json) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+                 (id, title, connection_name, connection_id, database, schema_name, messages_json, queued_input, created_at, updated_at, plugin_context_json, assistant_mode, assistant_action) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
                  ON CONFLICT(id) DO UPDATE SET \
                    title = excluded.title, \
                    connection_name = excluded.connection_name, \
@@ -6084,7 +6165,8 @@ impl Storage {
                    messages_json = excluded.messages_json, \
                    queued_input = excluded.queued_input, \
                    created_at = excluded.created_at, \
-                   updated_at = excluded.updated_at, plugin_context_json = excluded.plugin_context_json",
+                   updated_at = excluded.updated_at, plugin_context_json = excluded.plugin_context_json, \
+                   assistant_mode = excluded.assistant_mode, assistant_action = excluded.assistant_action",
                 params![
                     conv.id,
                     conv.title,
@@ -6096,7 +6178,9 @@ impl Storage {
                     conv.queued_input,
                     conv.created_at,
                     conv.updated_at,
-                    conv.plugin_context.map(|value| value.to_string())
+                    conv.plugin_context.map(|value| value.to_string()),
+                    conv.assistant_mode,
+                    conv.assistant_action
                 ],
             )
             .map_err(|e| e.to_string())?;
@@ -6111,7 +6195,7 @@ impl Storage {
         self.with_conn(|conn| {
             let mut stmt = conn
                 .prepare(
-                    "SELECT id, title, connection_name, database, messages_json, queued_input, created_at, updated_at, plugin_context_json, connection_id, schema_name \
+                    "SELECT id, title, connection_name, database, messages_json, queued_input, created_at, updated_at, plugin_context_json, connection_id, schema_name, assistant_mode, assistant_action \
                      FROM ai_conversations ORDER BY updated_at DESC",
                 )
                 .map_err(|e| e.to_string())?;
@@ -6132,6 +6216,8 @@ impl Storage {
                         plugin_context: row.get::<_, Option<String>>(8)?.map(|json| serde_json::from_str(&json)).transpose().map_err(map_from_sql_err)?,
                         connection_id: row.get(9)?,
                         schema: row.get(10)?,
+                        assistant_mode: row.get(11)?,
+                        assistant_action: row.get(12)?,
                     })
                 })
                 .map_err(|e| e.to_string())?;
@@ -6198,8 +6284,8 @@ impl Storage {
             let tx = conn.transaction().map_err(|e| e.to_string())?;
             tx.execute(
                 "INSERT INTO ai_conversations
-                 (id, title, connection_name, connection_id, database, schema_name, messages_json, queued_input, created_at, updated_at, plugin_context_json)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 (id, title, connection_name, connection_id, database, schema_name, messages_json, queued_input, created_at, updated_at, plugin_context_json, assistant_mode, assistant_action)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(id) DO UPDATE SET
                    title = excluded.title,
                    connection_name = excluded.connection_name,
@@ -6209,7 +6295,8 @@ impl Storage {
                    messages_json = excluded.messages_json,
                    queued_input = excluded.queued_input,
                    created_at = excluded.created_at,
-                   updated_at = excluded.updated_at, plugin_context_json = excluded.plugin_context_json",
+                   updated_at = excluded.updated_at, plugin_context_json = excluded.plugin_context_json,
+                   assistant_mode = excluded.assistant_mode, assistant_action = excluded.assistant_action",
                 params![
                     conv.id,
                     conv.title,
@@ -6221,7 +6308,9 @@ impl Storage {
                     conv.queued_input,
                     conv.created_at,
                     conv.updated_at,
-                    conv.plugin_context.map(|value| value.to_string())
+                    conv.plugin_context.map(|value| value.to_string()),
+                    conv.assistant_mode,
+                    conv.assistant_action
                 ],
             )
             .map_err(|e| e.to_string())?;
@@ -6487,8 +6576,10 @@ fn ensure_mcp_connection_change_allowed_in_tx(
     Ok(())
 }
 
-fn sanitized_connection_config(config: &ConnectionConfig) -> ConnectionConfig {
+/// Connection metadata with every field managed by the secret store removed.
+pub fn sanitized_connection_config(config: &ConnectionConfig) -> ConnectionConfig {
     let mut sanitized = config.clone().canonicalized();
+    normalize_rocketmq_credentials(&mut sanitized);
     sanitized.password = String::new();
     sanitized.url_params = None;
     scrub_transport_layer_secrets(&mut sanitized);
@@ -6510,7 +6601,8 @@ fn persist_connection_in_tx(
     codec: &SecretCodec,
     config: &ConnectionConfig,
 ) -> Result<(), String> {
-    let config = config.clone().canonicalized();
+    let mut config = config.clone().canonicalized();
+    normalize_rocketmq_credentials(&mut config);
     let config_id = config.id.clone();
     let sanitized = sanitized_connection_config(&config);
     let json = serde_json::to_string(&sanitized).map_err(|e| e.to_string())?;
@@ -6884,20 +6976,13 @@ impl Storage {
                     persist_secret_in_tx(&tx, &codec, &config.id, "password", "")?;
                     delete_secret_prefix_in_tx(&tx, &config.id, NACOS_AUTH_SECRET_PREFIX)?;
                 }
-                let mut sanitized = config;
-                sanitized.password = String::new();
-                sanitized.url_params = None;
-                scrub_transport_layer_secrets(&mut sanitized);
-                sanitized.redis_sentinel_password = String::new();
-                sanitized.connection_string = None;
-                sanitized.init_script = None;
-                scrub_mq_auth_secrets(&mut sanitized);
-                scrub_mqtt_auth_secrets(&mut sanitized);
-                scrub_mq_token_signing_secret(&mut sanitized);
-                scrub_nacos_auth_secrets(&mut sanitized);
-                scrub_cassandra_tls_secrets(&mut sanitized);
-                scrub_salesforce_auth_secrets(&mut sanitized);
-                sanitized.connection_secrets.clear();
+                if is_rocketmq_connection(&config)
+                    && (!config.save_password
+                        || mq_auth_object(config.external_config.as_ref()).and_then(mq_auth_kind) == Some("none"))
+                {
+                    delete_secret_prefix_in_tx(&tx, &config.id, MQ_AUTH_SECRET_PREFIX)?;
+                }
+                let sanitized = sanitized_connection_config(&config);
                 let json = serde_json::to_string(&sanitized).map_err(|e| e.to_string())?;
 
                 tx.execute("INSERT INTO connections (id, config_json) VALUES (?1, ?2)", params![config_id, json])
@@ -6952,6 +7037,8 @@ impl Storage {
                 tx.execute("DELETE FROM connections WHERE id = ?1", [id]).map_err(|e| e.to_string())?;
                 tx.execute("DELETE FROM connection_secrets WHERE connection_id = ?1", [id])
                     .map_err(|e| e.to_string())?;
+                let mqtt_history_key = format!("{MQTT_MESSAGE_HISTORY_STATE_KEY_PREFIX}{id}");
+                tx.execute("DELETE FROM state_store WHERE key = ?1", [mqtt_history_key]).map_err(|e| e.to_string())?;
             }
             tx.commit().map_err(|e| e.to_string())
         })
@@ -7060,6 +7147,8 @@ impl Storage {
             if removed {
                 tx.execute("DELETE FROM connection_secrets WHERE connection_id = ?1", [&connection_id])
                     .map_err(|e| e.to_string())?;
+                let mqtt_history_key = format!("{MQTT_MESSAGE_HISTORY_STATE_KEY_PREFIX}{connection_id}");
+                tx.execute("DELETE FROM state_store WHERE key = ?1", [mqtt_history_key]).map_err(|e| e.to_string())?;
             }
             tx.commit().map_err(|e| e.to_string())?;
             Ok(removed)
@@ -7162,6 +7251,166 @@ impl Storage {
                     },
                 )
                 .map_err(|error| error.to_string())?
+        })
+        .await
+    }
+
+    /// Append one successfully published message to a connection's bounded
+    /// local history. The read-modify-write runs in one SQLite transaction so
+    /// concurrent publishes do not overwrite each other's records.
+    #[cfg(feature = "mq-admin")]
+    pub async fn append_mqtt_sent_message(&self, connection_id: &str, message: &MqttMessage) -> Result<(), String> {
+        if message.direction != MqttMessageDirection::Sent {
+            return Err("MQTT sent history accepts outgoing messages only".to_string());
+        }
+        self.append_mqtt_history_messages(connection_id, std::slice::from_ref(message), false).await
+    }
+
+    /// Reconcile live MQTT messages with persisted history without re-adding
+    /// entries already stored by an earlier publish or console poll.
+    #[cfg(feature = "mq-admin")]
+    pub async fn reconcile_mqtt_message_history(
+        &self,
+        connection_id: &str,
+        messages: &[MqttMessage],
+    ) -> Result<(), String> {
+        self.append_mqtt_history_messages(connection_id, messages, true).await
+    }
+
+    #[cfg(feature = "mq-admin")]
+    async fn append_mqtt_history_messages(
+        &self,
+        connection_id: &str,
+        incoming_messages: &[MqttMessage],
+        skip_existing: bool,
+    ) -> Result<(), String> {
+        if incoming_messages.is_empty() {
+            return Ok(());
+        }
+        let key = format!("{MQTT_MESSAGE_HISTORY_STATE_KEY_PREFIX}{connection_id}");
+        let incoming_messages = incoming_messages.to_vec();
+        self.with_conn(move |conn| {
+            let tx =
+                conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| error.to_string())?;
+            let current: Option<Vec<u8>> = tx
+                .query_row("SELECT value FROM state_store WHERE key = ?1", [&key], |row| row.get(0))
+                .optional()
+                .map_err(|error| error.to_string())?;
+            let mut stored_messages: Vec<MqttMessage> = current
+                .map(|bytes| serde_json::from_slice(&bytes).map_err(|error| error.to_string()))
+                .transpose()?
+                .unwrap_or_default();
+            let mut message_counts = HashMap::<(String, String, Option<String>, u8, bool, bool, u64), usize>::new();
+            for message in &stored_messages {
+                *message_counts.entry(mqtt_history_message_identity(message)).or_default() += 1;
+            }
+            let mut changed = false;
+            for message in incoming_messages {
+                let identity = mqtt_history_message_identity(&message);
+                if skip_existing {
+                    if let Some(count) = message_counts.get_mut(&identity) {
+                        if *count > 0 {
+                            *count -= 1;
+                            continue;
+                        }
+                    }
+                    *message_counts.entry(identity).or_default() += 1;
+                }
+                stored_messages.push(message);
+                changed = true;
+            }
+            if !changed {
+                tx.commit().map_err(|error| error.to_string())?;
+                return Ok(());
+            }
+            stored_messages.sort_by_key(|entry| entry.received_at_ms);
+            if stored_messages.len() > MQTT_MESSAGE_HISTORY_MAX_MESSAGES {
+                stored_messages.drain(..stored_messages.len() - MQTT_MESSAGE_HISTORY_MAX_MESSAGES);
+            }
+
+            let bytes = loop {
+                let bytes = serde_json::to_vec(&stored_messages).map_err(|error| error.to_string())?;
+                if bytes.len() <= MQTT_MESSAGE_HISTORY_MAX_BYTES {
+                    break bytes;
+                }
+                if stored_messages.len() <= 1 {
+                    // Keep the previous history if one message alone is too large.
+                    tx.commit().map_err(|error| error.to_string())?;
+                    return Ok(());
+                }
+                stored_messages.remove(0);
+            };
+            tx.execute(
+                "INSERT INTO state_store (key, value, content_type, version, payload) \
+                 VALUES (?1, ?2, 'application/json', 1, x'') \
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value, content_type = excluded.content_type, \
+                 version = version + 1, payload = excluded.payload",
+                params![key, bytes],
+            )
+            .map_err(|error| error.to_string())?;
+            tx.commit().map_err(|error| error.to_string())
+        })
+        .await
+    }
+
+    /// Load the bounded MQTT message history for one connection.
+    #[cfg(feature = "mq-admin")]
+    pub async fn load_mqtt_message_history(&self, connection_id: &str) -> Result<Vec<MqttMessage>, String> {
+        let key = format!("{MQTT_MESSAGE_HISTORY_STATE_KEY_PREFIX}{connection_id}");
+        let Some((bytes, _)) = self.load_state(&key).await? else {
+            return Ok(Vec::new());
+        };
+        let mut messages: Vec<MqttMessage> = serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+        if messages.len() > MQTT_MESSAGE_HISTORY_MAX_MESSAGES {
+            messages.drain(..messages.len() - MQTT_MESSAGE_HISTORY_MAX_MESSAGES);
+        }
+        Ok(messages)
+    }
+
+    /// Remove MQTT message history when the user clears the console messages.
+    #[cfg(feature = "mq-admin")]
+    pub async fn clear_mqtt_message_history(&self, connection_id: &str) -> Result<(), String> {
+        let key = format!("{MQTT_MESSAGE_HISTORY_STATE_KEY_PREFIX}{connection_id}");
+        self.delete_state(&key).await
+    }
+
+    /// Remove one exact message from a connection's persisted MQTT history.
+    #[cfg(feature = "mq-admin")]
+    pub async fn delete_mqtt_message_history_entry(
+        &self,
+        connection_id: &str,
+        message: &MqttMessage,
+    ) -> Result<(), String> {
+        let key = format!("{MQTT_MESSAGE_HISTORY_STATE_KEY_PREFIX}{connection_id}");
+        let message_identity = mqtt_history_message_identity(message);
+        self.with_conn(move |conn| {
+            let tx =
+                conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| error.to_string())?;
+            let current: Option<Vec<u8>> = tx
+                .query_row("SELECT value FROM state_store WHERE key = ?1", [&key], |row| row.get(0))
+                .optional()
+                .map_err(|error| error.to_string())?;
+            let Some(bytes) = current else {
+                tx.commit().map_err(|error| error.to_string())?;
+                return Ok(());
+            };
+            let mut messages: Vec<MqttMessage> = serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+            if let Some(index) =
+                messages.iter().position(|candidate| mqtt_history_message_identity(candidate) == message_identity)
+            {
+                messages.remove(index);
+                if messages.is_empty() {
+                    tx.execute("DELETE FROM state_store WHERE key = ?1", [&key]).map_err(|error| error.to_string())?;
+                } else {
+                    let value = serde_json::to_vec(&messages).map_err(|error| error.to_string())?;
+                    tx.execute(
+                        "UPDATE state_store SET value = ?1, version = version + 1 WHERE key = ?2",
+                        params![value, key],
+                    )
+                    .map_err(|error| error.to_string())?;
+                }
+            }
+            tx.commit().map_err(|error| error.to_string())
         })
         .await
     }
@@ -7331,6 +7580,7 @@ impl Storage {
             if !stored_plugin_secrets.is_empty() {
                 config.connection_secrets = stored_plugin_secrets;
             }
+            let needs_rocketmq_rewrite = normalize_rocketmq_credentials(&mut config);
             let needs_mq_auth_rewrite = self.hydrate_mq_auth_secrets(&id, &mut config).await?;
             let needs_mqtt_auth_rewrite = self.hydrate_mqtt_auth_secret(&id, &mut config).await?;
             let needs_mq_token_signing_rewrite = self.hydrate_mq_token_signing_secret(&id, &mut config).await?;
@@ -7351,7 +7601,8 @@ impl Storage {
                     needs_plugin_secret_rewrite = true;
                 }
             }
-            let needs_external_secret_rewrite = needs_mq_auth_rewrite
+            let needs_external_secret_rewrite = needs_rocketmq_rewrite
+                || needs_mq_auth_rewrite
                 || needs_mqtt_auth_rewrite
                 || needs_mq_token_signing_rewrite
                 || needs_nacos_auth_rewrite
@@ -7386,6 +7637,24 @@ impl Storage {
         connection_id: &str,
         config: &mut ConnectionConfig,
     ) -> Result<bool, String> {
+        if is_rocketmq_connection(config) && !config.save_password {
+            let had_inline = mq_auth_object(config.external_config.as_ref())
+                .and_then(|auth| auth.get("password"))
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|password| !password.is_empty());
+            scrub_mq_auth_secrets(config);
+            let connection_id = connection_id.to_string();
+            self.with_conn(move |conn| {
+                conn.execute(
+                    "DELETE FROM connection_secrets WHERE connection_id = ?1 AND key LIKE ?2",
+                    params![connection_id, format!("{MQ_AUTH_SECRET_PREFIX}%")],
+                )
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+            })
+            .await?;
+            return Ok(had_inline);
+        }
         if config.db_type != DatabaseType::MessageQueue {
             return Ok(false);
         }
@@ -7568,8 +7837,8 @@ impl Storage {
             for file in &library.files {
                 tx.execute(
                     "INSERT INTO saved_sql_files \
-                     (id, connection_id, folder_id, name, database_name, catalog_name, schema_name, sql_text, order_index, open_count, opened_at, created_at, updated_at) \
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                     (id, connection_id, folder_id, name, database_name, catalog_name, schema_name, sql_text, order_index, open_count, opened_at, created_at, updated_at, is_default_query) \
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     params![
                         file.id,
                         file.connection_id,
@@ -7583,7 +7852,8 @@ impl Storage {
                         file.open_count,
                         file.opened_at,
                         file.created_at,
-                        file.updated_at
+                        file.updated_at,
+                        file.is_default_query
                     ],
                 )
                 .map_err(|e| e.to_string())?;
@@ -7620,7 +7890,7 @@ impl Storage {
 
             let mut file_stmt = conn
                 .prepare(
-                    "SELECT id, connection_id, folder_id, name, database_name, catalog_name, schema_name, sql_text, order_index, open_count, opened_at, created_at, updated_at \
+                    "SELECT id, connection_id, folder_id, name, database_name, catalog_name, schema_name, sql_text, order_index, open_count, opened_at, created_at, updated_at, is_default_query \
                      FROM saved_sql_files ORDER BY COALESCE(folder_id, ''), order_index, connection_id, name COLLATE NOCASE",
                 )
                 .map_err(|e| e.to_string())?;
@@ -7641,6 +7911,7 @@ impl Storage {
                         opened_at: row.get(10)?,
                         created_at: row.get(11)?,
                         updated_at: row.get(12)?,
+                        is_default_query: row.get(13)?,
                     })
                 })
                 .map_err(|e| e.to_string())?
@@ -7656,7 +7927,7 @@ impl Storage {
         self.with_conn(|conn| {
             let mut stmt = conn
                 .prepare(
-                    "SELECT id, connection_id, folder_id, name, database_name, catalog_name, schema_name, sql_text, order_index, open_count, opened_at, created_at, updated_at \
+                    "SELECT id, connection_id, folder_id, name, database_name, catalog_name, schema_name, sql_text, order_index, open_count, opened_at, created_at, updated_at, is_default_query \
                      FROM saved_sql_files ORDER BY COALESCE(folder_id, ''), order_index, connection_id, name COLLATE NOCASE",
                 )
                 .map_err(|e| e.to_string())?;
@@ -7677,6 +7948,7 @@ impl Storage {
                         opened_at: row.get(10)?,
                         created_at: row.get(11)?,
                         updated_at: row.get(12)?,
+                        is_default_query: row.get(13)?,
                     })
                 })
                 .map_err(|e| e.to_string())?
@@ -7713,7 +7985,7 @@ impl Storage {
 
             let mut file_stmt = conn
                 .prepare(
-                    "SELECT id, connection_id, folder_id, name, database_name, catalog_name, schema_name, order_index, open_count, opened_at, created_at, updated_at \
+                    "SELECT id, connection_id, folder_id, name, database_name, catalog_name, schema_name, order_index, open_count, opened_at, created_at, updated_at, is_default_query \
                      FROM saved_sql_files ORDER BY COALESCE(folder_id, ''), order_index, connection_id, name COLLATE NOCASE",
                 )
                 .map_err(|e| e.to_string())?;
@@ -7734,6 +8006,7 @@ impl Storage {
                         opened_at: row.get(9)?,
                         created_at: row.get(10)?,
                         updated_at: row.get(11)?,
+                        is_default_query: row.get(12)?,
                     })
                 })
                 .map_err(|e| e.to_string())?
@@ -7750,7 +8023,7 @@ impl Storage {
         self.with_conn(move |conn| {
             let mut stmt = conn
                 .prepare(
-                    "SELECT id, connection_id, folder_id, name, database_name, catalog_name, schema_name, sql_text, order_index, open_count, opened_at, created_at, updated_at \
+                    "SELECT id, connection_id, folder_id, name, database_name, catalog_name, schema_name, sql_text, order_index, open_count, opened_at, created_at, updated_at, is_default_query \
                      FROM saved_sql_files WHERE id = ?1",
                 )
                 .map_err(|e| e.to_string())?;
@@ -7770,6 +8043,7 @@ impl Storage {
                     opened_at: row.get(10)?,
                     created_at: row.get(11)?,
                     updated_at: row.get(12)?,
+                    is_default_query: row.get(13)?,
                 })
             }) {
                 Ok(file) => Ok(Some(file)),
@@ -7843,8 +8117,8 @@ impl Storage {
         self.with_conn(move |conn| {
             conn.execute(
                 "INSERT INTO saved_sql_files \
-                 (id, connection_id, folder_id, name, database_name, catalog_name, schema_name, sql_text, order_index, open_count, opened_at, created_at, updated_at) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+                 (id, connection_id, folder_id, name, database_name, catalog_name, schema_name, sql_text, order_index, open_count, opened_at, created_at, updated_at, is_default_query) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
                  ON CONFLICT(id) DO UPDATE SET \
                  connection_id = excluded.connection_id, \
                  folder_id = excluded.folder_id, \
@@ -7852,11 +8126,12 @@ impl Storage {
                  database_name = excluded.database_name, \
                  catalog_name = excluded.catalog_name, \
                  schema_name = excluded.schema_name, \
-                 sql_text = CASE WHEN ?14 THEN excluded.sql_text ELSE saved_sql_files.sql_text END, \
+                 sql_text = CASE WHEN ?15 THEN excluded.sql_text ELSE saved_sql_files.sql_text END, \
                  order_index = excluded.order_index, \
                  open_count = excluded.open_count, \
                  opened_at = excluded.opened_at, \
-                 updated_at = excluded.updated_at",
+                 updated_at = excluded.updated_at, \
+                 is_default_query = excluded.is_default_query",
                 params![
                     file.id,
                     file.connection_id,
@@ -7871,11 +8146,31 @@ impl Storage {
                     file.opened_at,
                     file.created_at,
                     file.updated_at,
+                    file.is_default_query,
                     file.sql_loaded
                 ],
             )
             .map(|_| ())
             .map_err(|e| e.to_string())
+        })
+        .await
+    }
+
+    /// Autosave only the document body: concurrent metadata writes must not be
+    /// overwritten, and a deleted default query must never be recreated here.
+    pub async fn save_default_query_content(&self, id: &str, sql: &str, updated_at: &str) -> Result<(), String> {
+        let (id, sql, updated_at) = (id.to_string(), sql.to_string(), updated_at.to_string());
+        self.with_conn(move |conn| {
+            let changed = conn
+                .execute(
+                    "UPDATE saved_sql_files SET sql_text = ?2, updated_at = ?3 WHERE id = ?1 AND is_default_query = 1",
+                    params![id, sql, updated_at],
+                )
+                .map_err(|e| e.to_string())?;
+            if changed == 0 {
+                return Err("Default query no longer exists".to_string());
+            }
+            Ok(())
         })
         .await
     }
@@ -8836,6 +9131,12 @@ fn apply_sync_connections_in_tx(
     };
     for config in configs {
         let config = config.canonicalized();
+        if is_rocketmq_connection(&config)
+            && (!config.save_password
+                || mq_auth_object(config.external_config.as_ref()).and_then(mq_auth_kind) == Some("none"))
+        {
+            delete_secret_prefix_in_tx(tx, &config.id, MQ_AUTH_SECRET_PREFIX)?;
+        }
         if !config.save_password && !merge_existing {
             persist_secret_in_tx(tx, codec, &config.id, "password", "")?;
             delete_secret_prefix_in_tx(tx, &config.id, NACOS_AUTH_SECRET_PREFIX)?;
@@ -9222,8 +9523,8 @@ fn apply_saved_sql_in_tx(tx: &Transaction<'_>, library: &SavedSqlLibrary, merge_
     }
     for file in &library.files {
         tx.execute(
-            "INSERT OR REPLACE INTO saved_sql_files (id, connection_id, folder_id, name, database_name, catalog_name, schema_name, sql_text, order_index, open_count, opened_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            params![file.id, file.connection_id, file.folder_id, file.name, file.database, file.catalog, file.schema, file.sql, file.order_index, file.open_count, file.opened_at, file.created_at, file.updated_at],
+            "INSERT INTO saved_sql_files (id, connection_id, folder_id, name, database_name, catalog_name, schema_name, sql_text, order_index, open_count, opened_at, created_at, updated_at, is_default_query) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET connection_id=excluded.connection_id, folder_id=excluded.folder_id, name=excluded.name, database_name=excluded.database_name, catalog_name=excluded.catalog_name, schema_name=excluded.schema_name, sql_text=excluded.sql_text, order_index=excluded.order_index, open_count=excluded.open_count, opened_at=excluded.opened_at, created_at=excluded.created_at, updated_at=excluded.updated_at, is_default_query=excluded.is_default_query",
+            params![file.id, file.connection_id, file.folder_id, file.name, file.database, file.catalog, file.schema, file.sql, file.order_index, file.open_count, file.opened_at, file.created_at, file.updated_at, file.is_default_query],
         )
         .map_err(|e| e.to_string())?;
     }
@@ -9235,6 +9536,9 @@ fn persist_mq_auth_secrets_in_tx(
     codec: &SecretCodec,
     config: &ConnectionConfig,
 ) -> Result<(), String> {
+    if is_rocketmq_connection(config) && !config.save_password {
+        return delete_secret_prefix_in_tx(tx, &config.id, MQ_AUTH_SECRET_PREFIX);
+    }
     if config.db_type != DatabaseType::MessageQueue {
         delete_secret_prefix_in_tx(tx, &config.id, MQ_AUTH_SECRET_PREFIX)?;
         return Ok(());
@@ -9632,6 +9936,52 @@ mod tests {
     use rusqlite::{Connection, TransactionBehavior};
     use std::collections::BTreeMap;
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+    #[cfg(feature = "mq-admin")]
+    #[tokio::test]
+    async fn mqtt_history_reconciliation_recovers_sent_message_after_initial_append_failure() {
+        use crate::mqtt::types::{MqttMessage, MqttMessageDirection};
+
+        let directory = tempfile::tempdir().unwrap();
+        let storage = crate::persistence::test_storage::open(&directory.path().join("storage.db")).await.unwrap();
+        storage
+            .with_conn(|connection| {
+                connection
+                    .execute_batch(
+                        "CREATE TRIGGER fail_mqtt_history_insert \
+                         BEFORE INSERT ON state_store \
+                         WHEN NEW.key = 'mqtt.sent_history.retry' \
+                         BEGIN SELECT RAISE(FAIL, 'injected mqtt history failure'); END;",
+                    )
+                    .map_err(|error| error.to_string())
+            })
+            .await
+            .unwrap();
+        let message = MqttMessage {
+            topic: "devices/retry".to_string(),
+            payload_base64: "cmV0cnk=".to_string(),
+            payload_text: Some("retry".to_string()),
+            qos: 1,
+            retain: false,
+            received_at_ms: 42,
+            direction: MqttMessageDirection::Sent,
+        };
+
+        assert!(storage.append_mqtt_sent_message("retry", &message).await.is_err());
+        storage
+            .with_conn(|connection| {
+                connection.execute_batch("DROP TRIGGER fail_mqtt_history_insert").map_err(|error| error.to_string())
+            })
+            .await
+            .unwrap();
+
+        storage.reconcile_mqtt_message_history("retry", std::slice::from_ref(&message)).await.unwrap();
+        storage.reconcile_mqtt_message_history("retry", std::slice::from_ref(&message)).await.unwrap();
+
+        let history = storage.load_mqtt_message_history("retry").await.unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(super::mqtt_history_message_identity(&history[0]), super::mqtt_history_message_identity(&message));
+    }
 
     #[tokio::test]
     async fn migration_scan_cache_recovers_legacy_success_with_stale_counts() {
@@ -10091,16 +10441,73 @@ mod tests {
             .unwrap()
             .with_secret_key_policy(SecretKeyPolicy::ManagedDataDir);
         storage.set_secret("connection", "password", "secret").await.unwrap();
+        storage.set_migration_state(super::MigrationState::Succeeded, None, None, None, None).await.unwrap();
         let key_path = managed_key_path(dir.path());
         std::fs::remove_file(&key_path).unwrap();
 
         let status = storage.inspect_data_migration().await.unwrap();
-        assert!(status.needs_migration);
+        assert_eq!(status.state, super::MigrationState::Succeeded);
+        assert!(!status.needs_migration);
+        assert!(status.key_recovery_required);
+        assert!(!status.is_ready());
         assert!(!status.key_creation_allowed);
         assert_eq!(status.error_code.as_deref(), Some("ENCRYPTED_DATA_KEY_MISSING"));
         assert!(!key_path.exists());
         assert_eq!(storage.start_data_migration().await.unwrap_err(), "ENCRYPTED_DATA_KEY_MISSING");
         assert!(!key_path.exists());
+    }
+
+    #[tokio::test]
+    async fn portable_storage_copies_only_the_matching_platform_key_into_its_data_dir() {
+        let directory = tempfile::tempdir().unwrap();
+        let storage = crate::persistence::test_storage::open_unmigrated(&directory.path().join("dbx.db"))
+            .await
+            .unwrap()
+            .with_secret_key_policy(SecretKeyPolicy::ManagedDataDir);
+        let platform_codec = super::SecretCodec::new([7; 32]);
+        let encrypted = platform_codec.encrypt("connection", "password", "portable-secret").unwrap();
+        storage
+            .with_conn(move |conn| {
+                conn.execute(
+                    "INSERT INTO connection_secrets (connection_id, key, secret, secret_enc) VALUES ('connection', 'password', '', ?1)",
+                    [encrypted],
+                )
+                .map_err(|error| error.to_string())?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        assert!(storage.prepare_portable_secret_key_with(|| Ok(Some(platform_codec))).await.unwrap());
+        assert!(managed_key_path(directory.path()).is_file());
+        assert_eq!(storage.get_secret("connection", "password").await.unwrap().as_deref(), Some("portable-secret"));
+    }
+
+    #[tokio::test]
+    async fn portable_storage_never_persists_a_platform_key_that_cannot_decrypt_its_data() {
+        let directory = tempfile::tempdir().unwrap();
+        let storage = crate::persistence::test_storage::open_unmigrated(&directory.path().join("dbx.db"))
+            .await
+            .unwrap()
+            .with_secret_key_policy(SecretKeyPolicy::ManagedDataDir);
+        let encrypted = super::SecretCodec::new([7; 32]).encrypt("connection", "password", "portable-secret").unwrap();
+        storage
+            .with_conn(move |conn| {
+                conn.execute(
+                    "INSERT INTO connection_secrets (connection_id, key, secret, secret_enc) VALUES ('connection', 'password', '', ?1)",
+                    [encrypted],
+                )
+                .map_err(|error| error.to_string())?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            storage.prepare_portable_secret_key_with(|| Ok(Some(super::SecretCodec::new([8; 32])))).await.unwrap_err(),
+            "SECRET_KEY_MISMATCH"
+        );
+        assert!(!managed_key_path(directory.path()).exists());
     }
 
     #[tokio::test]
@@ -10358,6 +10765,8 @@ mod tests {
                 loaded_skill_ids: None,
             }],
             queued_input: None,
+            assistant_mode: None,
+            assistant_action: None,
             created_at: updated_at.to_string(),
             updated_at: updated_at.to_string(),
         }
@@ -10672,6 +11081,84 @@ mod tests {
         assert_eq!(source.schema.as_deref(), Some("legacy"));
         let legacy: AiChatMessage = serde_json::from_str(r#"{"role":"assistant","content":"old reply"}"#).unwrap();
         assert!(legacy.source_binding.is_none());
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// #12075 / AC14 — a database created before the picker columns existed must
+    /// upgrade in place, and both conversation upsert paths must carry the new
+    /// values. Tests the real migration (`ensure_ai_conversations_columns_sync`),
+    /// not just serde: the columns have to exist before the INSERT can name them.
+    #[tokio::test]
+    async fn ai_conversation_upgrades_legacy_schema_and_roundtrips_picker_selection() {
+        let path = temp_db_path("ai-conversation-picker-selection");
+        // Pre-#12075 schema: none of the later columns exist yet.
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE ai_conversations (
+            id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '', connection_name TEXT NOT NULL DEFAULT '',
+            database TEXT NOT NULL DEFAULT '', messages_json TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
+        ); INSERT INTO ai_conversations (id, title) VALUES ('legacy', 'SQL conversation');",
+        )
+        .unwrap();
+        drop(conn);
+
+        let storage = crate::persistence::test_storage::open(&path).await.unwrap();
+        // The legacy row loads with no recorded picker selection — the frontend's
+        // R9 fallback (settings default + default action) is what fills the UI.
+        let legacy = storage.load_ai_conversations().await.unwrap();
+        assert_eq!(legacy[0].title, "SQL conversation");
+        assert!(legacy[0].assistant_mode.is_none());
+        assert!(legacy[0].assistant_action.is_none());
+
+        // Path 1: the plain conversation upsert.
+        let mut conversation = ai_conversation("picker-conv", "0001");
+        conversation.assistant_mode = Some("agent".to_string());
+        conversation.assistant_action = Some("auto".to_string());
+        storage.save_ai_conversation(&conversation).await.unwrap();
+
+        let loaded = storage.load_ai_conversations().await.unwrap();
+        let saved = loaded.iter().find(|item| item.id == "picker-conv").unwrap();
+        assert_eq!(saved.assistant_mode.as_deref(), Some("agent"));
+        // `auto` is the recorded picker entry, not a routed concrete action (R8).
+        assert_eq!(saved.assistant_action.as_deref(), Some("auto"));
+
+        // Path 2: the conversation+run upsert used by background runs.
+        let mut run_conversation = ai_conversation("run-conv", "0002");
+        run_conversation.assistant_mode = Some("ask".to_string());
+        run_conversation.assistant_action = Some("optimize".to_string());
+        let run = ai_run("run-1", "run-conv", AiRunStatus::Running, "0002");
+        storage.save_ai_run_state(&run_conversation, &run).await.unwrap();
+
+        let loaded = storage.load_ai_conversations().await.unwrap();
+        let saved = loaded.iter().find(|item| item.id == "run-conv").unwrap();
+        assert_eq!(saved.assistant_mode.as_deref(), Some("ask"));
+        assert_eq!(saved.assistant_action.as_deref(), Some("optimize"));
+        // The legacy row is still there, still without a recorded selection.
+        let legacy = loaded.iter().find(|item| item.id == "legacy").unwrap();
+        assert!(legacy.assistant_mode.is_none());
+        assert!(legacy.assistant_action.is_none());
+
+        // Clearing the picker selection (a future "forget the choice" path) writes
+        // NULL rather than a stale value.
+        conversation.assistant_mode = None;
+        conversation.assistant_action = None;
+        storage.save_ai_conversation(&conversation).await.unwrap();
+        let loaded = storage.load_ai_conversations().await.unwrap();
+        let saved = loaded.iter().find(|item| item.id == "picker-conv").unwrap();
+        assert!(saved.assistant_mode.is_none());
+        assert!(saved.assistant_action.is_none());
+
+        // A record written before the fields existed still deserializes; the JSON
+        // boundary is what the cloud-sync / web transports carry.
+        let legacy_json: AiConversation = serde_json::from_str(r#"{"id":"old","title":"Old","connectionName":"","connectionId":"","database":"","messages":[],"createdAt":"0000","updatedAt":"0000"}"#).unwrap();
+        assert!(legacy_json.assistant_mode.is_none());
+        assert!(legacy_json.assistant_action.is_none());
+        // `None` is skipped entirely, so an old reader sees the record it always saw.
+        let serialized = serde_json::to_value(&legacy_json).unwrap();
+        assert!(serialized.get("assistantMode").is_none());
+        assert!(serialized.get("assistantAction").is_none());
 
         let _ = std::fs::remove_file(path);
     }
@@ -11274,6 +11761,7 @@ mod tests {
             enabled: true,
             url: "https://bastion.example.com".to_string(),
             token: "tunnel-token".to_string(),
+            protocol: crate::models::connection::HttpTunnelProtocol::DbxTcp,
             connect_timeout_secs: 5,
             profile_id: String::new(),
         });
@@ -11551,6 +12039,8 @@ mod tests {
             connect_timeout_secs: 30,
             query_timeout_secs: 300,
             idle_timeout_secs: 600,
+            manual_transaction_timeout_secs: 300,
+            idle_disconnect_secs: 0,
             keepalive_interval_secs: crate::models::connection::default_keepalive_interval_secs(),
             ssl: false,
             ca_cert_path: String::new(),
@@ -11594,6 +12084,7 @@ mod tests {
             read_only: false,
             is_production: false,
             production_databases: vec![],
+            production_badge_scope: None,
             database_info: None,
         }
     }
@@ -11630,6 +12121,8 @@ mod tests {
             connect_timeout_secs: 30,
             query_timeout_secs: 300,
             idle_timeout_secs: 600,
+            manual_transaction_timeout_secs: 300,
+            idle_disconnect_secs: 0,
             keepalive_interval_secs: crate::models::connection::default_keepalive_interval_secs(),
             ssl: false,
             ca_cert_path: String::new(),
@@ -11674,6 +12167,7 @@ mod tests {
             read_only: false,
             is_production: false,
             production_databases: vec![],
+            production_badge_scope: None,
             database_info: None,
         }
     }
@@ -12023,6 +12517,70 @@ mod tests {
         assert_eq!(loaded, vec![replacement]);
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn rocketmq_sqlite_load_migrates_legacy_and_rewrites_metadata() {
+        let path = temp_db_path("rocketmq-legacy-load");
+        let storage = crate::persistence::test_storage::open(&path).await.unwrap();
+        let mut config = mq_connection("rocket", "");
+        config.external_config =
+            Some(serde_json::json!({"systemKind":"rocketmq", "extra":{"access_key":"ak", "secret_key":"legacy-sk"}}));
+        let json = serde_json::to_string(&config).unwrap();
+        storage
+            .with_conn(move |conn| {
+                conn.execute("INSERT INTO connections (id, config_json) VALUES ('rocket', ?1)", [json])
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
+            })
+            .await
+            .unwrap();
+        let loaded = storage.load_connections().await.unwrap();
+        assert_eq!(
+            loaded[0].external_config.as_ref().unwrap()["auth"],
+            serde_json::json!({"kind":"basic", "username":"ak", "password":"legacy-sk"})
+        );
+        assert_eq!(
+            storage.get_secret("rocket", super::MQ_AUTH_PASSWORD_KEY).await.unwrap().as_deref(),
+            Some("legacy-sk")
+        );
+        let raw = raw_connection_json(&storage, "rocket").await;
+        assert!(!raw.contains("legacy-sk"));
+        assert!(!raw.contains("secret_key"));
+        assert_eq!(storage.load_connections().await.unwrap(), loaded);
+    }
+
+    #[tokio::test]
+    async fn rocketmq_sqlite_save_normalizes_and_drops_transient_secrets() {
+        let path = temp_db_path("rocketmq-save");
+        let storage = crate::persistence::test_storage::open(&path).await.unwrap();
+        let mut config = mq_connection("rocket", "");
+        config.external_config =
+            Some(serde_json::json!({"systemKind":"rocketmq", "extra":{"accessKey":"ak", "secretKey":"sk"}}));
+        storage.save_connections(std::slice::from_ref(&config)).await.unwrap();
+        assert_eq!(storage.get_secret("rocket", super::MQ_AUTH_PASSWORD_KEY).await.unwrap().as_deref(), Some("sk"));
+        let raw = raw_connection_json(&storage, "rocket").await;
+        assert!(!raw.contains("secretKey"));
+        config.save_password = false;
+        storage.save_connections(&[config]).await.unwrap();
+        assert!(storage.get_secret("rocket", super::MQ_AUTH_PASSWORD_KEY).await.unwrap().is_none());
+        let loaded = storage.load_connections().await.unwrap();
+        assert_eq!(loaded[0].external_config.as_ref().unwrap()["auth"]["password"], "");
+    }
+
+    #[tokio::test]
+    async fn rocketmq_sqlite_explicit_none_discards_legacy_copies() {
+        let path = temp_db_path("rocketmq-none");
+        let storage = crate::persistence::test_storage::open(&path).await.unwrap();
+        let mut config = mq_connection("rocket", "");
+        config.external_config =
+            Some(serde_json::json!({"systemKind":"rocketmq", "auth":{"kind":"none"}, "extra":{"secretKey":"old"}}));
+        storage.set_secret("rocket", super::MQ_AUTH_PASSWORD_KEY, "stale").await.unwrap();
+        storage.save_connections(&[config]).await.unwrap();
+        assert!(storage.get_secret("rocket", super::MQ_AUTH_PASSWORD_KEY).await.unwrap().is_none());
+        let loaded = storage.load_connections().await.unwrap();
+        assert_eq!(loaded[0].external_config.as_ref().unwrap()["auth"], serde_json::json!({"kind":"none"}));
+        assert!(!raw_connection_json(&storage, "rocket").await.contains("secretKey"));
     }
 
     #[tokio::test]
@@ -13317,6 +13875,8 @@ mod tests {
             default_mode: Some(AiAssistantMode::Agent),
             default_auto_routing: true,
             restore_last_conversation: true,
+            include_query_result: false,
+            exclude_query_result: false,
             default_templates_by_db_type: BTreeMap::from([("postgresql".to_string(), vec!["tpl-1".to_string()])]),
             last_used_templates_by_db_type: BTreeMap::from([("mysql".to_string(), vec!["tpl-2".to_string()])]),
         };
@@ -13497,6 +14057,7 @@ mod tests {
         let path = temp_db_path("saved-sql-summary");
         let storage = crate::persistence::test_storage::open(&path).await.unwrap();
         let file = SavedSqlFile {
+            is_default_query: false,
             id: "sql-1".to_string(),
             connection_id: "conn-1".to_string(),
             folder_id: None,
@@ -13538,6 +14099,7 @@ mod tests {
         let path = temp_db_path("saved-sql-preserve-unloaded-text");
         let storage = crate::persistence::test_storage::open(&path).await.unwrap();
         let mut file = SavedSqlFile {
+            is_default_query: false,
             id: "sql-1".to_string(),
             connection_id: "conn-1".to_string(),
             folder_id: None,
@@ -13606,6 +14168,7 @@ mod tests {
         assert_eq!(legacy.catalog, None);
 
         let external = SavedSqlFile {
+            is_default_query: false,
             id: "external".to_string(),
             connection_id: "conn-1".to_string(),
             catalog: Some("iceberg_catalog".to_string()),
@@ -13669,6 +14232,7 @@ mod tests {
                 pi_agent_cli_env: std::collections::HashMap::new(),
                 opencode_cli_path: None,
                 opencode_cli_env: std::collections::HashMap::new(),
+                opencode_cli_version: None,
                 cursor_cli_path: None,
                 cursor_cli_env: std::collections::HashMap::new(),
                 grok_cli_path: None,
