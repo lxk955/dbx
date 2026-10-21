@@ -15,7 +15,9 @@ export function resolveHistorySqlRestoreTarget(options: { entry: HistoryEntry; a
   if (entry.connection_id && getConfig(entry.connection_id)) {
     connectionId = entry.connection_id;
   } else if (entry.connection_name && connections) {
-    connectionId = connections.find((c) => c.name === entry.connection_name)?.id;
+    const matches = connections.filter((connection) => connection.name === entry.connection_name);
+    if (matches.length > 1) return null;
+    connectionId = matches[0]?.id;
   }
   if (!connectionId && entry.connection_id) {
     connectionId = entry.connection_id;

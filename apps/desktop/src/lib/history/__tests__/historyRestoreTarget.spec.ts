@@ -108,6 +108,18 @@ describe("resolveHistorySqlRestoreTarget", () => {
     });
   });
 
+  it("does not choose an arbitrary connection when a deleted connection name is ambiguous", () => {
+    const duplicate = { ...mysqlConfig, id: "mysql-2", host: "another-host" };
+    const target = resolveHistorySqlRestoreTarget({
+      entry: { ...baseEntry, connection_id: "deleted-id", connection_name: mysqlConfig.name },
+      getConfig,
+      connections: [...connections, duplicate],
+      firstConnectionId: "mysql-1",
+    });
+
+    expect(target).toBeNull();
+  });
+
   it("falls back to active tab schema when active tab shares the same connection and database", () => {
     const activeTab = {
       id: "tab-1",
