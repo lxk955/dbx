@@ -521,7 +521,7 @@ describe("TableImportDialog existing targets", () => {
   });
 
   it("allows selecting update-existing on options step when target has keys even if preview columns are initially unmapped, and guards mapping step", async () => {
-    mocks.previewTableImportFile.mockResolvedValueOnce({
+    mocks.previewTableImportFile.mockResolvedValue({
       fileName: "unmapped.xlsx",
       filePath: "/tmp/unmapped.xlsx",
       fileType: "excel",
