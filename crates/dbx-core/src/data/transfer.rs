@@ -3813,12 +3813,18 @@ pub fn escape_value_typed(val: &serde_json::Value, db_type: &DatabaseType, colum
                     } else if trimmed.eq_ignore_ascii_case("false") {
                         "b'0'".to_string()
                     } else {
-                        let raw_bits = trimmed
+                        let clean_bit_inner = trimmed
                             .strip_prefix("b'")
                             .or_else(|| trimmed.strip_prefix("B'"))
                             .and_then(|stripped| stripped.strip_suffix('\''))
-                            .unwrap_or(escaped.as_str());
-                        format!("b'{raw_bits}'")
+                            .filter(|inner| {
+                                !inner.is_empty() && inner.bytes().all(|byte| byte == b'0' || byte == b'1')
+                            });
+                        if let Some(inner) = clean_bit_inner {
+                            format!("b'{inner}'")
+                        } else {
+                            format!("b'{escaped}'")
+                        }
                     }
                 }
                 DatabaseType::SqlServer => format!("N'{escaped}'"),
@@ -21631,6 +21637,29 @@ PARTITION p_old VALUES LESS THAN (TO_DAYS('2026-01-01')))";
             sql,
             "INSERT INTO `test_db`.`calendar` (`b_str1`, `b_str0`, `b_str_multi`, `b_prefix`, `b_num1`, `b_num0`, `b_bool1`, `b_bool0`) VALUES\n(b'1', b'0', b'101', b'1', b'1', b'0', b'1', b'0')"
         );
+    }
+
+    #[test]
+    fn mysql_insert_escapes_invalid_bit_literals_safely() {
+        let malicious_val = "b'1''); DROP TABLE t; --";
+        let invalid_val = "b'1x'";
+        let empty_inner = "b''";
+        let sql = generate_insert_typed(
+            &[String::from("col_malicious"), String::from("col_invalid"), String::from("col_empty")],
+            &[Some(String::from("bit(1)")), Some(String::from("bit(1)")), Some(String::from("bit(1)"))],
+            &[vec![json!(malicious_val), json!(invalid_val), json!(empty_inner)]],
+            "t",
+            "test_db",
+            &DatabaseType::Mysql,
+            None,
+        );
+
+        // Verify invalid / malicious bit literals fallback to escaped strings inside b'...'
+        // without breaking out of the literal or allowing SQL injection.
+        assert!(sql.contains("b'b''1''''); DROP TABLE t; --'"));
+        assert!(sql.contains("b'b''1x'''"));
+        assert!(sql.contains("b'b''''''"));
+        assert!(!sql.contains("b'1'); DROP TABLE t; --'"));
     }
 
     #[test]
