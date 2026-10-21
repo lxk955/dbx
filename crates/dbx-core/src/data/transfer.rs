@@ -3739,7 +3739,12 @@ pub fn escape_value_typed(val: &serde_json::Value, db_type: &DatabaseType, colum
             match db_type {
                 DatabaseType::Mysql | DatabaseType::Doris | DatabaseType::StarRocks => {
                     if column_type.is_some_and(is_mysql_bit_type) {
-                        format!("b'{}'", n)
+                        let s = n.to_string();
+                        if s == "0" || s == "1" {
+                            format!("b'{s}'")
+                        } else {
+                            s
+                        }
                     } else {
                         n.to_string()
                     }
@@ -3802,7 +3807,19 @@ pub fn escape_value_typed(val: &serde_json::Value, db_type: &DatabaseType, colum
                 DatabaseType::Mysql | DatabaseType::Doris | DatabaseType::StarRocks
                     if column_type.is_some_and(is_mysql_bit_type) =>
                 {
-                    format!("b'{escaped}'")
+                    let trimmed = s.trim();
+                    if trimmed.eq_ignore_ascii_case("true") {
+                        "b'1'".to_string()
+                    } else if trimmed.eq_ignore_ascii_case("false") {
+                        "b'0'".to_string()
+                    } else {
+                        let raw_bits = trimmed
+                            .strip_prefix("b'")
+                            .or_else(|| trimmed.strip_prefix("B'"))
+                            .and_then(|stripped| stripped.strip_suffix('\''))
+                            .unwrap_or(escaped.as_str());
+                        format!("b'{raw_bits}'")
+                    }
                 }
                 DatabaseType::SqlServer => format!("N'{escaped}'"),
                 _ => format!("'{escaped}'"),
@@ -21578,6 +21595,42 @@ PARTITION p_old VALUES LESS THAN (TO_DAYS('2026-01-01')))";
         assert!(sql.contains("USING (VALUES\n(1, 1)\n)"));
         assert!(!sql.contains("TRUE"));
         assert!(!sql.contains("FALSE"));
+    }
+
+    #[test]
+    fn mysql_insert_formats_bit_literals() {
+        let sql = generate_insert_typed(
+            &[
+                String::from("b_str1"),
+                String::from("b_str0"),
+                String::from("b_str_multi"),
+                String::from("b_prefix"),
+                String::from("b_num1"),
+                String::from("b_num0"),
+                String::from("b_bool1"),
+                String::from("b_bool0"),
+            ],
+            &[
+                Some(String::from("bit(1)")),
+                Some(String::from("bit(1)")),
+                Some(String::from("bit(8)")),
+                Some(String::from("bit(1)")),
+                Some(String::from("bit(1)")),
+                Some(String::from("bit(1)")),
+                Some(String::from("bit(1)")),
+                Some(String::from("bit(1)")),
+            ],
+            &[vec![json!("1"), json!("0"), json!("101"), json!("b'1'"), json!(1), json!(0), json!(true), json!(false)]],
+            "calendar",
+            "test_db",
+            &DatabaseType::Mysql,
+            None,
+        );
+
+        assert_eq!(
+            sql,
+            "INSERT INTO `test_db`.`calendar` (`b_str1`, `b_str0`, `b_str_multi`, `b_prefix`, `b_num1`, `b_num0`, `b_bool1`, `b_bool0`) VALUES\n(b'1', b'0', b'101', b'1', b'1', b'0', b'1', b'0')"
+        );
     }
 
     #[test]
