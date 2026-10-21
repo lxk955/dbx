@@ -4841,7 +4841,7 @@ WHERE u.id = picked.id;
     }
 
     #[test]
-    fn oracle_pagination_skips_sql_clause() {
+    fn oracle_pagination_wraps_with_rownum() {
         let result = build_paginated_query_sql(PaginatedQuerySqlOptions {
             original_sql: "SELECT id FROM users".to_string(),
             database_type: Some(DatabaseType::Oracle),
@@ -4849,7 +4849,22 @@ WHERE u.id = picked.id;
             offset: 0,
         });
 
-        assert_eq!(result.sql.unwrap(), "SELECT id FROM users;");
+        assert_eq!(result.sql.unwrap(), "SELECT * FROM (SELECT id FROM users) WHERE ROWNUM <= 100;");
+    }
+
+    #[test]
+    fn oracle_pagination_wraps_offset_with_rownum_bounds() {
+        let result = build_paginated_query_sql(PaginatedQuerySqlOptions {
+            original_sql: "SELECT id FROM users".to_string(),
+            database_type: Some(DatabaseType::Oracle),
+            limit: 100,
+            offset: 200,
+        });
+
+        assert_eq!(
+            result.sql.unwrap(),
+            "SELECT * FROM (SELECT dbx_inner.*, ROWNUM AS \"__dbx_row_num\" FROM (SELECT id FROM users) dbx_inner WHERE ROWNUM <= 300) WHERE \"__dbx_row_num\" > 200;"
+        );
     }
 
     #[test]
@@ -5821,7 +5836,7 @@ WHERE u.id = picked.id;
     }
 
     #[test]
-    fn oracle_offset_jump_keeps_agent_result_session() {
+    fn oracle_offset_jump_rewrites_with_rownum() {
         let plan = build_query_pagination_execution_plan(QueryPaginationExecutionPlanOptions {
             sql: "SELECT * FROM events".to_string(),
             query_base_sql: "SELECT * FROM events".to_string(),
@@ -5832,12 +5847,16 @@ WHERE u.id = picked.id;
             execution_hint: None,
         });
 
-        // Oracle user queries are Unbounded: the SQL stays unchanged, so the
-        // client must consume the agent result session through to the offset.
-        assert_eq!(plan.sql_to_execute, "SELECT * FROM events;");
+        // Oracle user queries support ROWNUM pagination (#12789), so offset jumps
+        // rewrite the query with server-side row-number bounds instead of looping.
+        assert_eq!(
+            plan.sql_to_execute,
+            "SELECT * FROM (SELECT dbx_inner.*, ROWNUM AS \"__dbx_row_num\" FROM (SELECT * FROM events) dbx_inner WHERE ROWNUM <= 300) WHERE \"__dbx_row_num\" > 200;"
+        );
         assert_eq!(plan.page_limit, Some(100));
         assert_eq!(plan.page_offset, Some(200));
-        assert!(plan.use_agent_result_session);
+        assert!(!plan.use_agent_result_session);
+        assert_eq!(plan.pagination_row_number_column.as_deref(), Some("__dbx_row_num"));
     }
 
     #[test]
