@@ -3094,7 +3094,15 @@ mod tests {
 
         let oracle_req =
             QueryResultExportRequest { database_type: DatabaseType::Oracle, ..request("csv", Some(1000), None) };
-        assert!(supports_streaming_offset_pagination(&oracle_req, 100));
+        assert!(!supports_streaming_offset_pagination(&oracle_req, 100));
+
+        let oracle_safe_req = QueryResultExportRequest {
+            database_type: DatabaseType::Oracle,
+            sql: "SELECT id, name FROM users".to_string(),
+            query_base_sql: "SELECT id, name FROM users".to_string(),
+            ..request("csv", Some(1000), None)
+        };
+        assert!(supports_streaming_offset_pagination(&oracle_safe_req, 100));
     }
 
     #[test]
@@ -3139,20 +3147,38 @@ mod tests {
         assert!(supports_streaming_offset_pagination(&req, 100));
         assert_eq!(streaming_pagination_preflight_error(&req, 100, false, false, false), None);
 
-        req.sql = "SELECT * FROM BD_MATERIAL".to_string();
+        req.sql = "SELECT code, name FROM BD_MATERIAL ORDER BY code ASC".to_string();
         req.query_base_sql = req.sql.clone();
         assert!(supports_streaming_offset_pagination(&req, 100));
         assert_eq!(streaming_pagination_preflight_error(&req, 100, false, false, false), None);
+    }
 
-        req.sql = "SELECT * FROM \"APP\".\"BD_MATERIAL\"".to_string();
-        req.query_base_sql = req.sql.clone();
-        assert!(supports_streaming_offset_pagination(&req, 100));
-        assert_eq!(streaming_pagination_preflight_error(&req, 100, false, false, false), None);
-
-        req.sql = "SELECT * FROM BD_MATERIAL ORDER BY code ASC".to_string();
-        req.query_base_sql = req.sql.clone();
-        assert!(supports_streaming_offset_pagination(&req, 100));
-        assert_eq!(streaming_pagination_preflight_error(&req, 100, false, false, false), None);
+    #[test]
+    fn oracle_wildcard_and_duplicate_projection_export_require_cursor_and_follow_its_end() {
+        for sql in [
+            "SELECT * FROM events",
+            "SELECT t.* FROM events t",
+            "SELECT a.name, a.* FROM people a ORDER BY a.id",
+            "SELECT a.id, b.id FROM people a JOIN people b ON a.id = b.id",
+            "SELECT id FROM people FOR UPDATE",
+            "SELECT id FROM people WHERE ROWNUM <= 10",
+            "SELECT id FROM people FETCH FIRST 10 ROWS ONLY",
+        ] {
+            let mut req = request("csv", None, None);
+            req.database_type = DatabaseType::Oracle;
+            req.sql = sql.into();
+            req.query_base_sql = req.sql.clone();
+            req.use_agent_cursor = true;
+            assert!(!supports_streaming_offset_pagination(&req, 100));
+            assert_eq!(streaming_pagination_preflight_error(&req, 100, false, false, req.use_agent_cursor), None);
+            assert!(should_fetch_next_page(true, true, 100, 100, 100));
+            assert!(!should_fetch_next_page(true, false, 100, 100, 100));
+            req.use_agent_cursor = false;
+            assert_eq!(
+                streaming_pagination_preflight_error(&req, 100, false, false, req.use_agent_cursor),
+                Some(STREAMING_PAGINATION_UNSUPPORTED_ERROR)
+            );
+        }
     }
 
     #[test]
