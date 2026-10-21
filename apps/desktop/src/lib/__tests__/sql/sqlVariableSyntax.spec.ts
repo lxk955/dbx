@@ -9,6 +9,7 @@ import {
   isOracleSubstitutionDatabase,
   normalizeSqlVariableSyntaxOverrides,
   resolveSqlVariableSyntaxToggles,
+  updateSqlVariableSyntaxToggle,
 } from "@/lib/sql/sqlVariableSyntax";
 
 describe("isModeDependentSubstitutionDatabase", () => {
@@ -324,5 +325,123 @@ describe("normalizeSqlVariableSyntaxOverrides", () => {
     expect(resolveSqlVariableSyntaxToggles({}, "opengauss", true, "A").substitution).toBe(true);
     expect(resolveSqlVariableSyntaxToggles({}, "kingbase", true, "oracle").substitution).toBe(true);
     expect(resolveSqlVariableSyntaxToggles({}, "postgres", true).substitution).toBe(false);
+  });
+});
+
+describe("updateSqlVariableSyntaxToggle", () => {
+  it("preserves explicit substitution: false for openGauss in B mode when toggling shell", () => {
+    // User already saved opengauss.substitution = false.
+    // In B-mode, substitution defaults to false. Toggling shell to false must NOT drop substitution: false!
+    const initial = { opengauss: { substitution: false } };
+    const updated = updateSqlVariableSyntaxToggle(initial, "opengauss", "shell", false, "B");
+    expect(updated).toEqual({
+      opengauss: {
+        substitution: false,
+        shell: false,
+      },
+    });
+
+    // When switched back to A-mode, substitution is still explicitly false
+    expect(resolveSqlVariableSyntaxToggles(updated, "opengauss", true, "A").substitution).toBe(false);
+  });
+
+  it("preserves explicit substitution: false for openGauss in A mode when toggling shell", () => {
+    const initial = { opengauss: { substitution: false } };
+    const updated = updateSqlVariableSyntaxToggle(initial, "opengauss", "shell", false, "A");
+    expect(updated).toEqual({
+      opengauss: {
+        substitution: false,
+        shell: false,
+      },
+    });
+  });
+
+  it("preserves explicit substitution: false for Kingbase in pg mode when toggling shell", () => {
+    const initial = { kingbase: { substitution: false } };
+    const updated = updateSqlVariableSyntaxToggle(initial, "kingbase", "shell", false, "pg");
+    expect(updated).toEqual({
+      kingbase: {
+        substitution: false,
+        shell: false,
+      },
+    });
+    // In oracle mode, substitution resolves to false because override is preserved
+    expect(resolveSqlVariableSyntaxToggles(updated, "kingbase", true, "oracle").substitution).toBe(false);
+  });
+
+  it("preserves explicit substitution: false for Kingbase in oracle mode when toggling shell", () => {
+    const initial = { kingbase: { substitution: false } };
+    const updated = updateSqlVariableSyntaxToggle(initial, "kingbase", "shell", false, "oracle");
+    expect(updated).toEqual({
+      kingbase: {
+        substitution: false,
+        shell: false,
+      },
+    });
+  });
+
+  it("preserves explicit substitution: true for Kingbase in oracle mode when toggling shell", () => {
+    const initial = { kingbase: { substitution: true } };
+    const updated = updateSqlVariableSyntaxToggle(initial, "kingbase", "shell", false, "oracle");
+    expect(updated).toEqual({
+      kingbase: {
+        substitution: true,
+        shell: false,
+      },
+    });
+    // In pg mode, substitution resolves to true because override is preserved
+    expect(resolveSqlVariableSyntaxToggles(updated, "kingbase", true, "pg").substitution).toBe(true);
+  });
+
+  it("preserves explicit substitution: true for openGauss in A mode when toggling shell", () => {
+    const initial = { opengauss: { substitution: true } };
+    const updated = updateSqlVariableSyntaxToggle(initial, "opengauss", "shell", false, "A");
+    expect(updated).toEqual({
+      opengauss: {
+        substitution: true,
+        shell: false,
+      },
+    });
+    // In B mode, substitution resolves to true because override is preserved
+    expect(resolveSqlVariableSyntaxToggles(updated, "opengauss", true, "B").substitution).toBe(true);
+  });
+
+  it("does not introduce substitution override when toggling another syntax if substitution was not overridden", () => {
+    const updated = updateSqlVariableSyntaxToggle({}, "opengauss", "shell", false, "B");
+    expect(updated).toEqual({
+      opengauss: {
+        shell: false,
+      },
+    });
+  });
+
+  it("explicitly sets substitution to false or true for mode-dependent databases", () => {
+    const setFalse = updateSqlVariableSyntaxToggle({}, "opengauss", "substitution", false, "B");
+    expect(setFalse).toEqual({ opengauss: { substitution: false } });
+
+    const setTrue = updateSqlVariableSyntaxToggle({}, "opengauss", "substitution", true, "A");
+    expect(setTrue).toEqual({ opengauss: { substitution: true } });
+  });
+
+  it("retains explicit substitution override when reverting other toggles back to defaults", () => {
+    const initial = { opengauss: { substitution: false, shell: false } };
+    const updated = updateSqlVariableSyntaxToggle(initial, "opengauss", "shell", true, "B");
+    expect(updated).toEqual({
+      opengauss: {
+        substitution: false,
+      },
+    });
+  });
+
+  it("drops non-mode-dependent toggles when matching database defaults", () => {
+    const initial = { mysql: { shell: false } };
+    const updated = updateSqlVariableSyntaxToggle(initial, "mysql", "shell", true);
+    expect(updated).toEqual({});
+  });
+
+  it("ignores named parameter changes for Neo4j and NebulaGraph", () => {
+    const initial = {};
+    expect(updateSqlVariableSyntaxToggle(initial, "neo4j", "named", true)).toEqual({});
+    expect(updateSqlVariableSyntaxToggle(initial, "nebula", "named", true)).toEqual({});
   });
 });

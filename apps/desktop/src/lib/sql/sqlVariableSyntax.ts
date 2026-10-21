@@ -133,6 +133,47 @@ export function enabledSqlParameterSyntaxes(toggles: SqlVariableSyntaxToggles): 
 }
 
 /**
+ * Update a single variable syntax toggle in the given overrides map, maintaining
+ * sparse representation against database defaults.
+ *
+ * For mode-dependent databases (openGauss, GaussDB, Kingbase), explicit substitution
+ * boolean overrides are always preserved (whether true or false) across mode changes
+ * and other toggle updates, since the setting is stored globally per database type.
+ */
+export function updateSqlVariableSyntaxToggle(overrides: SqlVariableSyntaxOverrides, dbType: DatabaseType, key: keyof SqlVariableSyntaxToggles, value: boolean, compatibilityMode?: string): SqlVariableSyntaxOverrides {
+  if ((dbType === "neo4j" || dbType === "nebula") && key === "named") return overrides;
+  const defaults = defaultSqlVariableSyntaxToggles(dbType, compatibilityMode);
+  const current = resolveSqlVariableSyntaxToggles(overrides, dbType, true, compatibilityMode);
+  const merged: SqlVariableSyntaxToggles = {
+    ...current,
+    [key]: value,
+  };
+  const next: SqlVariableSyntaxOverrides = {
+    ...overrides,
+  };
+  const isModeDependent = isModeDependentSubstitutionDatabase(dbType);
+  const partial: Partial<SqlVariableSyntaxToggles> = {};
+  for (const toggleKey of SQL_VARIABLE_SYNTAX_KEYS) {
+    if ((dbType === "neo4j" || dbType === "nebula") && toggleKey === "named") continue;
+    if (toggleKey === "substitution" && isModeDependent) {
+      if (toggleKey === key) {
+        partial[toggleKey] = value;
+      } else if (overrides[dbType]?.substitution !== undefined) {
+        partial[toggleKey] = overrides[dbType]!.substitution;
+      }
+    } else if (merged[toggleKey] !== defaults[toggleKey]) {
+      partial[toggleKey] = merged[toggleKey];
+    }
+  }
+  if (Object.keys(partial).length === 0) {
+    delete next[dbType];
+  } else {
+    next[dbType] = partial;
+  }
+  return next;
+}
+
+/**
  * Normalize persisted overrides into a sparse structure: drop non-object entries
  * and only keep syntaxes that differ from database-specific defaults.
  *

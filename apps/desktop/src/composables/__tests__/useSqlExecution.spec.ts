@@ -11,7 +11,7 @@ import { createQueryEditorExecutionViewportOwnership } from "@/lib/editor/queryE
 import * as objectMetadataCache from "@/lib/metadata/objectMetadataCache";
 import type { ConnectionConfig, QueryTab } from "@/types/database";
 import { formatSqlText } from "@/lib/sql/sqlFormatter";
-import { normalizeSqlVariableSyntaxOverrides } from "@/lib/sql/sqlVariableSyntax";
+import { normalizeSqlVariableSyntaxOverrides, updateSqlVariableSyntaxToggle } from "@/lib/sql/sqlVariableSyntax";
 import type { SqlExecutionSnapshot } from "@/lib/sql/sqlExecutionTarget";
 
 vi.mock("vue-i18n", () => ({
@@ -2217,7 +2217,7 @@ SELECT @value AS Message;`;
       connectionStore.connections = [activeConnection.value!];
       queryStore.tabs = [activeTab.value!];
       queryStore.activeTabId = activeTab.value!.id;
-      vi.spyOn(connectionStore, "databaseCompatibilityMode").mockReturnValue("A");
+      const modeSpy = vi.spyOn(connectionStore, "databaseCompatibilityMode").mockReturnValue("A");
 
       const executeCurrentSql = vi.spyOn(queryStore, "executeCurrentSql").mockImplementation(async () => {
         if (activeTab.value) activeTab.value.result = { columns: ["id"], rows: [[1]], affected_rows: 0, execution_time_ms: 1 };
@@ -2235,14 +2235,29 @@ SELECT @value AS Message;`;
       expect(defaultExecution.showSqlParameterDialog.value).toBe(true);
       expect(defaultExecution.sqlParameterNames.value.map((p) => p.name)).toEqual(["var"]);
 
-      // User disables substitution for openGauss in settings -> saved through normalizer
+      // User disables substitution for openGauss in settings UI
+      const initialOverrides = updateSqlVariableSyntaxToggle({}, "opengauss", "substitution", false, "A");
       settingsStore.updateEditorSettings({
-        sqlVariableSyntaxOverrides: normalizeSqlVariableSyntaxOverrides({ opengauss: { substitution: false } }),
+        sqlVariableSyntaxOverrides: initialOverrides,
       });
-      // The explicit false override must be retained after normalization
       expect(settingsStore.editorSettings.sqlVariableSyntaxOverrides.opengauss?.substitution).toBe(false);
 
-      // Execute again -> must NOT prompt parameter dialog
+      // Realistic settings interaction while connected to B-mode:
+      // The current connection is in B-mode, where substitution defaults to false.
+      // User only toggles shell=false in settings.
+      modeSpy.mockReturnValue("B");
+      const toggledInB = updateSqlVariableSyntaxToggle(settingsStore.editorSettings.sqlVariableSyntaxOverrides, "opengauss", "shell", false, "B");
+      settingsStore.updateEditorSettings({
+        sqlVariableSyntaxOverrides: toggledInB,
+      });
+      // The explicit false substitution override must NOT be dropped, even though current mode was B
+      expect(settingsStore.editorSettings.sqlVariableSyntaxOverrides.opengauss).toEqual({
+        substitution: false,
+        shell: false,
+      });
+
+      // Switch back to A-mode and execute -> must NOT prompt parameter dialog
+      modeSpy.mockReturnValue("A");
       const execution = useSqlExecution({
         activeTab: computed(() => activeTab.value),
         activeConnection: computed(() => activeConnection.value),
@@ -2254,7 +2269,7 @@ SELECT @value AS Message;`;
       expect(executeCurrentSql).toHaveBeenCalledWith(sql, expect.anything());
     });
 
-    it("Kingbase Oracle mode disables substitution -> saved/reloaded -> does not prompt parameter dialog on &var", async () => {
+    it("Kingbase Oracle mode disables substitution -> UI toggles shell in pg mode -> reloads in oracle mode -> does not prompt parameter dialog on &var", async () => {
       const sql = "SELECT * FROM t WHERE col = &var;";
       const activeTab = ref<QueryTab | undefined>({ ...queryTab("demo"), sql });
       const activeConnection = ref<ConnectionConfig | undefined>({
@@ -2285,13 +2300,35 @@ SELECT @value AS Message;`;
       await defaultExecution.tryExecute();
       expect(defaultExecution.showSqlParameterDialog.value).toBe(true);
 
-      // User disables substitution for Kingbase -> saved through normalizer
+      // User disables substitution for Kingbase in settings UI
+      const initialOverrides = updateSqlVariableSyntaxToggle({}, "kingbase", "substitution", false, "oracle");
       settingsStore.updateEditorSettings({
-        sqlVariableSyntaxOverrides: normalizeSqlVariableSyntaxOverrides({ kingbase: { substitution: false } }),
+        sqlVariableSyntaxOverrides: initialOverrides,
       });
       expect(settingsStore.editorSettings.sqlVariableSyntaxOverrides.kingbase?.substitution).toBe(false);
 
-      // Execute again -> must NOT prompt parameter dialog
+      // Realistic settings interaction while connected to pg mode:
+      // Current connection is in pg mode (where substitution defaults to false).
+      // User only toggles shell=false in settings.
+      activeConnection.value = {
+        ...activeConnection.value!,
+        database_info: { compatibilityMode: "pg" },
+      };
+      const toggledInPg = updateSqlVariableSyntaxToggle(settingsStore.editorSettings.sqlVariableSyntaxOverrides, "kingbase", "shell", false, "pg");
+      settingsStore.updateEditorSettings({
+        sqlVariableSyntaxOverrides: toggledInPg,
+      });
+      // Explicit substitution: false must NOT be dropped
+      expect(settingsStore.editorSettings.sqlVariableSyntaxOverrides.kingbase).toEqual({
+        substitution: false,
+        shell: false,
+      });
+
+      // Switch back to oracle mode and execute -> must NOT prompt parameter dialog
+      activeConnection.value = {
+        ...activeConnection.value!,
+        database_info: { compatibilityMode: "oracle" },
+      };
       const execution = useSqlExecution({
         activeTab: computed(() => activeTab.value),
         activeConnection: computed(() => activeConnection.value),
@@ -2301,6 +2338,62 @@ SELECT @value AS Message;`;
       await execution.tryExecute();
       expect(execution.showSqlParameterDialog.value).toBe(false);
       expect(executeCurrentSql).toHaveBeenCalledWith(sql, expect.anything());
+    });
+
+    it("Kingbase explicitly enables substitution -> UI toggles shell in oracle mode -> executes in pg mode -> prompts parameter dialog on &var", async () => {
+      const sql = "SELECT * FROM t WHERE col = &var;";
+      const activeTab = ref<QueryTab | undefined>({ ...queryTab("demo"), sql });
+      const activeConnection = ref<ConnectionConfig | undefined>({
+        ...connection("kingbase"),
+        database_info: { compatibilityMode: "oracle" },
+      });
+      const activeOutputView = ref<"result" | "summary" | "explain" | "chart">("result");
+      const queryStore = useQueryStore();
+      const connectionStore = useConnectionStore();
+      const settingsStore = useSettingsStore();
+
+      connectionStore.connections = [activeConnection.value!];
+      queryStore.tabs = [activeTab.value!];
+      queryStore.activeTabId = activeTab.value!.id;
+
+      const executeCurrentSql = vi.spyOn(queryStore, "executeCurrentSql").mockImplementation(async () => {
+        if (activeTab.value) activeTab.value.result = { columns: ["id"], rows: [[1]], affected_rows: 0, execution_time_ms: 1 };
+      });
+      vi.spyOn(useHistoryStore(), "add").mockResolvedValue(undefined);
+
+      // User explicitly enables substitution for Kingbase (sets substitution=true)
+      const initialOverrides = updateSqlVariableSyntaxToggle({}, "kingbase", "substitution", true, "oracle");
+      settingsStore.updateEditorSettings({
+        sqlVariableSyntaxOverrides: initialOverrides,
+      });
+      expect(settingsStore.editorSettings.sqlVariableSyntaxOverrides.kingbase?.substitution).toBe(true);
+
+      // While in oracle mode (where substitution default is already true), user toggles shell=false
+      const toggledInOracle = updateSqlVariableSyntaxToggle(settingsStore.editorSettings.sqlVariableSyntaxOverrides, "kingbase", "shell", false, "oracle");
+      settingsStore.updateEditorSettings({
+        sqlVariableSyntaxOverrides: toggledInOracle,
+      });
+      // Explicit substitution: true must be preserved
+      expect(settingsStore.editorSettings.sqlVariableSyntaxOverrides.kingbase).toEqual({
+        substitution: true,
+        shell: false,
+      });
+
+      // Switch to pg mode (where default is false) and execute -> MUST prompt parameter dialog because explicit true was preserved
+      activeConnection.value = {
+        ...activeConnection.value!,
+        database_info: { compatibilityMode: "pg" },
+      };
+      const execution = useSqlExecution({
+        activeTab: computed(() => activeTab.value),
+        activeConnection: computed(() => activeConnection.value),
+        executableSql: computed(() => sql),
+        activeOutputView,
+      });
+      await execution.tryExecute();
+      expect(execution.showSqlParameterDialog.value).toBe(true);
+      expect(execution.sqlParameterNames.value.map((p) => p.name)).toEqual(["var"]);
+      expect(executeCurrentSql).not.toHaveBeenCalled();
     });
 
     it("PostgreSQL bitwise & and array overlap && do not prompt by default, but prompt when explicitly enabled", async () => {
@@ -2360,6 +2453,7 @@ SELECT @value AS Message;`;
       await executionExplicit.tryExecute();
       expect(executionExplicit.showSqlParameterDialog.value).toBe(true);
       expect(executionExplicit.sqlParameterNames.value.map((p) => p.name)).toEqual(["var"]);
+      expect(executeCurrentSql).toHaveBeenCalledTimes(2);
     });
   });
 });

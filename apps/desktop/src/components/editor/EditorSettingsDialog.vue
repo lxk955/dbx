@@ -271,7 +271,6 @@ import { currentExecutableStatementRange, type SqlTextRange } from "@/lib/sql/sq
 import { executableStatementRangeCacheForDoc, executableStatementRangeStartingAt, type ExecutableStatementRangeCache } from "@/lib/sql/executableStatementRangeCache";
 import { EMPTY_TABLE_COLUMN_TEMPLATE_DATA_TYPE, parseTableColumnTemplateFields, TABLE_COLUMN_TEMPLATE_DATABASE_TYPES, tableColumnTemplateRowsToSettings } from "@/lib/table/tableColumnTemplates";
 import {
-  defaultSqlVariableSyntaxToggles,
   isModeDependentSubstitutionDatabase,
   normalizeSqlVariableSyntaxOverrides,
   resolveSqlVariableSyntaxToggles,
@@ -280,6 +279,7 @@ import {
   SQL_VARIABLE_SYNTAX_TOKENS,
   type SqlVariableSyntaxOverrides,
   type SqlVariableSyntaxToggles,
+  updateSqlVariableSyntaxToggle,
 } from "@/lib/sql/sqlVariableSyntax";
 import {
   buildMcpCherryStudioConfig,
@@ -951,44 +951,7 @@ function sqlVariableSyntaxToggle(key: keyof SqlVariableSyntaxToggles): boolean {
 }
 
 function setSqlVariableSyntaxToggle(key: keyof SqlVariableSyntaxToggles, value: boolean) {
-  const dbType = editSqlVariableSyntaxDatabaseType.value;
-  if ((dbType === "neo4j" || dbType === "nebula") && key === "named") return;
-  const compatibilityMode = currentSqlVariableSyntaxCompatibilityMode.value;
-  const defaults = defaultSqlVariableSyntaxToggles(dbType, compatibilityMode);
-  const current = resolveSqlVariableSyntaxToggles(editSqlVariableSyntaxOverrides.value, dbType, true, compatibilityMode);
-  const merged: SqlVariableSyntaxToggles = {
-    ...current,
-    [key]: value,
-  };
-  const next: SqlVariableSyntaxOverrides = {
-    ...editSqlVariableSyntaxOverrides.value,
-  };
-  const isModeDependent = isModeDependentSubstitutionDatabase(dbType);
-  const partial: Partial<SqlVariableSyntaxToggles> = {};
-  for (const toggleKey of SQL_VARIABLE_SYNTAX_KEYS) {
-    if ((dbType === "neo4j" || dbType === "nebula") && toggleKey === "named") continue;
-    if (toggleKey === "substitution" && isModeDependent) {
-      if (compatibilityMode !== undefined) {
-        if (merged[toggleKey] !== defaults[toggleKey]) {
-          partial[toggleKey] = merged[toggleKey];
-        }
-      } else {
-        if (toggleKey === key) {
-          partial[toggleKey] = value;
-        } else if (editSqlVariableSyntaxOverrides.value[dbType]?.substitution !== undefined) {
-          partial[toggleKey] = editSqlVariableSyntaxOverrides.value[dbType]!.substitution;
-        }
-      }
-    } else if (merged[toggleKey] !== defaults[toggleKey]) {
-      partial[toggleKey] = merged[toggleKey];
-    }
-  }
-  if (Object.keys(partial).length === 0) {
-    delete next[dbType];
-  } else {
-    next[dbType] = partial;
-  }
-  editSqlVariableSyntaxOverrides.value = next;
+  editSqlVariableSyntaxOverrides.value = updateSqlVariableSyntaxToggle(editSqlVariableSyntaxOverrides.value, editSqlVariableSyntaxDatabaseType.value, key, value, currentSqlVariableSyntaxCompatibilityMode.value);
 }
 const tableColumnTemplateSectionRef = ref<HTMLElement | null>(null);
 const draggedTableColumnTemplateRowId = ref<string | null>(null);
