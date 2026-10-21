@@ -13,7 +13,7 @@ describe("resolveHistorySqlRestoreTarget", () => {
     username: "postgres",
     password: "",
     database: "postgres",
-    schema: "public",
+    default_schema: "public",
   };
 
   const mysqlConfig: ConnectionConfig = {

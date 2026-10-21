@@ -39,8 +39,8 @@ export function resolveHistorySqlRestoreTarget(options: { entry: HistoryEntry; a
   if (!schema && activeTab?.connectionId === connectionId && activeTab.database === database) {
     schema = activeTab.schema;
   }
-  if (!schema && config?.schema) {
-    schema = config.schema;
+  if (!schema && config?.default_schema) {
+    schema = config.default_schema;
   }
 
   return { connectionId, database: database || "", schema };

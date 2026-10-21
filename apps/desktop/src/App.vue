@@ -1000,7 +1000,7 @@ function restoreHistorySql(sql: string, entry: HistoryEntry) {
   if (!target) return;
 
   const tab = activeTab.value;
-  if (canReuseTabForHistoryRestore(tab, target)) {
+  if (tab && canReuseTabForHistoryRestore(tab, target)) {
     queryStore.updateSql(tab.id, sql);
   } else {
     queryStore.createTab(target.connectionId, target.database, undefined, "query", target.schema, sql, undefined, { forceNew: true });
