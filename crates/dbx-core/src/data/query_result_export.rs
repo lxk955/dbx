@@ -3138,6 +3138,21 @@ mod tests {
         req.query_base_sql = req.sql.clone();
         assert!(supports_streaming_offset_pagination(&req, 100));
         assert_eq!(streaming_pagination_preflight_error(&req, 100, false, false, false), None);
+
+        req.sql = "SELECT * FROM BD_MATERIAL".to_string();
+        req.query_base_sql = req.sql.clone();
+        assert!(supports_streaming_offset_pagination(&req, 100));
+        assert_eq!(streaming_pagination_preflight_error(&req, 100, false, false, false), None);
+
+        req.sql = "SELECT * FROM \"APP\".\"BD_MATERIAL\"".to_string();
+        req.query_base_sql = req.sql.clone();
+        assert!(supports_streaming_offset_pagination(&req, 100));
+        assert_eq!(streaming_pagination_preflight_error(&req, 100, false, false, false), None);
+
+        req.sql = "SELECT * FROM BD_MATERIAL ORDER BY code ASC".to_string();
+        req.query_base_sql = req.sql.clone();
+        assert!(supports_streaming_offset_pagination(&req, 100));
+        assert_eq!(streaming_pagination_preflight_error(&req, 100, false, false, false), None);
     }
 
     #[test]
