@@ -43,6 +43,16 @@ function makeSettings(overrides: Partial<EditorSettings> = {}): EditorSettings {
 }
 
 describe("EDITOR_SETTINGS_DRAFT_KEYS", () => {
+  it("tracks the result-tab click setting in the draft without changing saved settings", () => {
+    const settings = makeSettings({ pinResultTabOnClick: true });
+    const draft = editorSettingsDraftFromSettings(settings);
+    const base = editorSettingsDraftFromSettings(settings);
+    draft.pinResultTabOnClick = false;
+    expect(settings.pinResultTabOnClick).toBe(true);
+    expect(editorSettingsDraftChanged(draft, base)).toBe(true);
+    expect(editorSettingsPatchFromDraft(draft, base)).toMatchObject({ pinResultTabOnClick: false });
+  });
+
   it("captures and saves the column comment placement preference", () => {
     const base = editorSettingsDraftFromSettings(makeSettings({ dataGridColumnCommentsInInfoArea: false, dataGridTransposeMetadataInInfoColumn: false }));
     const draft = editorSettingsDraftFromSettings(makeSettings({ dataGridColumnCommentsInInfoArea: true, dataGridTransposeMetadataInInfoColumn: true }));
@@ -72,6 +82,12 @@ describe("EDITOR_SETTINGS_DRAFT_KEYS", () => {
     expect(EDITOR_SETTINGS_DRAFT_KEYS).toContain("queryResultExportFileNameSource");
     const draft = editorSettingsDraftFromSettings(makeSettings({ queryResultExportFileNameSource: "tab-title" } as Partial<EditorSettings>));
     expect(draft.queryResultExportFileNameSource).toBe("tab-title");
+  });
+
+  it("includes colorizeConnectionTabsScope (#12955)", () => {
+    expect(EDITOR_SETTINGS_DRAFT_KEYS).toContain("colorizeConnectionTabsScope");
+    const draft = editorSettingsDraftFromSettings(makeSettings({ colorizeConnectionTabsScope: "active" } as Partial<EditorSettings>));
+    expect(draft.colorizeConnectionTabsScope).toBe("active");
   });
 
   it("includes continueOnErrorOnBatch", () => {

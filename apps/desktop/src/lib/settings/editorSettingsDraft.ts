@@ -58,9 +58,11 @@ export const EDITOR_SETTINGS_DRAFT_KEYS = [
   "tabLayout",
   "tabPlacement",
   "colorizeConnectionTabs",
+  "colorizeConnectionTabsScope",
   "tabGroupMode",
   "tabSortMode",
   "tabMaxWidth",
+  "tabGroupRows",
   "showColumnCommentsInHeader",
   "dataGridColumnCommentsInInfoArea",
   "showColumnTypesInHeader",
@@ -141,6 +143,7 @@ export const EDITOR_SETTINGS_DRAFT_KEYS = [
   "sidebarObjectInfoMode",
   "sidebarAllowHorizontalScroll",
   "sidebarShowTooltips",
+  "sidebarShowUserAdmin",
   "sidebarIndent",
   "sidebarFontSize",
   "sidebarDensity",
@@ -209,6 +212,7 @@ function normalizedDraftValue(key: EditorSettingsDraftKey, value: unknown): unkn
   if (key === "snippetTriggerKey") return value === "space" || value === "both" ? value : "tab";
   if (key === "webLogoPosition") return value === "right" || value === "hidden" ? value : "left";
   if (key === "aiSqlApplyTargetMode") return normalizeAiSqlApplyTargetMode(value);
+  if (key === "colorizeConnectionTabsScope") return value === "active" ? "active" : "all";
   return value;
 }
 

@@ -104,7 +104,9 @@ import {
   type SavedSqlOpenTargetMode,
   type AiSqlApplyTargetMode,
   type TabGroupMode,
+  type TabGroupRowMode,
   type TabPlacement,
+  type ConnectionTabColorScope,
   type TabSortMode,
   type WelcomePageMode,
   type UpdateDownloadSource,
@@ -270,7 +272,7 @@ import { currentExecutableStatementRange, type SqlTextRange } from "@/lib/sql/sq
 import { executableStatementRangeCacheForDoc, executableStatementRangeStartingAt, type ExecutableStatementRangeCache } from "@/lib/sql/executableStatementRangeCache";
 import { EMPTY_TABLE_COLUMN_TEMPLATE_DATA_TYPE, parseTableColumnTemplateFields, TABLE_COLUMN_TEMPLATE_DATABASE_TYPES, tableColumnTemplateRowsToSettings } from "@/lib/table/tableColumnTemplates";
 import {
-  DEFAULT_SQL_VARIABLE_SYNTAX_TOGGLES,
+  isModeDependentSubstitutionDatabase,
   normalizeSqlVariableSyntaxOverrides,
   resolveSqlVariableSyntaxToggles,
   SQL_VARIABLE_SYNTAX_DATABASE_TYPES,
@@ -278,6 +280,7 @@ import {
   SQL_VARIABLE_SYNTAX_TOKENS,
   type SqlVariableSyntaxOverrides,
   type SqlVariableSyntaxToggles,
+  updateSqlVariableSyntaxToggle,
 } from "@/lib/sql/sqlVariableSyntax";
 import {
   buildMcpCherryStudioConfig,
@@ -357,6 +360,7 @@ import {
 import { applyEditorSettingsDraftToRefs, type EditorSettingsDraftRefMap } from "@/lib/settings/applyEditorSettingsDraft";
 import { serializeSettingsTransfer, sortTransferCategories, transferCategoryForKey, type SettingsTransferCategoryId } from "@/lib/settings/settingsTransfer";
 import { useConnectionStore } from "@/stores/connectionStore";
+import { useQueryStore } from "@/stores/queryStore";
 import { effectiveDatabaseTypeForConnection } from "@/lib/database/jdbcDialect";
 import { useSavedSqlStore } from "@/stores/savedSqlStore";
 import { usePromptTemplateStore } from "@/stores/promptTemplateStore";
@@ -387,6 +391,7 @@ import {
 } from "@/lib/settings/settingsSearch";
 import { findSettingsSearchHighlightTarget } from "@/lib/settings/settingsSearchHighlight";
 import { LOCALE_OPTIONS } from "@/lib/app/localeOptions";
+import LocaleFlag from "@/components/icons/LocaleFlag.vue";
 import {
   DEFAULT_WEB_DAV_AUTO_UPLOAD_INTERVAL_MINUTES,
   DEFAULT_WEB_DAV_REMOTE_PATH,
@@ -429,6 +434,7 @@ const { draft: editHistoryRetentionLimit, loaded: historyRetentionLoaded, loadin
 const { draft: editMcpHistoryRetentionLimit, loaded: mcpHistoryRetentionLoaded, loading: mcpHistoryRetentionLoading, saving: mcpHistoryRetentionSaving, loadError: mcpHistoryRetentionLoadError } = mcpHistoryRetention;
 const mcpHistoryCleanupLoading = ref(false);
 const connectionStore = useConnectionStore();
+const queryStore = useQueryStore();
 const hasSqlServerConnection = computed(() => connectionStore.connections.some((connection) => effectiveDatabaseTypeForConnection(connection) === "sqlserver"));
 const savedSqlStore = useSavedSqlStore();
 const promptTemplateStore = usePromptTemplateStore();
@@ -645,7 +651,7 @@ function closeSettings() {
   requestCloseSettings(false);
 }
 
-defineExpose({ requestClose: closeSettings });
+defineExpose({ requestClose: closeSettings, applySettingsFromShortcut });
 
 function cancelUnsavedSettingsClose() {
   showUnsavedSettingsCloseConfirm.value = false;
@@ -797,9 +803,11 @@ const editWebLogoPosition = ref<WebLogoPosition>(settingsStore.editorSettings.we
 const editTabLayout = ref(settingsStore.editorSettings.tabLayout);
 const editTabPlacement = ref<TabPlacement>(settingsStore.editorSettings.tabPlacement);
 const editColorizeConnectionTabs = ref(settingsStore.editorSettings.colorizeConnectionTabs);
+const editColorizeConnectionTabsScope = ref<ConnectionTabColorScope>(settingsStore.editorSettings.colorizeConnectionTabsScope);
 const editTabGroupMode = ref<TabGroupMode>(settingsStore.editorSettings.tabGroupMode);
 const editTabSortMode = ref<TabSortMode>(settingsStore.editorSettings.tabSortMode);
 const editTabMaxWidth = ref<number>(settingsStore.editorSettings.tabMaxWidth);
+const editTabGroupRows = ref<TabGroupRowMode>(settingsStore.editorSettings.tabGroupRows);
 const editShowTrayIcon = ref(settingsStore.desktopSettings.show_tray_icon);
 const editQuitOnClose = ref(settingsStore.desktopSettings.quit_on_close);
 const desktopCloseBehaviorResetPending = ref(false);
@@ -897,32 +905,56 @@ function updateExternalSqlEditorMaxMbInput(event: Event) {
   editExternalSqlEditorMaxMb.value = normalized;
 }
 
+const currentSqlVariableSyntaxCompatibilityMode = computed<string | undefined>(() => {
+  const dbType = editSqlVariableSyntaxDatabaseType.value;
+  if (!isModeDependentSubstitutionDatabase(dbType)) return undefined;
+
+  const activeTab = queryStore.tabs.find((tab) => tab.id === queryStore.activeTabId);
+  if (activeTab?.connectionId) {
+    const activeConn = connectionStore.getConfig(activeTab.connectionId);
+    const connDbType = activeConn ? (effectiveDatabaseTypeForConnection(activeConn) ?? activeConn.db_type) : undefined;
+    if (connDbType === dbType) {
+      if (dbType === "opengauss" || dbType === "gaussdb") {
+        return connectionStore.databaseCompatibilityMode(activeTab.connectionId, activeTab.database || activeConn?.database);
+      }
+      if (dbType === "kingbase") {
+        return activeConn?.database_info?.compatibilityMode;
+      }
+    }
+  }
+
+  if (connectionStore.activeConnectionId) {
+    const activeConn = connectionStore.getConfig(connectionStore.activeConnectionId);
+    const connDbType = activeConn ? (effectiveDatabaseTypeForConnection(activeConn) ?? activeConn.db_type) : undefined;
+    if (activeConn && connDbType === dbType) {
+      if (dbType === "opengauss" || dbType === "gaussdb") {
+        return connectionStore.databaseCompatibilityMode(activeConn.id, activeConn.database);
+      }
+      if (dbType === "kingbase") {
+        return activeConn.database_info?.compatibilityMode;
+      }
+    }
+  }
+
+  const conn = connectionStore.connections.find((c) => (effectiveDatabaseTypeForConnection(c) ?? c.db_type) === dbType);
+  if (conn) {
+    if (dbType === "opengauss" || dbType === "gaussdb") {
+      return connectionStore.databaseCompatibilityMode(conn.id, conn.database);
+    }
+    if (dbType === "kingbase") {
+      return conn.database_info?.compatibilityMode;
+    }
+  }
+
+  return undefined;
+});
+
 function sqlVariableSyntaxToggle(key: keyof SqlVariableSyntaxToggles): boolean {
-  return resolveSqlVariableSyntaxToggles(editSqlVariableSyntaxOverrides.value, editSqlVariableSyntaxDatabaseType.value)[key];
+  return resolveSqlVariableSyntaxToggles(editSqlVariableSyntaxOverrides.value, editSqlVariableSyntaxDatabaseType.value, true, currentSqlVariableSyntaxCompatibilityMode.value)[key];
 }
 
 function setSqlVariableSyntaxToggle(key: keyof SqlVariableSyntaxToggles, value: boolean) {
-  const dbType = editSqlVariableSyntaxDatabaseType.value;
-  if ((dbType === "neo4j" || dbType === "nebula") && key === "named") return;
-  const merged: SqlVariableSyntaxToggles = {
-    ...DEFAULT_SQL_VARIABLE_SYNTAX_TOGGLES,
-    ...editSqlVariableSyntaxOverrides.value[dbType],
-    [key]: value,
-  };
-  const next: SqlVariableSyntaxOverrides = {
-    ...editSqlVariableSyntaxOverrides.value,
-  };
-  // Keep storage sparse: an all-enabled type has no entry; otherwise persist only the disabled syntaxes.
-  if (SQL_VARIABLE_SYNTAX_KEYS.every((toggleKey) => merged[toggleKey])) {
-    delete next[dbType];
-  } else {
-    const partial: Partial<SqlVariableSyntaxToggles> = {};
-    for (const toggleKey of SQL_VARIABLE_SYNTAX_KEYS) {
-      if (!merged[toggleKey]) partial[toggleKey] = false;
-    }
-    next[dbType] = partial;
-  }
-  editSqlVariableSyntaxOverrides.value = next;
+  editSqlVariableSyntaxOverrides.value = updateSqlVariableSyntaxToggle(editSqlVariableSyntaxOverrides.value, editSqlVariableSyntaxDatabaseType.value, key, value, currentSqlVariableSyntaxCompatibilityMode.value);
 }
 const tableColumnTemplateSectionRef = ref<HTMLElement | null>(null);
 const draggedTableColumnTemplateRowId = ref<string | null>(null);
@@ -986,6 +1018,7 @@ const editRedisDatabaseDisplayLimit = ref(settingsStore.editorSettings.redisData
 const editSidebarObjectInfoMode = ref<SidebarObjectInfoMode>(settingsStore.editorSettings.sidebarObjectInfoMode);
 const editSidebarAllowHorizontalScroll = ref(settingsStore.editorSettings.sidebarAllowHorizontalScroll);
 const editSidebarShowTooltips = ref(settingsStore.editorSettings.sidebarShowTooltips);
+const editSidebarShowUserAdmin = ref(settingsStore.editorSettings.sidebarShowUserAdmin);
 const editSidebarIndent = ref(settingsStore.editorSettings.sidebarIndent);
 const editSidebarFontSize = ref(settingsStore.editorSettings.sidebarFontSize);
 const editSidebarDensity = ref<SidebarDensity>(settingsStore.editorSettings.sidebarDensity);
@@ -1196,9 +1229,11 @@ function currentEditorSettingsDraft(): EditorSettingsDraft {
     tabLayout: editTabLayout.value,
     tabPlacement: editTabPlacement.value,
     colorizeConnectionTabs: editColorizeConnectionTabs.value,
+    colorizeConnectionTabsScope: editColorizeConnectionTabsScope.value,
     tabGroupMode: editTabGroupMode.value,
     tabSortMode: editTabSortMode.value,
     tabMaxWidth: editTabMaxWidth.value,
+    tabGroupRows: editTabGroupRows.value,
     showColumnCommentsInHeader: editShowColumnCommentsInHeader.value,
     dataGridColumnCommentsInInfoArea: editDataGridColumnCommentsInInfoArea.value,
     showColumnTypesInHeader: editShowColumnTypesInHeader.value,
@@ -1279,6 +1314,7 @@ function currentEditorSettingsDraft(): EditorSettingsDraft {
     sidebarObjectInfoMode: editSidebarObjectInfoMode.value,
     sidebarAllowHorizontalScroll: editSidebarAllowHorizontalScroll.value,
     sidebarShowTooltips: editSidebarShowTooltips.value,
+    sidebarShowUserAdmin: editSidebarShowUserAdmin.value,
     sidebarIndent: editSidebarIndent.value,
     sidebarFontSize: editSidebarFontSize.value,
     sidebarDensity: editSidebarDensity.value,
@@ -1894,9 +1930,11 @@ function syncEditorSettingsDraftFromStore() {
   editTabLayout.value = settingsStore.editorSettings.tabLayout;
   editTabPlacement.value = settingsStore.editorSettings.tabPlacement;
   editColorizeConnectionTabs.value = settingsStore.editorSettings.colorizeConnectionTabs;
+  editColorizeConnectionTabsScope.value = settingsStore.editorSettings.colorizeConnectionTabsScope;
   editTabGroupMode.value = settingsStore.editorSettings.tabGroupMode;
   editTabSortMode.value = settingsStore.editorSettings.tabSortMode;
   editTabMaxWidth.value = settingsStore.editorSettings.tabMaxWidth;
+  editTabGroupRows.value = settingsStore.editorSettings.tabGroupRows;
   editShowColumnCommentsInHeader.value = settingsStore.editorSettings.showColumnCommentsInHeader;
   editDataGridColumnCommentsInInfoArea.value = settingsStore.editorSettings.dataGridColumnCommentsInInfoArea;
   editShowColumnTypesInHeader.value = settingsStore.editorSettings.showColumnTypesInHeader;
@@ -1982,6 +2020,7 @@ function syncEditorSettingsDraftFromStore() {
   editSidebarObjectInfoMode.value = settingsStore.editorSettings.sidebarObjectInfoMode;
   editSidebarAllowHorizontalScroll.value = settingsStore.editorSettings.sidebarAllowHorizontalScroll;
   editSidebarShowTooltips.value = settingsStore.editorSettings.sidebarShowTooltips;
+  editSidebarShowUserAdmin.value = settingsStore.editorSettings.sidebarShowUserAdmin;
   editSidebarIndent.value = settingsStore.editorSettings.sidebarIndent;
   editSidebarFontSize.value = settingsStore.editorSettings.sidebarFontSize;
   editSidebarDensity.value = settingsStore.editorSettings.sidebarDensity;
@@ -2066,9 +2105,11 @@ const editorSettingsDraftRefs: EditorSettingsDraftRefMap = {
   tabLayout: editTabLayout,
   tabPlacement: editTabPlacement,
   colorizeConnectionTabs: editColorizeConnectionTabs,
+  colorizeConnectionTabsScope: editColorizeConnectionTabsScope,
   tabGroupMode: editTabGroupMode,
   tabSortMode: editTabSortMode,
   tabMaxWidth: editTabMaxWidth,
+  tabGroupRows: editTabGroupRows,
   showColumnCommentsInHeader: editShowColumnCommentsInHeader,
   dataGridColumnCommentsInInfoArea: editDataGridColumnCommentsInInfoArea,
   showColumnTypesInHeader: editShowColumnTypesInHeader,
@@ -2147,6 +2188,7 @@ const editorSettingsDraftRefs: EditorSettingsDraftRefMap = {
   sidebarObjectInfoMode: editSidebarObjectInfoMode,
   sidebarAllowHorizontalScroll: editSidebarAllowHorizontalScroll,
   sidebarShowTooltips: editSidebarShowTooltips,
+  sidebarShowUserAdmin: editSidebarShowUserAdmin,
   sidebarIndent: editSidebarIndent,
   sidebarFontSize: editSidebarFontSize,
   sidebarDensity: editSidebarDensity,
@@ -2590,6 +2632,15 @@ async function applySettingsAndClose() {
   }
 }
 
+// Ctrl+S on the settings page behaves like the "Apply" button: persist the draft
+// but stay open (the shortcut means "save", not "save and quit"). Mirrors the
+// button's own disabled state so a key press cannot bypass an apply blocker, and
+// never fires when there is nothing to persist.
+async function applySettingsFromShortcut() {
+  if (!hasChanges()) return;
+  await applySettings();
+}
+
 async function restartDbxForDuckDbIsolation() {
   if (duckDbRestarting.value || hasApplyBlocker.value || isWeb) return;
   duckDbRestarting.value = true;
@@ -2671,9 +2722,11 @@ function resetDefaultsForTab(tab: SettingsCategory) {
     editTabLayout.value = DEFAULT_EDITOR_SETTINGS.tabLayout;
     editTabPlacement.value = DEFAULT_EDITOR_SETTINGS.tabPlacement;
     editColorizeConnectionTabs.value = DEFAULT_EDITOR_SETTINGS.colorizeConnectionTabs;
+    editColorizeConnectionTabsScope.value = DEFAULT_EDITOR_SETTINGS.colorizeConnectionTabsScope;
     editTabGroupMode.value = DEFAULT_EDITOR_SETTINGS.tabGroupMode;
     editTabSortMode.value = DEFAULT_EDITOR_SETTINGS.tabSortMode;
     editTabMaxWidth.value = DEFAULT_EDITOR_SETTINGS.tabMaxWidth;
+    editTabGroupRows.value = DEFAULT_EDITOR_SETTINGS.tabGroupRows;
     editShowTrayIcon.value = DEFAULT_DESKTOP_SETTINGS.show_tray_icon;
     editQuitOnClose.value = DEFAULT_DESKTOP_SETTINGS.quit_on_close;
     desktopCloseBehaviorResetPending.value = true;
@@ -2707,6 +2760,7 @@ function resetDefaultsForTab(tab: SettingsCategory) {
     editSidebarObjectInfoMode.value = DEFAULT_EDITOR_SETTINGS.sidebarObjectInfoMode;
     editSidebarAllowHorizontalScroll.value = DEFAULT_EDITOR_SETTINGS.sidebarAllowHorizontalScroll;
     editSidebarShowTooltips.value = DEFAULT_EDITOR_SETTINGS.sidebarShowTooltips;
+    editSidebarShowUserAdmin.value = DEFAULT_EDITOR_SETTINGS.sidebarShowUserAdmin;
     editSidebarIndent.value = DEFAULT_EDITOR_SETTINGS.sidebarIndent;
     editSidebarFontSize.value = DEFAULT_EDITOR_SETTINGS.sidebarFontSize;
     editSidebarDensity.value = DEFAULT_EDITOR_SETTINGS.sidebarDensity;
@@ -2932,6 +2986,7 @@ function resetAllDefaults() {
   editSidebarObjectInfoMode.value = DEFAULT_EDITOR_SETTINGS.sidebarObjectInfoMode;
   editSidebarAllowHorizontalScroll.value = DEFAULT_EDITOR_SETTINGS.sidebarAllowHorizontalScroll;
   editSidebarShowTooltips.value = DEFAULT_EDITOR_SETTINGS.sidebarShowTooltips;
+  editSidebarShowUserAdmin.value = DEFAULT_EDITOR_SETTINGS.sidebarShowUserAdmin;
   editSidebarIndent.value = DEFAULT_EDITOR_SETTINGS.sidebarIndent;
   editSidebarFontSize.value = DEFAULT_EDITOR_SETTINGS.sidebarFontSize;
   editSidebarDensity.value = DEFAULT_EDITOR_SETTINGS.sidebarDensity;
@@ -3517,6 +3572,10 @@ function setTabMaxWidth(value: number) {
   editTabMaxWidth.value = normalizeTabMaxWidth(value);
 }
 
+function setTabGroupRows(value: TabGroupRowMode) {
+  editTabGroupRows.value = value;
+}
+
 function setSidebarActivation(value: "single" | "double") {
   editSidebarActivation.value = value;
 }
@@ -3659,7 +3718,7 @@ const settingsSearchEntries = computed(() =>
     settingsSearchCategoryLabels.value,
   ),
 );
-const settingsSearchResults = computed(() => searchSettings(settingsSearchEntries.value, settingsSearchQuery.value, currentLocale()));
+const settingsSearchResults = computed(() => searchSettings(settingsSearchEntries.value, settingsSearchQuery.value, currentLocale(), Infinity));
 const settingsSearchActive = computed(() => Boolean(settingsSearchQuery.value.trim()));
 const settingsSearchVisible = computed(() => settingsSearchOpen.value && settingsSearchActive.value);
 const settingsSearchResultGroups = computed(() => {
@@ -3718,6 +3777,10 @@ function onSettingsCategoryClick(category: SettingsCategory) {
 
 function applySettingsSearchRoute(result: SettingsSearchEntry) {
   if (result.route?.syncMethodTab) syncMethodTab.value = result.route.syncMethodTab;
+  if (result.route?.mcpManagementTab) mcpManagementTab.value = result.route.mcpManagementTab;
+  if (result.route?.mcpTransportTab) mcpTransportTab.value = result.route.mcpTransportTab;
+  if (result.route?.mcpAuthorizationTab) mcpAuthorizationTab.value = result.route.mcpAuthorizationTab;
+  if (result.route?.formatterMode) formatterMode.value = result.route.formatterMode;
 }
 
 async function revealSettingsSearchTarget(result: SettingsSearchEntry) {
@@ -3772,6 +3835,10 @@ function onSettingsSearchKeydown(event: KeyboardEvent) {
     settingsSearchOpen.value = true;
     const direction = event.key === "ArrowDown" ? 1 : -1;
     settingsSearchActiveIndex.value = (settingsSearchActiveIndex.value + direction + results.length) % results.length;
+    void nextTick(() => {
+      const activeResult = settingsSearchResults.value[settingsSearchActiveIndex.value];
+      if (activeResult) document.getElementById(`settings-search-result-${activeResult.id}`)?.scrollIntoView({ block: "nearest" });
+    });
     return;
   }
   if (event.key === "Enter") {
@@ -3947,6 +4014,8 @@ const mcpCopied = ref<"" | McpCopyKind>("");
 const mcpConfigTab = ref<McpConfigTab>("claude");
 const mcpTransportTab = ref<McpTransportTab>("stdio");
 const mcpManagementTab = ref<McpManagementTab>("access");
+const mcpAuthorizationTab = ref<"overrides" | "connections" | "databases" | "capabilities">("overrides");
+const formatterMode = ref<"form" | "json">("form");
 const mcpHttpSettings = ref<McpHttpServerSettings>({
   enabled: false,
   host: "127.0.0.1",
@@ -7573,7 +7642,7 @@ onUnmounted(() => {
                 </div>
 
                 <!-- Theme + Custom Theme Button -->
-                <div class="flex gap-2 items-end">
+                <div data-settings-search-id="editor-theme" class="flex gap-2 items-end">
                   <div class="space-y-2">
                     <Label>{{ t("settings.theme") }}</Label>
                     <Select :model-value="themeSelectValue" @update:model-value="onThemeChange">
@@ -8299,7 +8368,7 @@ onUnmounted(() => {
                   </div>
                 </div>
               </div>
-              <SqlFormatterSettingsPanel v-model="editSqlFormatter" @validity-change="(value: boolean) => (sqlFormatterConfigValid = value)" />
+              <SqlFormatterSettingsPanel v-model="editSqlFormatter" v-model:mode="formatterMode" @validity-change="(value: boolean) => (sqlFormatterConfigValid = value)" />
             </section>
 
             <section v-else-if="activeSettingsTab === 'appearance'" class="settings-appearance-section flex flex-col gap-4 py-2" data-settings-search-id="appearance" :class="settingsSearchTargetClass('appearance')">
@@ -8309,22 +8378,18 @@ onUnmounted(() => {
                     <Label class="whitespace-normal leading-tight">{{ t("settings.languageTitle") }}</Label>
                   </div>
                   <Select :model-value="currentLocale()" @update:model-value="onLocaleChange" @update:open="onLocaleOpenChange">
-                    <SelectTrigger class="h-8 w-full gap-0.5 px-0.5">
+                    <SelectTrigger class="h-8 w-full gap-0.5 px-0.5" :aria-label="t('settings.languageTitle')">
                       <SelectValue>
                         <span v-if="selectedLocaleOption" class="flex min-w-0 items-center gap-0.5">
-                          <span class="inline-flex h-5 shrink-0 items-center justify-center text-sm font-medium leading-none">
-                            {{ selectedLocaleOption.flag }}
-                          </span>
+                          <LocaleFlag :option="selectedLocaleOption" />
                           <span class="truncate">{{ selectedLocaleOption.label }}</span>
                         </span>
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent class="w-[150px]" @pointerleave="restoreLocaleOptionPreview">
-                      <SelectItem v-for="locale in LOCALE_OPTIONS" :key="locale.value" :value="locale.value" @pointerenter="scheduleLocaleOptionPreview(locale.value)" @focus="previewLocaleOption(locale.value)">
+                      <SelectItem v-for="locale in LOCALE_OPTIONS" :key="locale.value" :value="locale.value" :text-value="locale.label" @pointerenter="scheduleLocaleOptionPreview(locale.value)" @focus="previewLocaleOption(locale.value)">
                         <div class="flex items-center gap-1">
-                          <span class="inline-flex h-5 w-6 shrink-0 items-center justify-center text-sm font-medium leading-none">
-                            {{ locale.flag }}
-                          </span>
+                          <LocaleFlag :option="locale" />
                           <span>{{ locale.label }}</span>
                         </div>
                       </SelectItem>
@@ -8599,16 +8664,36 @@ onUnmounted(() => {
                 </div>
               </div>
 
-              <div class="settings-item flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">
-                <div class="space-y-1">
-                  <Label for="colorize-connection-tabs">{{ t("settings.colorizeConnectionTabs") }}</Label>
-                  <p class="text-xs text-muted-foreground">{{ t("settings.colorizeConnectionTabsDescription") }}</p>
+              <div class="settings-item rounded-md border bg-muted/20 px-3 py-2">
+                <div :class="editColorizeConnectionTabs ? 'grid gap-4 md:grid-cols-2' : ''">
+                  <div class="flex min-w-0 items-start justify-between gap-4">
+                    <div class="min-w-0 space-y-1">
+                      <Label for="colorize-connection-tabs">{{ t("settings.colorizeConnectionTabs") }}</Label>
+                      <p class="text-xs text-muted-foreground">{{ t("settings.colorizeConnectionTabsDescription") }}</p>
+                    </div>
+                    <Switch id="colorize-connection-tabs" v-model="editColorizeConnectionTabs" class="mt-0.5" />
+                  </div>
+
+                  <div v-if="editColorizeConnectionTabs" class="flex min-w-0 items-start justify-between gap-4 border-t pt-4 md:border-l md:border-t-0 md:pl-4 md:pt-0">
+                    <div class="min-w-0 space-y-1">
+                      <Label for="colorize-connection-tabs-scope">{{ t("settings.colorizeConnectionTabsScope") }}</Label>
+                      <p class="text-xs text-muted-foreground">{{ t("settings.colorizeConnectionTabsScopeDescription") }}</p>
+                    </div>
+                    <Select v-model="editColorizeConnectionTabsScope">
+                      <SelectTrigger id="colorize-connection-tabs-scope" class="h-8 w-44 shrink-0">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">{{ t("settings.colorizeConnectionTabsScopeAll") }}</SelectItem>
+                        <SelectItem value="active">{{ t("settings.colorizeConnectionTabsScopeActive") }}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-                <Switch id="colorize-connection-tabs" v-model="editColorizeConnectionTabs" />
               </div>
 
               <div class="settings-appearance-group">
-                <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
                   <div class="space-y-2">
                     <Label>{{ t("settings.tabPlacement") }}</Label>
                     <Select :model-value="editTabPlacement" @update:model-value="setTabPlacement($event as TabPlacement)">
@@ -8631,6 +8716,16 @@ onUnmounted(() => {
                         <SelectItem value="database">{{ t("settings.tabGroupDatabase") }}</SelectItem>
                         <SelectItem value="connection">{{ t("settings.tabGroupConnection") }}</SelectItem>
                         <SelectItem value="sidebar">{{ t("settings.tabGroupSidebar") }}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div class="space-y-2">
+                    <Label>{{ t("settings.tabGroupRows") }}</Label>
+                    <Select :model-value="editTabGroupRows" @update:model-value="setTabGroupRows($event as TabGroupRowMode)">
+                      <SelectTrigger class="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="single">{{ t("settings.tabGroupRowsSingle") }}</SelectItem>
+                        <SelectItem value="two-row">{{ t("settings.tabGroupRowsTwoRow") }}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -8662,6 +8757,7 @@ onUnmounted(() => {
                 <div class="space-y-1 text-xs text-muted-foreground">
                   <p>{{ t("settings.tabPlacementDescription") }}</p>
                   <p>{{ t("settings.tabOrganizationDescription") }}</p>
+                  <p>{{ t("settings.tabGroupRowsDescription") }}</p>
                   <p>{{ t("settings.tabMaxWidthDescription") }}</p>
                 </div>
               </div>
@@ -9245,6 +9341,17 @@ onUnmounted(() => {
                 <Switch id="sidebar-show-tooltips" v-model="editSidebarShowTooltips" />
               </div>
               <div class="settings-item flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">
+                <div class="flex items-center gap-2">
+                  <Label for="sidebar-show-user-admin">
+                    {{ t("settings.sidebarShowUserAdmin") }}
+                  </Label>
+                  <HelpTooltip :label="t('settings.sidebarShowUserAdmin')">
+                    {{ t("settings.sidebarShowUserAdminDescription") }}
+                  </HelpTooltip>
+                </div>
+                <Switch id="sidebar-show-user-admin" v-model="editSidebarShowUserAdmin" />
+              </div>
+              <div class="settings-item flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">
                 <div class="space-y-1">
                   <Label for="sidebar-indent">{{ t("settings.sidebarIndent") }}</Label>
                   <p class="text-xs text-muted-foreground">
@@ -9721,7 +9828,7 @@ onUnmounted(() => {
                     </SelectContent>
                   </Select>
                 </div>
-                <div class="settings-item flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">
+                <div data-settings-search-id="query-result-max-rows" class="settings-item flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">
                   <div class="space-y-1">
                     <Label for="query-result-max-rows-enabled">
                       {{ t("settings.queryResultMaxRows") }}
@@ -9941,7 +10048,7 @@ onUnmounted(() => {
                   </div>
                   <Switch id="data-grid-cell-detail-dialog-default" v-model="editDataGridCellDetailDialogDefault" />
                 </div>
-                <div class="settings-item flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">
+                <div data-settings-search-id="data-grid-crosshair" class="settings-item flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">
                   <div class="space-y-1">
                     <Label for="data-grid-crosshair-highlight">
                       {{ t("settings.dataGridCrosshairHighlight") }}
@@ -9982,7 +10089,7 @@ onUnmounted(() => {
                     <Switch id="data-grid-crosshair-highlight" v-model="editDataGridCrosshairHighlight" />
                   </div>
                 </div>
-                <div class="settings-item flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">
+                <div data-settings-search-id="data-grid-striped-rows" class="settings-item flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">
                   <div class="space-y-1">
                     <Label for="data-grid-striped-rows">
                       {{ t("settings.dataGridStripedRows") }}
@@ -10146,7 +10253,7 @@ onUnmounted(() => {
 
               <Separator />
 
-              <div id="redis-key-templates" class="space-y-3">
+              <div id="redis-key-templates" data-settings-search-id="redis-key-templates" class="space-y-3">
                 <div class="text-sm font-medium text-muted-foreground">
                   {{ t("settings.redisKeyTemplatesSection") }}
                 </div>
@@ -11025,7 +11132,7 @@ LIMIT 100;</pre>
                     </div>
                     <div class="space-y-2 md:col-span-2">
                       <Label for="snippet-sync-passphrase">{{ t("settings.syncSnippetPassphrase") }}</Label>
-                      <PasswordInput id="snippet-sync-passphrase" v-model="snippetPassphrase" :placeholder="snippetHasSavedPassphrase ? '••••••••' : ''" autocomplete="new-password" />
+                      <PasswordInput id="snippet-sync-passphrase" v-model="snippetPassphrase" :placeholder="snippetHasSavedPassphrase ? '••••••••' : ''" :show-toggle="!snippetHasSavedPassphrase || !!snippetPassphrase" autocomplete="new-password" />
                       <div class="flex items-center justify-between gap-3">
                         <label class="flex items-center gap-2 text-xs text-muted-foreground">
                           <input v-model="snippetRememberPassphrase" type="checkbox" class="h-4 w-4 shrink-0 accent-primary" />
@@ -11431,6 +11538,22 @@ LIMIT 100;</pre>
                     </p>
                   </div>
                   <Switch id="ai-restore-last-conversation" :model-value="settingsStore.restoreLastConversation" @update:model-value="(value) => settingsStore.setRestoreLastConversation(Boolean(value))" />
+                </div>
+              </div>
+
+              <!-- Send query results to AI (list mode, global) -->
+              <div v-if="aiConfigListMode === 'list'" class="space-y-3">
+                <Separator />
+                <div class="settings-item flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">
+                  <div class="space-y-1">
+                    <Label for="ai-include-query-result">
+                      {{ t("ai.includeQueryResult") }}
+                    </Label>
+                    <p class="text-xs text-muted-foreground">
+                      {{ t("ai.includeQueryResultDescription") }}
+                    </p>
+                  </div>
+                  <Switch id="ai-include-query-result" :model-value="settingsStore.includeQueryResult" @update:model-value="(value) => settingsStore.setIncludeQueryResult(Boolean(value))" />
                 </div>
               </div>
 
@@ -12095,7 +12218,7 @@ LIMIT 100;</pre>
                         <TabsTrigger value="stdio" class="flex-none px-3">{{ t("settings.mcpTransportLocalStdio") }}</TabsTrigger>
                         <TabsTrigger value="http" class="flex-none px-3">{{ t("settings.mcpTransportHttpService") }}</TabsTrigger>
                       </TabsList>
-                      <TabsContent value="http" class="m-0 space-y-4">
+                      <TabsContent value="http" data-settings-search-id="mcp-http" class="m-0 space-y-4">
                         <div v-if="isWeb" class="space-y-4">
                           <div class="space-y-3 border-t border-border/60 pt-3">
                             <div class="flex items-center justify-between gap-3">
@@ -12307,7 +12430,7 @@ LIMIT 100;</pre>
                         </div>
                       </TabsContent>
 
-                      <TabsContent value="stdio" class="m-0 space-y-4">
+                      <TabsContent value="stdio" data-settings-search-id="mcp-stdio" class="m-0 space-y-4">
                         <div
                           v-if="!isWeb && (mcpKeychainNeedsAuthorization || mcpKeychainMessage)"
                           class="space-y-2 rounded-md border px-3 py-2.5 text-xs"
@@ -12433,7 +12556,7 @@ LIMIT 100;</pre>
                 </TabsContent>
 
                 <TabsContent value="permissions" class="m-0 space-y-4">
-                  <McpAuthorizationTabs>
+                  <McpAuthorizationTabs v-model="mcpAuthorizationTab">
                     <template #connections>
                       <div class="space-y-3">
                         <p v-if="mcpPolicyLoadError" class="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-600 dark:text-red-400">
@@ -12604,7 +12727,7 @@ LIMIT 100;</pre>
                   </McpAuthorizationTabs>
                 </TabsContent>
                 <div v-if="mcpManagementTab === 'access'" class="space-y-5 border-t border-border/60 pt-5 sm:ml-1">
-                  <div class="space-y-3">
+                  <div data-settings-search-id="mcp-query-timeout" class="space-y-3">
                     <div>
                       <p class="text-sm font-semibold text-foreground">{{ t("settings.mcpRuntimeSettings") }}</p>
                       <p class="mt-1 text-xs text-muted-foreground">{{ t("settings.mcpQueryTimeoutDescription") }}</p>
@@ -12616,7 +12739,7 @@ LIMIT 100;</pre>
                       </div>
                     </div>
                   </div>
-                  <div v-if="mcpTransportTab === 'stdio'" class="space-y-3">
+                  <div v-if="mcpTransportTab === 'stdio'" data-settings-search-id="mcp-client-config" class="space-y-3">
                     <div>
                       <Label>{{ t("settings.mcpConfig") }}</Label>
                       <p class="mt-1 text-xs text-muted-foreground">{{ t("settings.mcpConfigOptionsHint") }}</p>
