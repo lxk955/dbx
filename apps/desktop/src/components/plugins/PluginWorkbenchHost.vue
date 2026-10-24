@@ -434,7 +434,10 @@ function onHostFileDrop(event: Event): void {
   }
   // Overlay titlebar: the webview starts at the window origin, so physical
   // window coordinates divide straight into CSS pixels via devicePixelRatio.
-  const scale = window.devicePixelRatio || 1;
+  // A non-finite ratio (e.g. a NaN reading) must behave like 1 so a bad
+  // reading cannot turn every forwarded coordinate into NaN.
+  const dpr = window.devicePixelRatio;
+  const scale = Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
   const cssX = position.x / scale;
   const cssY = position.y / scale;
   if (document.elementFromPoint(cssX, cssY) !== frame) {
