@@ -48,6 +48,12 @@ mysql_async = { git = "https://github.com/zipg/mysql_async.git", rev = "4a9e60a6
 # is available in upstream tiberius.
 tiberius = { path = "vendor/tiberius" }
 
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.test]
+debug = "line-tables-only"
+
 [profile.dev.package."*"]
 # Dependencies are never breakpoint-inspected in dev; line tables keep
 # backtraces resolvable while shrinking dev/test build time and artifacts.
