@@ -136,4 +136,35 @@ describe("buildGeometryMapFeatureCollection", () => {
     expect(collection?.features.map((feature) => feature.properties._srid)).toEqual([3857, 4326]);
     expect(collection?.features.map((feature) => feature.properties.name)).toEqual(["mercator", "wgs84"]);
   });
+
+  it("filters preview features according to selectedRowIds", () => {
+    const ctx = context();
+    // displayRowRefs: [{ id: 20, sourceIndex: 1 }, { id: 10, sourceIndex: 0 }, { id: 30, sourceIndex: 2 }]
+    ctx.selectedRowIds = [10];
+
+    const collection = buildGeometryMapFeatureCollection(ctx);
+    expect(collection?.features).toHaveLength(1);
+    expect(collection?.features[0].properties.name).toBe("wgs84");
+  });
+
+  it("filters preview features according to selectedColumnIndexes", () => {
+    const ctx = context();
+    ctx.result.columns = ["shape_a", "shape_b", "name"];
+    ctx.result.column_types = ["geometry", "geometry", "text"];
+    ctx.result.rows = [["POINT(1 1)", "POINT(2 2)", "first"]];
+    ctx.displayRowRefs = [{ id: 1, sourceIndex: 0, isNew: false }];
+    ctx.selectedColumnIndexes = [1];
+
+    const collection = buildGeometryMapFeatureCollection(ctx);
+    expect(collection?.features).toHaveLength(1);
+    expect(collection?.features[0].properties._column).toBe("shape_b");
+  });
+
+  it("recognizes spatial_columns when column_types is empty or omitted", () => {
+    const result = {
+      column_types: [],
+      spatial_columns: [{ column_index: 0, srid: 4326 }],
+    };
+    expect(hasGeometryMapPreviewColumns(result)).toBe(true);
+  });
 });

@@ -172,6 +172,7 @@ import { displayCellValue, firstLineCellDisplayValue, gridCellDisplayValue, limi
 import { cellExternalUrl } from "@/lib/dataGrid/cellExternalUrl";
 import { getApplicablePreviewActions, type PreviewAction } from "@/lib/dataGrid/resultPreviewRegistry";
 import "@/lib/dataGrid/geometryMapPreview";
+import { isHexGeometry, parseWktGeometry } from "@/lib/dataGrid/geometryPreview";
 import {
   BINARY_CELL_DOWNLOAD_MODES,
   BinaryCellImportTooLargeError,
@@ -6661,7 +6662,7 @@ function restoreTabSwitchViewSnapshot() {
 const multiRowCount = computed(() => {
   if (hasRowSelection.value) return selectedRowCount.value;
   const range = selectedRange.value;
-  if (range && range.startRow !== range.endRow) return range.endRow - range.startRow + 1;
+  if (range && range.startRow !== range.endRow) return Math.abs(range.endRow - range.startRow) + 1;
   return 1;
 });
 
@@ -6841,8 +6842,10 @@ function affectedRowIds(): number[] {
   }
   const range = selectedRange.value;
   if (range && range.startRow !== range.endRow) {
+    const minRow = Math.min(range.startRow, range.endRow);
+    const maxRow = Math.max(range.startRow, range.endRow);
     return displayRowRefs.value
-      .slice(range.startRow, range.endRow + 1)
+      .slice(minRow, maxRow + 1)
       .filter((ref) => !("isDraft" in ref && ref.isDraft) && transposeIncludesRow(ref.id))
       .map((ref) => ref.id);
   }
@@ -7061,10 +7064,51 @@ function exportSelectedCellsTxt() {
   return exportTxt(target);
 }
 
+function previewActionTargetSelection(): { rowIds: number[]; columnIndexes?: number[] } {
+  if (hasRowSelection.value && selectedRowCount.value > 0) {
+    const rowIds = [...selectedRowIds.value].filter((rowId) => !getRowItem(rowId)?.isDraft);
+    const columnIndexes = hasSelectedColumns.value ? targetColumnIndexes() : undefined;
+    return { rowIds, columnIndexes };
+  }
+  if (contextCell.value && contextCell.value.rowId !== undefined) {
+    const item = getRowItem(contextCell.value.rowId);
+    const colIdx = contextCell.value.col >= 0 ? contextCell.value.col : undefined;
+    if (item && !item.isDraft) {
+      const cellTarget = activeCellSelectionTarget();
+      if (cellTarget && cellTarget.rowIds.includes(item.id)) {
+        return cellTarget;
+      }
+      return { rowIds: [item.id], columnIndexes: colIdx !== undefined ? [colIdx] : undefined };
+    }
+  }
+  const cellTarget = activeCellSelectionTarget();
+  if (cellTarget && cellTarget.rowIds.length > 0) {
+    return cellTarget;
+  }
+  const range = selectedRange.value;
+  if (range) {
+    const minRow = Math.min(range.startRow, range.endRow);
+    const maxRow = Math.max(range.startRow, range.endRow);
+    const rowIds = displayRowRefs.value
+      .slice(minRow, maxRow + 1)
+      .filter((ref) => !("isDraft" in ref && ref.isDraft) && transposeIncludesRow(ref.id))
+      .map((ref) => ref.id);
+    const minCol = Math.min(range.startCol, range.endCol);
+    const maxCol = Math.max(range.startCol, range.endCol);
+    const columnIndexes = Array.from({ length: maxCol - minCol + 1 }, (_, i) => actualColumnIndex(minCol + i));
+    if (rowIds.length > 0) {
+      return { rowIds, columnIndexes };
+    }
+  }
+  return { rowIds: [] };
+}
+
 function executePreviewAction(action: PreviewAction) {
+  const target = previewActionTargetSelection();
   const config = action.execute({
     result: props.result,
-    selectedRowIds: affectedRowIds(),
+    selectedRowIds: target.rowIds,
+    selectedColumnIndexes: target.columnIndexes,
     displayRowRefs: displayRowRefs.value.filter((ref) => "sourceIndex" in ref),
   });
   if (config) {
@@ -14352,8 +14396,13 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
   const gridSnapshotContext = contextHeaderColumn.value && hasColumnSelection.value ? "columns" : contextCell.value?.col === -1 && affectedRowIds().length > 0 ? "rows" : contextCell.value && hasCellSelection.value && selectedCellMatrix.value ? "cells" : null;
   const previewItems: ContextMenuItem[] = [];
   if (!contextHeaderColumn.value && contextCell.value) {
-    const colType = props.result.column_types?.[contextCell.value.col];
-    if (colType && isGeometryColumnType(colType)) {
+    const colIdx = contextCell.value.col;
+    const colType = props.result.column_types?.[colIdx];
+    const isSpatial = props.result.spatial_columns?.some((sc) => sc.column_index === colIdx);
+    const item = contextCell.value.rowId !== undefined ? getRowItem(contextCell.value.rowId) : undefined;
+    const rawVal = item && colIdx >= 0 ? item.data[colIdx] : undefined;
+    const isWkt = typeof rawVal === "string" && !isHexGeometry(rawVal) && !!parseWktGeometry(rawVal);
+    if ((colType && isGeometryColumnType(colType)) || isSpatial || isWkt) {
       const actions = previewActions.value;
       if (actions.length > 0) {
         previewItems.push({ label: "", separator: true });
