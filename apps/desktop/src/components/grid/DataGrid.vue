@@ -187,7 +187,6 @@ import {
   binaryCellUtf8Text,
   hasUnsafeOpaqueAggregateStatePredicate,
   isBinaryCellTextEditable,
-  isBlobCellColumnType,
   isBinaryCellColumnType,
   isOpaqueAggregateStateColumnType,
   mergeOpaqueReadonlyColumnIndexes,

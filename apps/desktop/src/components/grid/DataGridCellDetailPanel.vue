@@ -10,7 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { TabsContent } from "@/components/ui/tabs";
 import TemporalCellEditor from "@/components/grid/TemporalCellEditor.vue";
 import { useDataGridCellDetail } from "@/composables/useDataGridCellDetail";
-import { BINARY_CELL_DOWNLOAD_MODES, isBinaryCellColumnType, binaryCellUtf8Text, isBinaryCellTextEditable, isBlobCellColumnType, type BinaryCellDownloadMode } from "@/lib/dataGrid/binaryCellDownload";
+import { BINARY_CELL_DOWNLOAD_MODES, isBinaryCellColumnType, binaryCellUtf8Text, isBinaryCellTextEditable, type BinaryCellDownloadMode } from "@/lib/dataGrid/binaryCellDownload";
 import { cellDetailPreviewText, isGeometryColumnType } from "@/lib/dataGrid/cellDetailPresentation";
 import { isHexGeometry } from "@/lib/dataGrid/geometryPreview";
 import type { DataGridCellDetail } from "@/lib/dataGrid/dataGridDetail";
