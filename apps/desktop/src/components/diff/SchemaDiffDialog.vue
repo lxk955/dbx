@@ -1836,6 +1836,8 @@ const targetConnectionInfo = computed(() => {
                   <SchemaDiffDdlPanel
                     :selected-object="displayedSelectedObject"
                     :focused-object="selectedTreeObject"
+                    :source-schema="sourceSchema"
+                    :target-schema="targetSchema"
                     :deploy-sql="focusedDeploySql"
                     :deploy-sql-all="selectedDeploySql"
                     :rollback-forward-sql="selectedForwardDeploySql"
