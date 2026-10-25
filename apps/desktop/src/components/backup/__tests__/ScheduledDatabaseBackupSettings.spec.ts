@@ -1057,6 +1057,13 @@ describe("ScheduledDatabaseBackupSettings schedule dialog", () => {
     expect(document.body.textContent).toContain(String(i18n.global.t("databaseBackup.noSupportedConnections")));
   });
 
+  it("enables create schedule when openGauss connection is available", async () => {
+    mocks.connections.push({ id: "og-1", name: "Local openGauss", db_type: "opengauss" });
+    await mountSettings();
+
+    expect(addScheduleButton().disabled).toBe(false);
+  });
+
   it("reconfirms a legacy destination before manually running its schedule", async () => {
     mocks.schedules.push(schedule());
     mocks.databaseExportDestinationNeedsConfirmation.mockResolvedValueOnce(true);

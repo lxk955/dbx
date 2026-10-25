@@ -25,7 +25,7 @@ export function normalizeDatabaseBackupOutputCompression(value: unknown): Databa
   return value === "gzip" || value === "nb3" ? value : "none";
 }
 
-const CONSISTENT_BACKUP_DATABASE_TYPES = new Set(["mysql", "postgres"]);
+const CONSISTENT_BACKUP_DATABASE_TYPES = new Set(["mysql", "postgres", "opengauss"]);
 
 export class DatabaseBackupConnectionQueue {
   private readonly tails = new Map<string, Promise<void>>();

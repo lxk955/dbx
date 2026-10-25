@@ -283,6 +283,10 @@ test("all-database PostgreSQL backups exclude template databases", () => {
   assert.deepEqual(resolveScheduledDatabaseBackupTargets([], ["template0", "postgres", "template1", "app"], "postgres"), ["postgres", "app"]);
 });
 
+test("all-database openGauss backups exclude template databases", () => {
+  assert.deepEqual(resolveScheduledDatabaseBackupTargets([], ["template0", "opengauss", "template1", "app"], "opengauss"), ["opengauss", "app"]);
+});
+
 test("explicit system database targets remain available", () => {
   assert.deepEqual(resolveScheduledDatabaseBackupTargets(["mysql"], ["mysql", "app"], "mysql"), ["mysql"]);
 });
@@ -294,6 +298,7 @@ test("explicit backup databases fail when any configured target is missing", () 
 test("scheduled backups are limited to databases with consistent snapshot support", () => {
   assert.equal(supportsScheduledDatabaseBackup("postgres"), true);
   assert.equal(supportsScheduledDatabaseBackup("mysql"), true);
+  assert.equal(supportsScheduledDatabaseBackup("opengauss"), true);
   assert.equal(supportsScheduledDatabaseBackup("dameng"), false);
   assert.equal(supportsScheduledDatabaseBackup("sqlite"), false);
   assert.equal(supportsScheduledDatabaseBackup("sqlserver"), false);
