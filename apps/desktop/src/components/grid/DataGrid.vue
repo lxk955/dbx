@@ -186,6 +186,7 @@ import {
   formatBinaryCellByteSize,
   binaryCellUtf8Text,
   hasUnsafeOpaqueAggregateStatePredicate,
+  isBinaryCellTextEditable,
   isBlobCellColumnType,
   isBinaryCellColumnType,
   isOpaqueAggregateStateColumnType,
@@ -11394,7 +11395,7 @@ function detailClipboardText(detail: DataGridCellDetail): string {
   if (detail.value === null) return "";
   const binaryText = binaryCellClipboardText(detail.value, detail.type, resolvedDatabaseType.value);
   if (binaryText !== null) return binaryText;
-  if (isBlobCellColumnType(detail.type)) return binaryCellUtf8Text(detail.value, detail.type, resolvedDatabaseType.value) ?? displayCellValue(detail.value);
+  if (isBinaryCellTextEditable(detail.type, resolvedDatabaseType.value)) return binaryCellUtf8Text(detail.value, detail.type, resolvedDatabaseType.value) ?? displayCellValue(detail.value);
   return displayCellValue(detail.value);
 }
 
