@@ -27,7 +27,7 @@ import { externalSqlFileOpenErrorMessage, externalSqlEditorMaxBytes, formatSqlFi
 import * as api from "@/lib/backend/api";
 import type { SqlFileEntry } from "@/lib/backend/api";
 import { getSqlFileFilter, getSqlFileFolderPaths, saveSqlFileFilter, saveSqlFileFolderPaths, notifySqlFileFoldersChanged } from "@/lib/sqlFile/sqlFileFolders";
-import { filterAndSortSqlFileEntries, getSqlFileSortOrder, saveSqlFileSortOrder, type SqlFileSearchMode, type SqlFileSortOrder } from "@/lib/sql/sqlFileTreeFilter";
+import { filterAndSortSqlFileEntries, getSqlFileSearchMode, getSqlFileSortOrder, saveSqlFileSearchMode, saveSqlFileSortOrder, type SqlFileSearchMode, type SqlFileSortOrder } from "@/lib/sql/sqlFileTreeFilter";
 import { orderedListSelectionIntent, type OrderedListSelectionItem } from "@/lib/selection/orderedListSelection";
 import { getSqlFileOpenMode, saveSqlFileOpenMode, type SqlFileOpenMode } from "@/lib/sqlFile/sqlFileInteraction";
 import { getSqlFileOrder, saveSqlFileOrder, reorderSqlFiles, remapSqlFileOrder, sqlFileParentPath, type SqlFileOrder } from "@/lib/sqlFile/sqlFileOrder";
@@ -73,7 +73,10 @@ const fileFilterRegexExample = "(?i)[.](sql|ddl|sh|py)$";
 
 const searchInput = ref<InstanceType<typeof SqlPanelSearch> | null>(null);
 const searchInputPending = ref(false);
-const searchMode = ref<SqlFileSearchMode>("name");
+const searchMode = ref<SqlFileSearchMode>(getSqlFileSearchMode());
+watch(searchMode, (mode) => {
+  saveSqlFileSearchMode(mode);
+});
 const searchQuery = ref("");
 const {
   searching: scanning,

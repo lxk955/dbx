@@ -66,6 +66,8 @@ import { resolveExternalSqlFileTarget, unassociatedExternalSqlFileTarget } from 
 import { catalogDatabaseOptionsKey, normalizedQueryTabCatalog, queryCatalogSelectorVisible, useDatabaseOptions } from "@/composables/useDatabaseOptions";
 import { formatDatabaseLabel } from "@/lib/database/defaultDatabase";
 import { sqlExecutionTargetCapabilities, targetDefaultDatabase, targetUsesConnectionOnlyScope } from "@/lib/database/sqlExecutionTargetCapabilities";
+import { getSavedSqlSearchMode, saveSavedSqlSearchMode } from "@/lib/savedSql/savedSqlSearch";
+import SidebarLocateButton from "@/components/sidebar/SidebarLocateButton.vue";
 import type { SavedSqlFile, SavedSqlFolder } from "@/types/database";
 
 const { t } = useI18n();
@@ -76,8 +78,13 @@ const queryStore = useQueryStore();
 const settingsStore = useSettingsStore();
 const { databaseOptions, loadingDatabaseOptions, loadDatabaseOptions, catalogOptions, loadingCatalogOptions, loadCatalogOptions, catalogDatabaseOptions, loadingCatalogDatabaseOptions, loadCatalogDatabaseOptions } = useDatabaseOptions();
 
+const props = defineProps<{
+  locateRequest?: { id: number; fileId: string } | null;
+}>();
+
 const emit = defineEmits<{
   close: [];
+  "locate-handled": [id: number];
 }>();
 
 const UNFILED_DROP_TARGET_ID = "__sql-library-unfiled__";
@@ -91,7 +98,10 @@ const searchInput = ref<InstanceType<typeof SqlPanelSearch> | null>(null);
 const searchInputPending = ref(false);
 const searchQuery = ref("");
 
-const searchMode = ref<"name" | "content">("name");
+const searchMode = ref<"name" | "content">(getSavedSqlSearchMode());
+watch(searchMode, (mode) => {
+  saveSavedSqlSearchMode(mode);
+});
 const loadingSearchContent = ref(false);
 const unloadedSearchFiles = computed(() => savedSqlStore.allFiles.filter((file) => file.sqlLoaded === false));
 const contentSearchActive = computed(() => searchMode.value === "content" && !!searchQuery.value);
@@ -541,6 +551,75 @@ const hasCurrentSavedSqlExecutionTarget = computed(() => {
   const target = savedSqlExecutionTargetFromTab(activeTab);
   return !!target && activeConnectionIds.value.has(target.connectionId);
 });
+
+const locatingFile = ref(false);
+const activeSavedSqlFile = computed(() => {
+  const id = activeSavedSqlId.value;
+  if (!id) return null;
+  return savedSqlStore.allFiles.find((file) => file.id === id) ?? null;
+});
+const canLocateActiveFile = computed(() => !!activeSavedSqlFile.value && savedSqlStore.loadState !== "loading");
+
+function getFolderAncestorIds(folderId: string, allFolders: SavedSqlFolder[]): string[] {
+  const ancestorIds: string[] = [];
+  const visited = new Set<string>();
+  let currentId: string | undefined = folderId;
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId);
+    ancestorIds.push(currentId);
+    const folder = allFolders.find((f) => f.id === currentId);
+    currentId = folder?.parentFolderId;
+  }
+  return ancestorIds;
+}
+
+async function locateFile(fileId: string) {
+  const file = savedSqlStore.allFiles.find((f) => f.id === fileId);
+  if (!file) return;
+
+  if (searchQuery.value) {
+    const isVisibleNow = treeRows.value.some((row) => row.type === "file" && row.file.id === file.id);
+    if (searchInputPending.value || !isVisibleNow) {
+      searchInput.value?.clear();
+      await nextTick();
+    }
+  }
+
+  if (file.folderId) {
+    const ancestorIds = getFolderAncestorIds(file.folderId, savedSqlStore.allFolders);
+    if (ancestorIds.some((id) => collapsedFolders.value.has(id))) {
+      collapsedFolders.value = new Set([...collapsedFolders.value].filter((id) => !ancestorIds.includes(id)));
+    }
+  }
+
+  clearSelection();
+  setActiveItem(file.id, "file");
+  await nextTick();
+
+  const row = document.querySelector(`[data-sql-library-file="${file.id}"]`);
+  row?.scrollIntoView({ block: "center", inline: "nearest" });
+}
+
+async function locateCurrentFile() {
+  const file = activeSavedSqlFile.value;
+  if (!file) return;
+  locatingFile.value = true;
+  try {
+    await locateFile(file.id);
+  } finally {
+    locatingFile.value = false;
+  }
+}
+
+watch(
+  [() => savedSqlStore.loadState, () => props.locateRequest],
+  async ([loadState, request]) => {
+    if (!request || loadState === "loading") return;
+    await locateFile(request.fileId);
+    emit("locate-handled", request.id);
+  },
+  { immediate: true },
+);
 
 watch(
   activeSavedSqlId,
@@ -1582,6 +1661,12 @@ function showDropAfter(targetId: string) {
 function showDropInside(targetId: string) {
   return dragState.active && dragState.targetId === targetId && dragState.dropPosition === "inside";
 }
+
+defineExpose({
+  locateFile,
+  locateCurrentFile,
+  searchInput,
+});
 </script>
 
 <template>
@@ -1593,6 +1678,9 @@ function showDropInside(targetId: string) {
       </HelpTooltip>
       <span v-if="hasSelection" class="text-[12px] text-muted-foreground ml-1">({{ selectedCount }})</span>
       <span class="flex-1" />
+      <LightTooltip :text="t('sqlFileTree.locateActiveFile')" side="bottom" :delay="0" :close-delay="0" nowrap>
+        <SidebarLocateButton class="disabled:pointer-events-none disabled:opacity-50" :label="t('sqlFileTree.locateActiveFile')" :disabled="!canLocateActiveFile || locatingFile" @locate="locateCurrentFile" />
+      </LightTooltip>
       <LightTooltip :text="t('sqlLibrary.collapseAll')" side="bottom" :delay="0" :close-delay="0" nowrap :disabled="!hasAnyFolder()">
         <Button variant="ghost" size="icon" class="h-5 w-5" :disabled="!hasAnyFolder()" @click="collapseAllFolders">
           <ChevronsDownUp class="h-3 w-3" />

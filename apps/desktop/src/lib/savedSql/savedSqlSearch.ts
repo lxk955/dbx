@@ -1,3 +1,20 @@
+import { safeLocalStorageGet, safeLocalStorageSet } from "@/lib/backend/safeStorage";
+
+export type SavedSqlSearchMode = "name" | "content";
+const SAVED_SQL_SEARCH_MODE_STORAGE_KEY = "dbx-saved-sql-search-mode";
+export const DEFAULT_SAVED_SQL_SEARCH_MODE: SavedSqlSearchMode = "name";
+
+/** Read the persisted search mode (name vs content) for SQL library. */
+export function getSavedSqlSearchMode(): SavedSqlSearchMode {
+  const mode = safeLocalStorageGet(SAVED_SQL_SEARCH_MODE_STORAGE_KEY)?.trim();
+  return mode === "content" ? "content" : DEFAULT_SAVED_SQL_SEARCH_MODE;
+}
+
+/** Persist the search mode (name vs content) for SQL library. */
+export function saveSavedSqlSearchMode(mode: SavedSqlSearchMode): boolean {
+  return safeLocalStorageSet(SAVED_SQL_SEARCH_MODE_STORAGE_KEY, mode);
+}
+
 export interface SavedSqlMatchSegment {
   text: string;
   matched: boolean;

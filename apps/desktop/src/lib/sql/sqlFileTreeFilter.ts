@@ -4,9 +4,11 @@ import { normalizeExternalSqlPath } from "@/lib/sql/sqlFileOpen";
 import type { SqlFileOrder } from "@/lib/sqlFile/sqlFileOrder";
 
 const SORT_ORDER_STORAGE_KEY = "dbx-sql-file-sort-order";
+const SEARCH_MODE_STORAGE_KEY = "dbx-sql-file-search-mode";
 export type SqlFileSortOrder = "asc" | "desc" | "manual";
 export type SqlFileSearchMode = "name" | "content";
 export const DEFAULT_SQL_FILE_SORT_ORDER: SqlFileSortOrder = "asc";
+export const DEFAULT_SQL_FILE_SEARCH_MODE: SqlFileSearchMode = "name";
 
 /** Read the name or manual sort order for external SQL files. */
 export function getSqlFileSortOrder(): SqlFileSortOrder {
@@ -17,6 +19,17 @@ export function getSqlFileSortOrder(): SqlFileSortOrder {
 /** Persist the sort order for external SQL files. */
 export function saveSqlFileSortOrder(order: SqlFileSortOrder): boolean {
   return safeLocalStorageSet(SORT_ORDER_STORAGE_KEY, order);
+}
+
+/** Read the search mode (name vs content) for external SQL files. */
+export function getSqlFileSearchMode(): SqlFileSearchMode {
+  const mode = safeLocalStorageGet(SEARCH_MODE_STORAGE_KEY)?.trim();
+  return mode === "content" ? "content" : DEFAULT_SQL_FILE_SEARCH_MODE;
+}
+
+/** Persist the search mode (name vs content) for external SQL files. */
+export function saveSqlFileSearchMode(mode: SqlFileSearchMode): boolean {
+  return safeLocalStorageSet(SEARCH_MODE_STORAGE_KEY, mode);
 }
 
 export interface SqlFileFilterResult {

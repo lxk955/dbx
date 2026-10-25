@@ -211,4 +211,11 @@ describe("SqlFilePanel search and sort", () => {
     expect(zebraRow).not.toBeNull();
     await vi.waitFor(() => expect(zebraRow!.classList.contains("bg-accent")).toBe(true));
   });
+
+  it("restores search mode from localStorage", async () => {
+    localStorage.setItem("dbx-sql-file-search-mode", "content");
+    const { host } = await mountPanel();
+    const input = host.querySelector<HTMLInputElement>("input[data-sql-file-search]")!;
+    expect(input.placeholder).toBe(i18n.global.t("sqlFileTree.searchContentPlaceholder"));
+  });
 });

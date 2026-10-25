@@ -101,6 +101,7 @@ function result(path: string, lines = [3], column = 8): SqlFileContentSearchResu
 }
 
 beforeEach(() => {
+  localStorage.clear();
   mocks.isTauri = true;
   mocks.search.mockReset();
   mocks.search.mockResolvedValue({ files: [], skippedFiles: [], truncated: false });
