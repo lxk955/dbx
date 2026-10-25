@@ -82,6 +82,15 @@ ALTER TABLE ONLY "orders" ADD CONSTRAINT "fk_user" FOREIGN KEY ("user_id") REFER
 );`);
     });
 
+    it("strips unquoted schema prefix without lookbehind syntax", () => {
+      // Regression: the unquoted strip must not use lookbehind syntax (old
+      // WebKit cannot parse it); a `.` before the name blocks the strip, so
+      // dot-qualified second segments are preserved.
+      expect(stripSchemaFromSql("CREATE TABLE public.users (id int);", "public")).toBe("CREATE TABLE users (id int);");
+      expect(stripSchemaFromSql("CREATE TABLE public.public.users (id int);", "public")).toBe("CREATE TABLE public.users (id int);");
+      expect(stripSchemaFromSql("SELECT * FROM x.public.users;", "public")).toBe("SELECT * FROM x.public.users;");
+    });
+
     it("preserves comments and dollar-quoted functions", () => {
       const sql = `-- comment with public.users
 /* block comment with public.users */

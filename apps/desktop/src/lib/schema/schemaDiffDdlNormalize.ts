@@ -35,7 +35,14 @@ export function stripSchemaFromSql(sql: string, schema?: string): string {
       // 3. Quoted with brackets: [schema].
       result = result.replace(new RegExp(`\\[${esc}\\]\\s*\\.`, "gi"), "");
       // 4. Unquoted: schema. (preceded by non-identifier character or start of string)
-      result = result.replace(new RegExp(`(?<![\\w."\`\\[])${esc}\\s*\\.`, "gi"), "");
+      // No lookbehind assertion here: old WebKit (before Safari 16.4) throws
+      // while parsing the module on lookbehind syntax, which kills the whole
+      // app at startup (see legacyWebViewRegexCompat.spec.ts). Match the
+      // preceding character explicitly and re-emit it instead; a single pass
+      // keeps the exact original semantics (a `.` before the name blocks the
+      // strip, so `x.public.users` and the second half of
+      // `public.public.users` are left alone).
+      result = result.replace(new RegExp(`(^|[^\\w."\`\\[])${esc}\\s*\\.`, "gi"), "$1");
     }
     return result;
   }
