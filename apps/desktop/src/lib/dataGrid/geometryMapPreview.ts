@@ -47,9 +47,10 @@ export function buildGeometryMapFeatureCollection(ctx: PreviewActionContext): Ge
 
   if (ctx.selectedColumnIndexes && ctx.selectedColumnIndexes.length > 0) {
     const selectedGeomIndices = geomIndices.filter((idx) => ctx.selectedColumnIndexes!.includes(idx));
-    if (selectedGeomIndices.length > 0) {
-      geomIndices = selectedGeomIndices;
-    }
+    // A column selection without geometry columns is not previewable; only an
+    // empty/absent selection falls back to every geometry column.
+    if (selectedGeomIndices.length === 0) return null;
+    geomIndices = selectedGeomIndices;
   }
 
   const features: GeometryMapFeature[] = [];

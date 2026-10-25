@@ -29,11 +29,21 @@ describe("cellDetailPresentation", () => {
     expect(canPreviewCellGeometry("POINT(116.397 39.908)", "text")).toBe(true);
     expect(canPreviewCellGeometry("POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))", "varchar")).toBe(true);
     expect(canPreviewCellGeometry("SRID=4326;POINT(1 2)", "text")).toBe(true);
+    expect(canPreviewCellGeometry("MULTIPOLYGON EMPTY", "text")).toBe(true);
+    expect(canPreviewCellGeometry("LINESTRING Z (1 2 3, 4 5 6)", "text")).toBe(true);
+    expect(canPreviewCellGeometry("point(1 2)", "text")).toBe(true);
 
     // Non-geometry strings or null
     expect(canPreviewCellGeometry("just a normal string", "text")).toBe(false);
     expect(canPreviewCellGeometry(null, "geometry")).toBe(false);
     expect(canPreviewCellGeometry(undefined, "text")).toBe(false);
     expect(canPreviewCellGeometry(123, "text")).toBe(false);
+
+    // Ordinary text that the lenient WKT parser alone would accept
+    expect(canPreviewCellGeometry("No records (0)", "text")).toBe(false);
+    expect(canPreviewCellGeometry("FY report (2024)", "text")).toBe(false);
+    expect(canPreviewCellGeometry("result is empty", "text")).toBe(false);
+    expect(canPreviewCellGeometry("empty", "text")).toBe(false);
+    expect(canPreviewCellGeometry("Meeting notes (see attached 3 items)", "text")).toBe(false);
   });
 });

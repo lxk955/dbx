@@ -1,6 +1,6 @@
 import { safeJsonFormat } from "@/lib/common/safeJsonFormat";
 import { isBooleanColumnType } from "@/lib/dataGrid/dataGridBooleanColumn";
-import { isHexGeometry, parseWktGeometry } from "@/lib/dataGrid/geometryPreview";
+import { isHexGeometry, looksLikeWkt, parseWktGeometry } from "@/lib/dataGrid/geometryPreview";
 import type { DatabaseType } from "@/types/database";
 
 export type CellDetailTab = "details" | "hexViewer" | "valueEditor";
@@ -97,7 +97,7 @@ export function canPreviewCellGeometry(value: unknown, columnType?: string): boo
       return isGeometryColumnType(columnType);
     }
     if (isGeometryColumnType(columnType)) return true;
-    return typeof parseWktGeometry === "function" && !!parseWktGeometry(trimmed);
+    return looksLikeWkt(trimmed) && !!parseWktGeometry(trimmed);
   }
   return isGeometryColumnType(columnType);
 }
