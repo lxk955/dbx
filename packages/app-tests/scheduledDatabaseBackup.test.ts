@@ -16,6 +16,7 @@ import {
   normalizeDatabaseBackupTablePatterns,
   resolveScheduledDatabaseBackupTableScope,
   resolveScheduledDatabaseBackupTargets,
+  supportsNavicatBackupFormat,
   supportsScheduledDatabaseBackup,
   type DatabaseBackupRun,
   type DatabaseBackupSchedule,
@@ -146,6 +147,16 @@ test("Navicat backups use the .nb3 suffix and survive schedule normalization", (
   assert.equal(path, "/backups/before-migration__app.nb3");
   assert.equal(normalizeDatabaseBackupSchedule({ ...schedule(), outputCompression: "nb3" })?.outputCompression, "nb3");
   assert.equal(normalizeDatabaseBackupSchedule({ ...schedule(), outputCompression: "zip" })?.outputCompression, "none");
+});
+
+test("Navicat backups are limited to MySQL and PostgreSQL connections", () => {
+  assert.equal(supportsNavicatBackupFormat(["mysql"]), true);
+  assert.equal(supportsNavicatBackupFormat(["postgres"]), true);
+  assert.equal(supportsNavicatBackupFormat(["mysql", "postgres"]), true);
+  assert.equal(supportsNavicatBackupFormat(["opengauss"]), false);
+  assert.equal(supportsNavicatBackupFormat(["mysql", "opengauss"]), false);
+  assert.equal(supportsNavicatBackupFormat([undefined]), false);
+  assert.equal(supportsNavicatBackupFormat([]), false);
 });
 
 test("scheduled runs render a user-defined relative directory template", () => {

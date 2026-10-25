@@ -9986,6 +9986,7 @@ export default withEnglishFallback({
     formatSql: "SQL (.sql)",
     formatNb3: "Cadangan Navicat (.nb3)",
     formatNb3Hint: "Format cadangan Navicat untuk MySQL dan PostgreSQL. DBX memulihkannya seperti cadangan SQL lainnya.",
+    formatNb3Unsupported: "Cadangan .nb3 Navicat hanya mendukung koneksi MySQL dan PostgreSQL. Pilih SQL atau Gzip.",
     restoreFromFile: "Pulihkan dari file",
     restoreFromFileHint: "Pulihkan file cadangan .sql, .sql.gz, atau .nb3 dari lokasi mana pun",
     importBackup: "Impor cadangan",

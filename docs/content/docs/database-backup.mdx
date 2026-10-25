@@ -16,7 +16,7 @@ For a backup that should run only once, use **Back up now** in Settings instead 
 | Databases | MySQL, PostgreSQL, and openGauss |
 | Platform | DBX Desktop |
 | Output | The default template creates one directory per scheduled run, containing one file per database/schema target; directory and file-name templates can be customized |
-| Format | Plain SQL (`.sql`), gzip-compressed SQL (`.sql.gz`), or a Navicat backup archive (`.nb3`) |
+| Format | Plain SQL (`.sql`) and gzip-compressed SQL (`.sql.gz`) for every supported database; a Navicat backup archive (`.nb3`) for MySQL and PostgreSQL only |
 | Frequency | Every N hours, daily at a time, or weekly on a weekday and time |
 | Contents | Table structure, data, database objects, and optional `DROP TABLE IF EXISTS` |
 | Table scope | All, include by pattern, or exclude by pattern |
@@ -59,7 +59,7 @@ For a backup that should run only once, use **Back up now** in Settings instead 
   <Step>
     ### Choose connection and databases
 
-    Select a MySQL or PostgreSQL connection. Back up all non-system databases or choose specific databases.
+    Select a MySQL, PostgreSQL, or openGauss connection. Back up all non-system databases or choose specific databases.
 
   </Step>
   <Step>
@@ -151,7 +151,7 @@ DBX never deletes imported files. Deleting an imported entry only removes it fro
 
 ## Navicat Backups (.nb3)
 
-Choose **Navicat backup (.nb3)** as the backup format to write the archive layout Navicat uses for MySQL and PostgreSQL: a tar archive with a `meta.json` index, gzipped per-object metadata (DDL, indexes, constraints, triggers), and gzipped row chunks, each protected by a SHA-1 checksum.
+Choose **Navicat backup (.nb3)** as the backup format on a MySQL or PostgreSQL connection to write the archive layout Navicat uses: a tar archive with a `meta.json` index, gzipped per-object metadata (DDL, indexes, constraints, triggers), and gzipped row chunks, each protected by a SHA-1 checksum. The format is not offered for other database types.
 
 DBX also restores `.nb3` files, including archives created by Navicat. Open the file in [SQL File Execution](/en/docs/sql-file) or click **Restore** in backup history. DBX turns the archive into a restore script that:
 
