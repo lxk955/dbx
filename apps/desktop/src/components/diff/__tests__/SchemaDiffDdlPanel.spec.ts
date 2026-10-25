@@ -106,7 +106,7 @@ describe("SchemaDiffDdlPanel", () => {
 );`,
   };
 
-  it("defaults to ignoring schema name differences and does not highlight lines as modified", async () => {
+  it("shows raw DDL by default and keeps the schema-name switch off", async () => {
     const host = document.createElement("div");
     document.body.append(host);
 
@@ -132,21 +132,21 @@ describe("SchemaDiffDdlPanel", () => {
     expect(host.textContent).toContain("diff.sourceDdl (public)");
     expect(host.textContent).toContain("diff.targetDdl (other_schema)");
 
-    // Check switch exists and is rendered
+    // Check switch exists and starts off
     const switchLabel = host.querySelector("label");
     expect(switchLabel?.textContent).toContain("diff.ignoreSchemaName");
+    const switchBtn = host.querySelector(".switch-stub") as HTMLButtonElement | null;
+    expect(switchBtn?.getAttribute("data-model-value")).toBe("false");
 
-    // The displayed DDL text should have stripped schema names
-    expect(host.textContent).toContain('CREATE TABLE "users"');
-    expect(host.textContent).not.toContain('CREATE TABLE "public"."users"');
-    expect(host.textContent).not.toContain('CREATE TABLE "other_schema"."users"');
+    // Raw DDL, including schema qualifiers, is shown by default
+    expect(host.textContent).toContain('CREATE TABLE "public"."users"');
+    expect(host.textContent).toContain('CREATE TABLE "other_schema"."users"');
 
-    // There should be NO modify segments or modified background since the lines are identical
-    const modifyHighlights = host.querySelectorAll("[style*='rgb(255, 170, 0)']");
-    expect(modifyHighlights.length).toBe(0);
+    // The toggle is per dialog and never persisted
+    expect(localStorage.getItem("dbx-schema-diff-ignore-schema-name")).toBeNull();
   });
 
-  it("shows schema name differences and highlights them when ignoreSchemaName is toggled off", async () => {
+  it("strips schema names when the switch is toggled on without persisting it", async () => {
     const host = document.createElement("div");
     document.body.append(host);
 
@@ -168,17 +168,64 @@ describe("SchemaDiffDdlPanel", () => {
     app.mount(host);
     await nextTick();
 
-    // Find the switch button and click it to turn it off
+    // Find the switch button and click it to turn it on
     const switchBtn = host.querySelector(".switch-stub") as HTMLButtonElement | null;
     expect(switchBtn).not.toBeNull();
     switchBtn?.click();
     await nextTick();
 
-    // Now the original DDL with schema names should be shown
-    expect(host.textContent).toContain('CREATE TABLE "public"."users"');
-    expect(host.textContent).toContain('CREATE TABLE "other_schema"."users"');
+    // Now the schema qualifiers should be stripped on both sides
+    expect(host.textContent).toContain('CREATE TABLE "users"');
+    expect(host.textContent).not.toContain('CREATE TABLE "public"."users"');
+    expect(host.textContent).not.toContain('CREATE TABLE "other_schema"."users"');
 
-    // And localStorage should record the preference
-    expect(localStorage.getItem("dbx-schema-diff-ignore-schema-name")).toBe("false");
+    // Toggling is not persisted across dialogs
+    expect(localStorage.getItem("dbx-schema-diff-ignore-schema-name")).toBeNull();
+  });
+
+  it("uses the selected database as schema for MySQL views without an explicit schema", async () => {
+    const mysqlViewObject: SchemaDiffObject = {
+      id: "view-active-users",
+      operationType: "modify",
+      objectKind: "view",
+      name: "active_users",
+      selected: true,
+      sourceDdl: "CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `mydb`.`active_users` AS SELECT * FROM `mydb`.`users`;",
+      targetDdl: "CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `otherdb`.`active_users` AS SELECT * FROM `otherdb`.`users`;",
+    };
+
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const app = createApp(
+      defineComponent({
+        setup() {
+          return () =>
+            h(SchemaDiffDdlPanel, {
+              selectedObject: mysqlViewObject,
+              sourceDatabase: "mydb",
+              targetDatabase: "otherdb",
+              sourceDbType: "mysql",
+              targetDbType: "mysql",
+              deploySql: "",
+              deploySqlAll: "",
+            });
+        },
+      }),
+    );
+    mountedApps.push(app);
+    app.mount(host);
+    await nextTick();
+
+    const switchBtn = host.querySelector(".switch-stub") as HTMLButtonElement | null;
+    expect(switchBtn).not.toBeNull();
+    switchBtn?.click();
+    await nextTick();
+
+    // The database is the schema for MySQL, so the qualifier is stripped even
+    // though the schema picker left sourceSchema/targetSchema empty.
+    expect(host.textContent).toContain("VIEW `active_users` AS SELECT * FROM `users`");
+    expect(host.textContent).not.toContain("VIEW `mydb`.");
+    expect(host.textContent).not.toContain("VIEW `otherdb`.");
   });
 });

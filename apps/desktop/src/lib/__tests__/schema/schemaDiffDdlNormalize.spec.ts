@@ -28,6 +28,14 @@ describe("schemaDiffDdlNormalize", () => {
       expect(inferSchemaFromSql('CREATE OR REPLACE VIEW "analytics"."sales" AS SELECT 1;')).toBe("analytics");
     });
 
+    it("infers schema from MySQL CREATE ALGORITHM/DEFINER VIEW", () => {
+      expect(inferSchemaFromSql("CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `mydb`.`v` AS SELECT 1;")).toBe("mydb");
+    });
+
+    it("infers schema from MySQL ALTER VIEW", () => {
+      expect(inferSchemaFromSql("ALTER ALGORITHM=UNDEFINED DEFINER=`root`@`%` SQL SECURITY DEFINER VIEW `mydb`.`v` AS SELECT 1;")).toBe("mydb");
+    });
+
     it("returns null when table has no schema prefix", () => {
       expect(inferSchemaFromSql('CREATE TABLE "users" ("id" int);')).toBeNull();
     });
@@ -68,6 +76,32 @@ ALTER TABLE ONLY "orders" ADD CONSTRAINT "fk_user" FOREIGN KEY ("user_id") REFER
     it("strips backtick MySQL database/schema prefix", () => {
       const sql = "CREATE TABLE `db_name`.`users` (`id` int NOT NULL);";
       expect(stripSchemaFromSql(sql, "db_name")).toBe("CREATE TABLE `users` (`id` int NOT NULL);");
+    });
+
+    it("strips inferred schema from a MySQL ALGORITHM/DEFINER view", () => {
+      const sql = "CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `mydb`.`active_users` AS SELECT * FROM `mydb`.`users`;";
+      expect(stripSchemaFromSql(sql)).toBe("CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `active_users` AS SELECT * FROM `users`;");
+    });
+
+    it("keeps backslash-escaped quotes in MySQL string literals when stripping", () => {
+      const sql = "CREATE TABLE `db`.`t` (`id` int COMMENT 'user\\'s db.notes');";
+      expect(stripSchemaFromSql(sql, "db")).toBe("CREATE TABLE `t` (`id` int COMMENT 'user\\'s db.notes');");
+    });
+
+    it("keeps escaped-quote literals distinct so unequal comments still differ", () => {
+      const source = "CREATE TABLE `db`.`t` (`id` int COMMENT 'user\\'s db.notes');";
+      const target = "CREATE TABLE `db`.`t` (`id` int COMMENT 'user\\'s db.other');";
+      expect(stripSchemaFromSql(source, "db")).not.toBe(stripSchemaFromSql(target, "db"));
+    });
+
+    it("does not start a string literal at an apostrophe inside a quoted identifier", () => {
+      const sql = `CREATE TABLE "public"."it's" ("id" int);`;
+      expect(stripSchemaFromSql(sql, "public")).toBe(`CREATE TABLE "it's" ("id" int);`);
+    });
+
+    it("protects string literals inside array literals", () => {
+      const sql = "CREATE TABLE public.users (tags text[] DEFAULT ARRAY['public.a','public.b']);";
+      expect(stripSchemaFromSql(sql, "public")).toBe("CREATE TABLE users (tags text[] DEFAULT ARRAY['public.a','public.b']);");
     });
 
     it("strips unquoted schema prefix without touching string literals", () => {

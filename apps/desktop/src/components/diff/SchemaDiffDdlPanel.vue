@@ -16,7 +16,9 @@ import DiffSvgConnector from "@/components/diff/DiffSvgConnector.vue";
 import { FileCode, ScrollText, Copy, Play, FileDiff } from "@lucide/vue";
 import { Splitpanes, Pane } from "splitpanes";
 import "splitpanes/dist/splitpanes.css";
+import { schemaDiffEffectiveSchema } from "@/lib/schema/schemaDiff";
 import type { SchemaDiffObject, CompatibilityWarning, DependencyGraph, PermissionDiff, MissingRollbackObject, RollbackCompleteness } from "@/lib/schema/schemaDiff";
+import type { DatabaseType } from "@/types/database";
 
 const { t } = useI18n();
 const { toast } = useToast();
@@ -41,6 +43,10 @@ const props = defineProps<{
   focusedObject?: SchemaDiffObject | null;
   sourceSchema?: string;
   targetSchema?: string;
+  sourceDatabase?: string;
+  targetDatabase?: string;
+  sourceDbType?: string;
+  targetDbType?: string;
   deploySql: string;
   deploySqlAll: string;
   rollbackForwardSql?: string;
@@ -74,41 +80,27 @@ const rollbackRightPaneRef = ref<HTMLDivElement>();
 const rollbackContainerSize = ref({ width: 0, height: 0 });
 const rollbackConnectorKey = ref(0);
 
-const IGNORE_SCHEMA_NAME_STORAGE_KEY = "dbx-schema-diff-ignore-schema-name";
-
-function initIgnoreSchemaName(): boolean {
-  try {
-    const saved = localStorage.getItem(IGNORE_SCHEMA_NAME_STORAGE_KEY);
-    if (saved !== null) {
-      return saved === "true";
-    }
-  } catch {
-    // Ignore localStorage read failures
-  }
-  return true;
-}
-
-const ignoreSchemaName = ref<boolean>(initIgnoreSchemaName());
+// Off by default: raw DDL is what the comparison actually found, so hiding
+// schema qualifiers has to be an explicit per-dialog choice, not a sticky one.
+const ignoreSchemaName = ref(false);
 
 function toggleIgnoreSchemaName(val: boolean) {
   ignoreSchemaName.value = val;
-  try {
-    localStorage.setItem(IGNORE_SCHEMA_NAME_STORAGE_KEY, String(val));
-  } catch {
-    // Ignore localStorage write failures
-  }
 }
+
+const effectiveSourceSchema = computed(() => schemaDiffEffectiveSchema(props.sourceDbType as DatabaseType | undefined, props.sourceDatabase ?? "", props.sourceSchema));
+const effectiveTargetSchema = computed(() => schemaDiffEffectiveSchema(props.targetDbType as DatabaseType | undefined, props.targetDatabase ?? "", props.targetSchema));
 
 const effectiveSourceDdl = computed(() => {
   const ddl = props.selectedObject?.sourceDdl || "";
   if (!ddl || !ignoreSchemaName.value) return ddl;
-  return stripSchemaFromSql(ddl, props.sourceSchema);
+  return stripSchemaFromSql(ddl, effectiveSourceSchema.value);
 });
 
 const effectiveTargetDdl = computed(() => {
   const ddl = props.selectedObject?.targetDdl || "";
   if (!ddl || !ignoreSchemaName.value) return ddl;
-  return stripSchemaFromSql(ddl, props.targetSchema);
+  return stripSchemaFromSql(ddl, effectiveTargetSchema.value);
 });
 
 const rollbackHunks = computed(() => {
