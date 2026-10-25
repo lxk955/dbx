@@ -6508,7 +6508,6 @@ export default withEnglishFallback({
     valueSource: "取值來源",
     sourceValue: "來源資料",
     generator: "自動產生值",
-    generatorNone: "無（使用來源資料）",
     generatorUuid: "UUID (v4)",
     generatorUuidSimple: "UUID (32 位元無連字號)",
     generatorCurrentTimestamp: "目前時間 (DATETIME/TIMESTAMP)",

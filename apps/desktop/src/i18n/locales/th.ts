@@ -9006,7 +9006,6 @@ export default withEnglishFallback({
     valueSource: "แหล่งที่มาของค่า",
     sourceValue: "ข้อมูลต้นทาง",
     generator: "ค่าที่สร้างอัตโนมัติ",
-    generatorNone: "ไม่มี (ใช้ข้อมูลต้นทาง)",
     generatorUuid: "UUID (v4)",
     generatorUuidSimple: "UUID (32 หลัก ไม่มีขีดกลาง)",
     generatorCurrentTimestamp: "เวลาปัจจุบัน (DATETIME/TIMESTAMP)",

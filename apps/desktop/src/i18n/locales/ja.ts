@@ -7199,7 +7199,6 @@ export default withEnglishFallback({
     valueSource: "値の取得元",
     sourceValue: "ソースデータ",
     generator: "自動生成値",
-    generatorNone: "なし（ソースデータを使用）",
     generatorUuid: "UUID (v4)",
     generatorUuidSimple: "UUID (32桁ハイフンなし)",
     generatorCurrentTimestamp: "現在時刻 (DATETIME/TIMESTAMP)",

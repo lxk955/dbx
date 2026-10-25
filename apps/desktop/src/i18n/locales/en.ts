@@ -8391,7 +8391,6 @@ export default {
     valueSource: "Value Source",
     sourceValue: "Source Data",
     generator: "Auto-generated Value",
-    generatorNone: "None (Use source data)",
     generatorUuid: "UUID (v4)",
     generatorUuidSimple: "UUID (32-char hex without hyphens)",
     generatorCurrentTimestamp: "Current Timestamp (DATETIME/TIMESTAMP)",

@@ -254,7 +254,6 @@ describe("tableImport", () => {
 
     expect(formatTableImportPreviewCell("original", "uuid", 0)).toBe("<UUID>");
     expect(formatTableImportPreviewCell(null, "sequence", 2)).toBe("<SEQ:3>");
-    expect(formatTableImportPreviewCell({ $dbxTableImportGenerator: "current_timestamp" }, null, 0)).toBe("<NOW>");
   });
 
   it("suggests data types for generators by database type", () => {

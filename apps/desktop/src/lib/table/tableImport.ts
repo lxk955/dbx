@@ -111,9 +111,6 @@ export function formatTableImportPreviewCell(value: unknown, generator?: string 
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
     const marker = value as Record<string, unknown>;
     if (Object.keys(marker).length === 1 && marker.$dbxSqlImportExpression === "currentTimestamp") return "CURRENT_TIMESTAMP";
-    if (Object.keys(marker).length === 1 && typeof marker.$dbxTableImportGenerator === "string") {
-      return previewValueForGenerator(marker.$dbxTableImportGenerator, rowIndex + 1);
-    }
   }
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);

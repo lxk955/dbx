@@ -51,6 +51,9 @@ pub(crate) fn build_import_insert_batches(
                 .zip(mapped.iter())
                 .map(|(mapping, (source_index, _))| {
                     if let Some(generator) = mapping.generator.as_deref().and_then(TableImportGenerator::parse) {
+                        if matches!(generator, TableImportGenerator::CurrentTimestamp) {
+                            return serde_json::Value::String(D1_CURRENT_TIMESTAMP_TOKEN.to_string());
+                        }
                         return generator.generate_value(row_seq);
                     }
                     let value = match source_index {
@@ -256,5 +259,44 @@ mod tests {
         assert!(batches1[0].sql.contains("(2, 'row2')"), "sql: {}", batches1[0].sql);
         assert!(batches2[0].sql.contains("(3, 'row3')"), "sql: {}", batches2[0].sql);
         assert!(batches2[0].sql.contains("(4, 'row4')"), "sql: {}", batches2[0].sql);
+    }
+
+    #[test]
+    fn cloudflare_d1_timestamp_generator_uses_the_current_timestamp_keyword() {
+        let rows = vec![vec![serde_json::json!("row1")], vec![serde_json::json!("row2")]];
+        let columns = vec!["name".to_string()];
+        let mappings = vec![
+            TableImportColumnMapping {
+                source_column: "".to_string(),
+                target_column: "created_at".to_string(),
+                target_data_type: Some("text".to_string()),
+                generator: Some("current_timestamp".to_string()),
+            },
+            TableImportColumnMapping {
+                source_column: "name".to_string(),
+                target_column: "name".to_string(),
+                target_data_type: None,
+                generator: None,
+            },
+        ];
+
+        let batches = build_import_insert_batches(
+            &rows,
+            &columns,
+            &mappings,
+            &[("created_at".to_string(), "text".to_string()), ("name".to_string(), "text".to_string())],
+            "events",
+            "",
+            100,
+            0,
+        )
+        .unwrap();
+
+        assert_eq!(batches.len(), 1);
+        // The generated timestamp must be evaluated server-side via the keyword
+        // instead of a client-side local-time literal frozen at batch build.
+        assert!(batches[0].sql.contains("(CURRENT_TIMESTAMP, 'row1')"), "sql: {}", batches[0].sql);
+        assert!(batches[0].sql.contains("(CURRENT_TIMESTAMP, 'row2')"), "sql: {}", batches[0].sql);
+        assert!(!batches[0].sql.contains(D1_CURRENT_TIMESTAMP_TOKEN), "sql: {}", batches[0].sql);
     }
 }

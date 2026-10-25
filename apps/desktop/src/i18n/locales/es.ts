@@ -7378,7 +7378,6 @@ export default withEnglishFallback({
     valueSource: "Origen del valor",
     sourceValue: "Datos de origen",
     generator: "Valor generado automáticamente",
-    generatorNone: "Ninguno (usar datos de origen)",
     generatorUuid: "UUID (v4)",
     generatorUuidSimple: "UUID (32 caracteres sin guiones)",
     generatorCurrentTimestamp: "Hora actual (DATETIME/TIMESTAMP)",

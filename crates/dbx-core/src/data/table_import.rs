@@ -7066,7 +7066,10 @@ fn sqlserver_bulk_plans_for_rows<'a>(
         .filter(|(_, data_type)| sqlserver_bulk_type_kind(data_type) == Some(SqlServerBulkTypeKind::Binary));
     for (target_index, _) in binary_columns {
         let Some(ImportColumnSource::SourceIndex(source_index)) = import_plan.column_sources.get(target_index) else {
-            continue;
+            // Generator values (UUID/timestamp strings, sequence numbers) are never
+            // hex-encoded, so the staging CONVERT(..., 1) would fail per row at write
+            // time; fall back to INSERT batches like any other non-hex source value.
+            return None;
         };
         if rows
             .iter()
@@ -13563,6 +13566,52 @@ mod tests {
             fallback[0].sql,
             "INSERT INTO [dbo].[events] ([payload]) VALUES\n(CONVERT(varbinary(max), N'plain'))"
         );
+    }
+
+    #[test]
+    fn sqlserver_bulk_binary_route_rejects_generator_mapped_binary_columns() {
+        let generated_binary_plan = CompiledImportPlan::from_columns_and_sources(
+            vec!["payload".to_string()],
+            vec![ImportColumnSource::Generator(TableImportGenerator::Uuid)],
+            vec![Some("varbinary(max)".to_string())],
+        );
+        let binary_bulk_plan = SqlServerBulkImportPlan {
+            target_table: "[dbo].[events]".to_string(),
+            target_columns: vec!["payload".to_string()],
+            target_types: vec!["varbinary(max)".to_string()],
+            requires_identity_insert: false,
+        };
+
+        // Generator values are not hex-encoded, so the staging CONVERT(..., 1)
+        // would fail per row at write time; the bulk route must decline.
+        assert!(sqlserver_bulk_plans_for_rows(
+            &DatabaseType::SqlServer,
+            Some(&generated_binary_plan),
+            Some(&binary_bulk_plan),
+            &[vec![serde_json::json!("0x00ff")], vec![serde_json::Value::Null]],
+        )
+        .is_none());
+
+        let generated_text_plan = CompiledImportPlan::from_columns_and_sources(
+            vec!["name".to_string()],
+            vec![ImportColumnSource::Generator(TableImportGenerator::Uuid)],
+            vec![Some("nvarchar(100)".to_string())],
+        );
+        let text_bulk_plan = SqlServerBulkImportPlan {
+            target_table: "[dbo].[events]".to_string(),
+            target_columns: vec!["name".to_string()],
+            target_types: vec!["nvarchar(100)".to_string()],
+            requires_identity_insert: false,
+        };
+
+        // Non-binary generator columns stay on the bulk route.
+        assert!(sqlserver_bulk_plans_for_rows(
+            &DatabaseType::SqlServer,
+            Some(&generated_text_plan),
+            Some(&text_bulk_plan),
+            &[vec![serde_json::json!("row1")]],
+        )
+        .is_some());
     }
 
     #[test]

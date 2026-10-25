@@ -7213,7 +7213,6 @@ export default withEnglishFallback({
     valueSource: "값 출처",
     sourceValue: "원본 데이터",
     generator: "자동 생성 값",
-    generatorNone: "없음 (원본 데이터 사용)",
     generatorUuid: "UUID (v4)",
     generatorUuidSimple: "UUID (32자리, 하이픈 없음)",
     generatorCurrentTimestamp: "현재 시간 (DATETIME/TIMESTAMP)",

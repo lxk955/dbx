@@ -8646,7 +8646,6 @@ export default withEnglishFallback({
     valueSource: "Источник значения",
     sourceValue: "Исходные данные",
     generator: "Автоматически сгенерированное значение",
-    generatorNone: "Нет (использовать исходные данные)",
     generatorUuid: "UUID (v4)",
     generatorUuidSimple: "UUID (32 символа без дефисов)",
     generatorCurrentTimestamp: "Текущее время (DATETIME/TIMESTAMP)",
