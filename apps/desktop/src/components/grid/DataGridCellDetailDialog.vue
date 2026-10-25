@@ -12,8 +12,8 @@ import { useCellDetailEditor, type UseCellDetailEditorReturn } from "@/composabl
 import { useTheme } from "@/composables/useTheme";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { BINARY_CELL_DOWNLOAD_MODES, isBinaryCellColumnType, binaryCellUtf8Text, isBlobCellColumnType, type BinaryCellDownloadMode } from "@/lib/dataGrid/binaryCellDownload";
-import { canPreviewCellGeometry, cellDetailPreviewText, isGeometryColumnType } from "@/lib/dataGrid/cellDetailPresentation";
-import { isHexGeometry, renderWktOnCanvas } from "@/lib/dataGrid/geometryPreview";
+import { canPreviewCellGeometry, cellDetailPreviewText } from "@/lib/dataGrid/cellDetailPresentation";
+import { renderWktOnCanvas } from "@/lib/dataGrid/geometryPreview";
 import type { DataGridCellDetail } from "@/lib/dataGrid/dataGridDetail";
 import type { DatabaseType } from "@/types/database";
 
