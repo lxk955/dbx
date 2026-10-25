@@ -1557,6 +1557,29 @@ func TestListIndexesDoesNotFallbackForUnrelatedErrors(t *testing.T) {
 	}
 }
 
+func TestPrimaryKeysFallsBackToCatalogWhenInformationSchemaIsEmpty(t *testing.T) {
+	state := &metadataDriverState{query: func(query string) (driver.Rows, error) {
+		switch {
+		case strings.Contains(query, "FROM information_schema.table_constraints tc"):
+			return &valueRows{columns: []string{"column_name"}}, nil
+		case strings.Contains(query, "FROM sys_catalog.sys_index ix") && strings.Contains(query, "ix.indisprimary"):
+			return &valueRows{columns: []string{"attname"}, rows: [][]driver.Value{{"id"}}}, nil
+		default:
+			return nil, errors.New("unexpected query: " + query)
+		}
+	}}
+	server := newServer()
+	server.db = openMetadataDB(t, state)
+
+	keys, err := server.primaryKeys("lhxzztb", "basestr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !keys["id"] {
+		t.Fatalf("catalog fallback failed to discover primary key: %#v", keys)
+	}
+}
+
 func TestListForeignKeysUsesCatalogForV7(t *testing.T) {
 	state := &metadataDriverState{query: func(query string) (driver.Rows, error) {
 		switch {

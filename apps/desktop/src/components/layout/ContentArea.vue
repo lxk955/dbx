@@ -3436,7 +3436,7 @@ defineExpose({
           :page-sql="activeTab.resultPageSql || activeTab.sql"
           :loading="activeTab.isExecuting"
           :busy-started-at="activeTab.isExecuting ? activeTab.queryExecutionStartedAt : undefined"
-          :editable="!activeTab.tableMetaPending && (isTableDataEditable(activeEffectiveDatabaseType, activeTableMeta?.primaryKeys ?? [], activeTableMeta?.tableType) || !!influxDbV1DeleteSaveHandler)"
+          :editable="!activeTab.tableMetaPending && (isTableDataEditable(activeEffectiveDatabaseType, activeDataTabTableMeta?.primaryKeys ?? [], activeDataTabTableMeta?.tableType) || !!influxDbV1DeleteSaveHandler)"
           :custom-save-handler="influxDbV1DeleteSaveHandler"
           :tab-id="activeTab.id"
           context="table-data"
