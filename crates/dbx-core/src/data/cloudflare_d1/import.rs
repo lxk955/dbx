@@ -22,6 +22,7 @@ pub(crate) fn build_import_insert_batches(
     table: &str,
     schema: &str,
     max_rows: usize,
+    start_row_offset: usize,
 ) -> Result<Vec<ImportSqlBatch>, String> {
     let mapped = mapping_indexes_for_columns(source_columns, mappings)?;
     let columns = mapped.iter().map(|(_, target)| target.clone()).collect::<Vec<_>>();
@@ -40,12 +41,11 @@ pub(crate) fn build_import_insert_batches(
     }) {
         return Err("import data contains a reserved expression token".to_string());
     }
-    let mut sequence: u64 = 1;
     let rows = rows
         .iter()
-        .map(|row| {
-            let row_seq = sequence;
-            sequence += 1;
+        .enumerate()
+        .map(|(row_idx, row)| {
+            let row_seq = (start_row_offset + row_idx + 1) as u64;
             mappings
                 .iter()
                 .zip(mapped.iter())
@@ -89,9 +89,18 @@ pub(crate) fn build_streaming_import_insert_batch(
     table: &str,
     schema: &str,
     max_rows: usize,
+    start_row_offset: usize,
 ) -> Result<Option<ImportSqlBatch>, String> {
-    let batches =
-        build_import_insert_batches(rows, source_columns, mappings, target_column_types, table, schema, max_rows)?;
+    let batches = build_import_insert_batches(
+        rows,
+        source_columns,
+        mappings,
+        target_column_types,
+        table,
+        schema,
+        max_rows,
+        start_row_offset,
+    )?;
     if batches.is_empty() {
         return Ok(None);
     }
@@ -195,5 +204,57 @@ mod tests {
             "expected reserved-token rejection, got: {:?}",
             result.ok().flatten().map(|batch| batch.sql)
         );
+    }
+
+    #[test]
+    fn cloudflare_d1_sequence_generator_continues_across_batches() {
+        let rows1 = vec![vec![serde_json::json!("row1")], vec![serde_json::json!("row2")]];
+        let rows2 = vec![vec![serde_json::json!("row3")], vec![serde_json::json!("row4")]];
+        let columns = vec!["name".to_string()];
+        let mappings = vec![
+            TableImportColumnMapping {
+                source_column: "".to_string(),
+                target_column: "seq".to_string(),
+                target_data_type: Some("integer".to_string()),
+                generator: Some("sequence".to_string()),
+            },
+            TableImportColumnMapping {
+                source_column: "name".to_string(),
+                target_column: "name".to_string(),
+                target_data_type: None,
+                generator: None,
+            },
+        ];
+
+        let batches1 = build_import_insert_batches(
+            &rows1,
+            &columns,
+            &mappings,
+            &[("seq".to_string(), "integer".to_string()), ("name".to_string(), "text".to_string())],
+            "items",
+            "",
+            100,
+            0,
+        )
+        .unwrap();
+
+        let batches2 = build_import_insert_batches(
+            &rows2,
+            &columns,
+            &mappings,
+            &[("seq".to_string(), "integer".to_string()), ("name".to_string(), "text".to_string())],
+            "items",
+            "",
+            100,
+            2,
+        )
+        .unwrap();
+
+        assert_eq!(batches1.len(), 1);
+        assert_eq!(batches2.len(), 1);
+        assert!(batches1[0].sql.contains("(1, 'row1')"), "sql: {}", batches1[0].sql);
+        assert!(batches1[0].sql.contains("(2, 'row2')"), "sql: {}", batches1[0].sql);
+        assert!(batches2[0].sql.contains("(3, 'row3')"), "sql: {}", batches2[0].sql);
+        assert!(batches2[0].sql.contains("(4, 'row4')"), "sql: {}", batches2[0].sql);
     }
 }

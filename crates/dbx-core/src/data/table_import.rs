@@ -172,6 +172,15 @@ impl CompiledImportPlan {
             column_types,
         }
     }
+
+    #[cfg(test)]
+    pub fn from_columns_and_sources(
+        target_columns: Vec<String>,
+        column_sources: Vec<ImportColumnSource>,
+        column_types: Vec<Option<String>>,
+    ) -> Self {
+        Self { column_sources, target_columns, column_types }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -4929,10 +4938,11 @@ fn build_import_insert_batch_from_rows_with_format(
             table,
             schema,
             rows.len(),
+            0,
         );
     }
     let plan = compile_import_plan(columns, mappings, target_column_types)?;
-    build_import_insert_batch_with_plan(rows, &plan, table, schema, db_type, false, date_time_format)
+    build_import_insert_batch_with_plan(rows, &plan, table, schema, db_type, false, date_time_format, 0)
 }
 
 fn build_import_insert_batch_with_plan(
@@ -4943,15 +4953,18 @@ fn build_import_insert_batch_with_plan(
     db_type: &DatabaseType,
     kingbase_oracle_mode: bool,
     date_time_format: Option<&str>,
+    start_row_offset: usize,
 ) -> Result<Option<ImportSqlBatch>, String> {
     if rows.is_empty() {
         return Ok(None);
     }
-    let value_rows = import_value_rows_sql(rows, plan, db_type, kingbase_oracle_mode, date_time_format);
+    let value_rows =
+        import_value_rows_sql(rows, plan, db_type, kingbase_oracle_mode, date_time_format, start_row_offset);
     let sql = generate_insert_typed_from_value_rows(&plan.target_columns, &value_rows, table, schema, db_type, None);
     Ok((!sql.trim().is_empty()).then_some(ImportSqlBatch { sql, row_count: rows.len() }))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_import_insert_batches_with_plan(
     rows: &[Vec<serde_json::Value>],
     plan: &CompiledImportPlan,
@@ -4963,11 +4976,13 @@ fn build_import_insert_batches_with_plan(
     primary_key_columns: &[String],
     date_time_format: Option<&str>,
     hard_sql_bytes: Option<usize>,
+    start_row_offset: usize,
 ) -> Result<Vec<ImportSqlBatch>, String> {
     if rows.is_empty() {
         return Ok(Vec::new());
     }
-    let value_rows = import_value_rows_sql(rows, plan, db_type, kingbase_oracle_mode, date_time_format);
+    let value_rows =
+        import_value_rows_sql(rows, plan, db_type, kingbase_oracle_mode, date_time_format, start_row_offset);
     let limits = SqlBatchLimits::for_database(db_type, rows.len()).with_hard_sql_bytes(hard_sql_bytes);
     let batches = match conflict_policy {
         TableImportConflictPolicy::Error | TableImportConflictPolicy::Skip => {
@@ -5004,10 +5019,11 @@ fn import_value_rows_sql(
     db_type: &DatabaseType,
     kingbase_oracle_mode: bool,
     date_time_format: Option<&str>,
+    start_row_offset: usize,
 ) -> Vec<String> {
     let mut value_rows = Vec::with_capacity(rows.len());
-    let mut sequence_counter: u64 = 1;
-    for row in rows {
+    for (row_idx, row) in rows.iter().enumerate() {
+        let row_sequence = (start_row_offset + row_idx + 1) as u64;
         let mut values = String::with_capacity(plan.column_sources.len().saturating_mul(16).saturating_add(2));
         values.push('(');
         for (target_index, source) in plan.column_sources.iter().enumerate() {
@@ -5051,9 +5067,7 @@ fn import_value_rows_sql(
                         values.push_str(&escape_value_typed(&owned, db_type, data_type));
                     }
                     TableImportGenerator::Sequence => {
-                        let seq = sequence_counter;
-                        sequence_counter += 1;
-                        values.push_str(&seq.to_string());
+                        values.push_str(&row_sequence.to_string());
                     }
                 },
             }
@@ -5070,18 +5084,7 @@ fn map_import_row_with_plan(
     db_type: &DatabaseType,
     kingbase_oracle_mode: bool,
     date_time_format: Option<&str>,
-) -> Vec<serde_json::Value> {
-    let mut sequence_counter = 1u64;
-    map_import_row_with_plan_sequence(row, plan, db_type, kingbase_oracle_mode, date_time_format, &mut sequence_counter)
-}
-
-fn map_import_row_with_plan_sequence(
-    row: &[serde_json::Value],
-    plan: &CompiledImportPlan,
-    db_type: &DatabaseType,
-    kingbase_oracle_mode: bool,
-    date_time_format: Option<&str>,
-    sequence_counter: &mut u64,
+    row_sequence: u64,
 ) -> Vec<serde_json::Value> {
     plan.column_sources
         .iter()
@@ -5092,11 +5095,7 @@ fn map_import_row_with_plan_sequence(
                 ImportColumnSource::SourceIndex(source_index) => {
                     row.get(*source_index).cloned().unwrap_or(serde_json::Value::Null)
                 }
-                ImportColumnSource::Generator(generator) => {
-                    let seq = *sequence_counter;
-                    *sequence_counter += 1;
-                    generator.generate_value(seq)
-                }
+                ImportColumnSource::Generator(generator) => generator.generate_value(row_sequence),
             };
             normalize_import_value(&value, data_type, db_type, kingbase_oracle_mode, date_time_format)
         })
@@ -5118,6 +5117,7 @@ fn build_import_execution_batches(
     primary_key_columns: &[String],
     date_time_format: Option<&str>,
     hard_sql_bytes: Option<usize>,
+    start_row_offset: usize,
 ) -> Result<Vec<ImportSqlBatch>, String> {
     if let Some(plan) = plan {
         return build_import_insert_batches_with_plan(
@@ -5131,6 +5131,7 @@ fn build_import_execution_batches(
             primary_key_columns,
             date_time_format,
             hard_sql_bytes,
+            start_row_offset,
         );
     }
     if *db_type == DatabaseType::CloudflareD1 && conflict_policy != TableImportConflictPolicy::UpdateExisting {
@@ -5142,6 +5143,7 @@ fn build_import_execution_batches(
             table,
             schema,
             rows.len().max(1),
+            start_row_offset,
         );
     }
     let plan = compile_import_plan(columns, mappings, target_column_types)?;
@@ -5156,6 +5158,7 @@ fn build_import_execution_batches(
         primary_key_columns,
         date_time_format,
         hard_sql_bytes,
+        start_row_offset,
     )
 }
 
@@ -5340,11 +5343,13 @@ fn build_import_insert_batches_with_format(
             table,
             schema,
             effective_import_batch_size(db_type, batch_size),
+            0,
         );
     }
     let plan = compile_import_plan(&data.columns, mappings, target_column_types)?;
     let batch_size = effective_import_batch_size(db_type, batch_size);
     let mut batches = Vec::new();
+    let mut start_row_offset = 0usize;
     for rows in data.rows.chunks(batch_size) {
         batches.extend(build_import_insert_batches_with_plan(
             rows,
@@ -5357,7 +5362,9 @@ fn build_import_insert_batches_with_format(
             &[],
             date_time_format,
             None,
+            start_row_offset,
         )?);
+        start_row_offset += rows.len();
     }
     Ok(batches)
 }
@@ -5900,8 +5907,9 @@ fn build_postgres_copy_text_batch(
     date_time_format: Option<&str>,
 ) -> Result<(String, Vec<u8>), String> {
     let mut data = Vec::new();
-    for row in rows {
-        data.extend_from_slice(&build_postgres_copy_text_row(row, plan, date_time_format)?);
+    for (row_idx, row) in rows.iter().enumerate() {
+        let row_sequence = (row_idx + 1) as u64;
+        data.extend_from_slice(&build_postgres_copy_text_row(row, plan, date_time_format, row_sequence)?);
     }
     Ok((postgres_copy_sql(plan, table, schema), data))
 }
@@ -5910,8 +5918,10 @@ fn build_postgres_copy_text_row(
     row: &[serde_json::Value],
     plan: &CompiledImportPlan,
     date_time_format: Option<&str>,
+    row_sequence: u64,
 ) -> Result<Vec<u8>, String> {
-    let mapped_row = map_import_row_with_plan(row, plan, &DatabaseType::Postgres, false, date_time_format);
+    let mapped_row =
+        map_import_row_with_plan(row, plan, &DatabaseType::Postgres, false, date_time_format, row_sequence);
     let mut data = Vec::new();
     for (index, value) in mapped_row.iter().enumerate() {
         if index > 0 {
@@ -6018,12 +6028,14 @@ async fn append_postgres_copy_rows(
     plan: &CompiledImportPlan,
     date_time_format: Option<&str>,
     accumulator: &mut PostgresCopyAccumulator,
+    start_row_offset: usize,
     db_write_ms: &mut u128,
     statement_count: &mut usize,
 ) -> Result<usize, ImportRowsBatchError> {
     let mut rows_imported = 0usize;
-    for row in rows {
-        let encoded = build_postgres_copy_text_row(row, plan, date_time_format)
+    for (row_idx, row) in rows.iter().enumerate() {
+        let row_sequence = (start_row_offset + row_idx + 1) as u64;
+        let encoded = build_postgres_copy_text_row(row, plan, date_time_format, row_sequence)
             .map_err(|message| ImportRowsBatchError::with_rows_imported(rows_imported, message))?;
         if accumulator.should_flush_before(encoded.len()) {
             ensure_import_write_allowed(import_id, is_cancelled, rows_imported).await?;
@@ -6358,6 +6370,7 @@ async fn execute_import_rows_batch(
     primary_key_columns: &[String],
     date_time_format: Option<&str>,
     hard_sql_bytes: Option<usize>,
+    start_row_offset: usize,
     db_write_ms: &mut u128,
     statement_count: &mut usize,
 ) -> Result<usize, ImportRowsBatchError> {
@@ -6375,6 +6388,7 @@ async fn execute_import_rows_batch(
                 bulk_plan,
                 execution_policy.include_truncate,
                 date_time_format,
+                start_row_offset,
                 db_write_ms,
                 statement_count,
             )
@@ -6401,6 +6415,7 @@ async fn execute_import_rows_batch(
                 plan,
                 date_time_format,
                 accumulator,
+                start_row_offset,
                 db_write_ms,
                 statement_count,
             )
@@ -6431,6 +6446,7 @@ async fn execute_import_rows_batch(
         primary_key_columns,
         date_time_format,
         hard_sql_bytes,
+        start_row_offset,
     )
     .map_err(|message| ImportRowsBatchError::with_rows_imported(rows_imported, message))?;
     if let Some(transaction) = sqlite_append_transaction.as_mut() {
@@ -7244,6 +7260,7 @@ async fn execute_sqlserver_bulk_rows_batch(
     bulk_plan: &SqlServerBulkImportPlan,
     truncate_target: bool,
     date_time_format: Option<&str>,
+    start_row_offset: usize,
     db_write_ms: &mut u128,
     statement_count: &mut usize,
 ) -> Result<usize, ImportRowsBatchError> {
@@ -7281,7 +7298,13 @@ async fn execute_sqlserver_bulk_rows_batch(
         rows,
         import_plan.target_columns.len(),
         |row_index, row| {
-            sqlserver_bulk_text_row(row, import_plan, date_time_format, row_index, SQLSERVER_BULK_ROW_MEMORY_BYTES)
+            sqlserver_bulk_text_row(
+                row,
+                import_plan,
+                date_time_format,
+                start_row_offset + row_index,
+                SQLSERVER_BULK_ROW_MEMORY_BYTES,
+            )
         },
     )
     .await
@@ -7708,6 +7731,7 @@ where
             }
         }
         let mut rows_imported = 0usize;
+        let mut sequence_offset = 0usize;
         let mut last_bytes_read = 0u64;
         let mut last_progress_emit = Instant::now();
         loop {
@@ -7761,12 +7785,16 @@ where
                         &primary_key_columns,
                         request.date_time_format.as_deref(),
                         import_sql_hard_limit,
+                        sequence_offset,
                         &mut db_write_ms,
                         &mut statement_count,
                     )
                     .await
                     {
-                        Ok(row_count) => row_count,
+                        Ok(row_count) => {
+                            sequence_offset += rows.len();
+                            row_count
+                        }
                         Err(error) => {
                             drop(receiver);
                             let _ = producer.await;
@@ -8169,6 +8197,7 @@ where
             }
         }
         let mut rows_imported = 0usize;
+        let mut sequence_offset = 0usize;
         loop {
             let message = match receive_xlsx_stream_message(
                 &mut receiver,
@@ -8244,12 +8273,16 @@ where
                         &primary_key_columns,
                         request.date_time_format.as_deref(),
                         import_sql_hard_limit,
+                        sequence_offset,
                         &mut db_write_ms,
                         &mut statement_count,
                     )
                     .await
                     {
-                        Ok(row_count) => row_count,
+                        Ok(row_count) => {
+                            sequence_offset += rows.len();
+                            row_count
+                        }
                         Err(error) => {
                             producer_cancelled.store(true, Ordering::Release);
                             drop(receiver);
@@ -8526,6 +8559,7 @@ where
     }
 
     let mut rows_imported = 0;
+    let mut sequence_offset = 0usize;
     loop {
         let rows = match row_source.next_batch(effective_batch_size).await {
             Ok(Some(rows)) => rows,
@@ -8578,12 +8612,16 @@ where
             &primary_key_columns,
             request.date_time_format.as_deref(),
             import_sql_hard_limit,
+            sequence_offset,
             &mut db_write_ms,
             &mut statement_count,
         )
         .await
         {
-            Ok(row_count) => row_count,
+            Ok(row_count) => {
+                sequence_offset += rows.len();
+                row_count
+            }
             Err(error) => {
                 rows_imported = (rows_imported + error.rows_imported).min(total_rows_cap);
                 if error.cancelled {
@@ -8906,7 +8944,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(plan.mapped_source_indexes, vec![1, 0]);
+        assert_eq!(plan.column_sources, vec![ImportColumnSource::SourceIndex(1), ImportColumnSource::SourceIndex(0)]);
         assert_eq!(plan.target_columns, vec!["user_id", "display_name"]);
         assert_eq!(plan.column_types, vec![Some("BIGINT".to_string()), Some("VARCHAR(255)".to_string())]);
     }
@@ -13084,7 +13122,7 @@ mod tests {
         let rows = vec![vec![serde_json::json!(r#"[{"lvl1_org_code":"50001963","nested":{"enabled":true}}]"#)]];
 
         assert_eq!(
-            import_value_rows_sql(&rows, &plan, &DatabaseType::StarRocks, false, None),
+            import_value_rows_sql(&rows, &plan, &DatabaseType::StarRocks, false, None, 0),
             vec![r#"(CAST(PARSE_JSON('[{"lvl1_org_code":"50001963","nested":{"enabled":true}}]') AS ARRAY<JSON>))"#]
         );
     }
@@ -13109,6 +13147,7 @@ mod tests {
             &[],
             None,
             None,
+            0,
         )
         .unwrap();
         assert_eq!(default_batches[0].sql, "INSERT INTO \"public\".\"users\" (\"id\", \"name\") VALUES\n(1, 'Ada')");
@@ -13124,6 +13163,7 @@ mod tests {
             &[],
             None,
             None,
+            0,
         )
         .unwrap();
         assert_eq!(
@@ -13157,6 +13197,7 @@ mod tests {
             &["tenant_id".to_string(), "id".to_string()],
             None,
             None,
+            0,
         )
         .unwrap();
         assert!(postgres[0].sql.contains("ON CONFLICT (\"tenant_id\", \"id\") DO UPDATE SET"));
@@ -13176,6 +13217,7 @@ mod tests {
             &["tenant_id".to_string(), "id".to_string()],
             None,
             None,
+            0,
         )
         .unwrap();
         assert!(mysql[0].sql.contains("ON DUPLICATE KEY UPDATE `name` = VALUES(`name`), `status` = VALUES(`status`)"));
@@ -13514,6 +13556,7 @@ mod tests {
             &[],
             None,
             None,
+            0,
         )
         .unwrap();
         assert_eq!(
@@ -13835,6 +13878,7 @@ mod tests {
             // Pin the legacy 512 KiB cap so the two 300 KiB rows form separate
             // batches and the cancellation check lands between writes.
             Some(512 * 1024),
+            0,
             &mut db_write_ms,
             &mut statement_count,
         )
@@ -13896,6 +13940,7 @@ mod tests {
             &plan,
             None,
             &mut accumulator,
+            0,
             &mut db_write_ms,
             &mut statement_count,
         )
@@ -14047,6 +14092,7 @@ mod tests {
                 &[],
                 None,
                 None,
+                0,
                 &mut self.db_write_ms,
                 &mut self.statement_count,
             )
@@ -14469,6 +14515,7 @@ mod tests {
             &[],
             None,
             Some(512 * 1024),
+            0,
         )
         .unwrap();
 
@@ -14825,6 +14872,7 @@ mod tests {
             &[],
             None,
             None,
+            0,
         )
         .unwrap();
 
@@ -14875,5 +14923,177 @@ mod tests {
                 ImportCreateTableColumn { name: "created_at".to_string(), data_type: "DATETIME".to_string() },
             ]
         );
+    }
+
+    #[test]
+    fn import_sequence_generator_continues_monotonically_across_insert_batches() {
+        let plan = CompiledImportPlan::from_columns_and_sources(
+            vec!["seq".to_string(), "name".to_string()],
+            vec![ImportColumnSource::Generator(TableImportGenerator::Sequence), ImportColumnSource::SourceIndex(0)],
+            vec![Some("integer".to_string()), Some("text".to_string())],
+        );
+
+        let chunk1 = vec![vec![serde_json::json!("Ada")], vec![serde_json::json!("Grace")]];
+        let chunk2 = vec![vec![serde_json::json!("Linus")], vec![serde_json::json!("Margaret")]];
+
+        let batch1 = build_import_insert_batches_with_plan(
+            &chunk1,
+            &plan,
+            "coders",
+            "public",
+            &DatabaseType::Postgres,
+            false,
+            TableImportConflictPolicy::Error,
+            &[],
+            None,
+            None,
+            0,
+        )
+        .unwrap();
+
+        let batch2 = build_import_insert_batches_with_plan(
+            &chunk2,
+            &plan,
+            "coders",
+            "public",
+            &DatabaseType::Postgres,
+            false,
+            TableImportConflictPolicy::Error,
+            &[],
+            None,
+            None,
+            2,
+        )
+        .unwrap();
+
+        assert_eq!(batch1.len(), 1);
+        assert_eq!(batch2.len(), 1);
+        assert!(batch1[0].sql.contains("(1, 'Ada')"), "sql: {}", batch1[0].sql);
+        assert!(batch1[0].sql.contains("(2, 'Grace')"), "sql: {}", batch1[0].sql);
+        assert!(batch2[0].sql.contains("(3, 'Linus')"), "sql: {}", batch2[0].sql);
+        assert!(batch2[0].sql.contains("(4, 'Margaret')"), "sql: {}", batch2[0].sql);
+    }
+
+    #[test]
+    fn import_sequence_generator_multi_row_postgres_copy() {
+        let plan = CompiledImportPlan::from_columns_and_sources(
+            vec!["seq".to_string(), "name".to_string()],
+            vec![ImportColumnSource::Generator(TableImportGenerator::Sequence), ImportColumnSource::SourceIndex(0)],
+            vec![Some("integer".to_string()), Some("text".to_string())],
+        );
+
+        let rows =
+            vec![vec![serde_json::json!("first")], vec![serde_json::json!("second")], vec![serde_json::json!("third")]];
+
+        let (_, data) = build_postgres_copy_text_batch(&rows, &plan, "items", "public", None).unwrap();
+        let text = String::from_utf8(data).unwrap();
+        assert_eq!(text, "1\tfirst\n2\tsecond\n3\tthird\n");
+
+        // Test offset continuity with build_postgres_copy_text_row
+        let row_offset_2 = build_postgres_copy_text_row(&rows[0], &plan, None, 4).unwrap();
+        assert_eq!(String::from_utf8(row_offset_2).unwrap(), "4\tfirst\n");
+    }
+
+    #[test]
+    fn import_multiple_sequence_columns_in_same_row_do_not_interleave() {
+        let plan = CompiledImportPlan::from_columns_and_sources(
+            vec!["seq_a".to_string(), "seq_b".to_string(), "val".to_string()],
+            vec![
+                ImportColumnSource::Generator(TableImportGenerator::Sequence),
+                ImportColumnSource::Generator(TableImportGenerator::Sequence),
+                ImportColumnSource::SourceIndex(0),
+            ],
+            vec![Some("integer".to_string()), Some("integer".to_string()), Some("text".to_string())],
+        );
+
+        let rows = vec![vec![serde_json::json!("alpha")], vec![serde_json::json!("beta")]];
+        let batches = build_import_insert_batches_with_plan(
+            &rows,
+            &plan,
+            "dual_seq",
+            "",
+            &DatabaseType::Mysql,
+            false,
+            TableImportConflictPolicy::Error,
+            &[],
+            None,
+            None,
+            0,
+        )
+        .unwrap();
+
+        assert_eq!(batches.len(), 1);
+        assert!(batches[0].sql.contains("(1, 1, 'alpha')"), "sql: {}", batches[0].sql);
+        assert!(batches[0].sql.contains("(2, 2, 'beta')"), "sql: {}", batches[0].sql);
+    }
+
+    #[test]
+    fn import_sqlserver_bulk_sequence_generator_with_offset() {
+        let plan = CompiledImportPlan::from_columns_and_sources(
+            vec!["seq".to_string(), "name".to_string()],
+            vec![ImportColumnSource::Generator(TableImportGenerator::Sequence), ImportColumnSource::SourceIndex(0)],
+            vec![Some("integer".to_string()), Some("nvarchar(100)".to_string())],
+        );
+
+        let row1 = vec![serde_json::json!("item1")];
+        let row2 = vec![serde_json::json!("item2")];
+
+        // start_row_offset = 0: row_index 0 -> seq 1; row_index 1 -> seq 2
+        let text1 = sqlserver_bulk_text_row(&row1, &plan, None, 0, SQLSERVER_BULK_ROW_MEMORY_BYTES).unwrap();
+        let text2 = sqlserver_bulk_text_row(&row2, &plan, None, 1, SQLSERVER_BULK_ROW_MEMORY_BYTES).unwrap();
+        assert_eq!(text1, vec![Some("1".to_string()), Some("item1".to_string())]);
+        assert_eq!(text2, vec![Some("2".to_string()), Some("item2".to_string())]);
+
+        // start_row_offset = 5: row_index 5 + 0 = 5 -> seq 6
+        let text_offset = sqlserver_bulk_text_row(&row1, &plan, None, 5, SQLSERVER_BULK_ROW_MEMORY_BYTES).unwrap();
+        assert_eq!(text_offset, vec![Some("6".to_string()), Some("item1".to_string())]);
+    }
+
+    #[test]
+    fn build_import_insert_batches_sequence_continuous_across_chunks() {
+        let data = ParsedImportFile {
+            columns: vec!["name".to_string()],
+            rows: vec![
+                vec![serde_json::json!("a")],
+                vec![serde_json::json!("b")],
+                vec![serde_json::json!("c")],
+                vec![serde_json::json!("d")],
+            ],
+            total_rows: 4,
+            effective_encoding: None,
+        };
+        let mappings = vec![
+            TableImportColumnMapping {
+                source_column: "".to_string(),
+                target_column: "seq".to_string(),
+                target_data_type: Some("integer".to_string()),
+                generator: Some("sequence".to_string()),
+            },
+            TableImportColumnMapping {
+                source_column: "name".to_string(),
+                target_column: "name".to_string(),
+                target_data_type: None,
+                generator: None,
+            },
+        ];
+
+        let batches = build_import_insert_batches(
+            &data,
+            &mappings,
+            &[("seq".to_string(), "integer".to_string()), ("name".to_string(), "text".to_string())],
+            "items",
+            "",
+            &DatabaseType::Mysql,
+            2,
+        )
+        .unwrap();
+
+        assert_eq!(batches.len(), 2);
+        assert_eq!(batches[0].row_count, 2);
+        assert_eq!(batches[1].row_count, 2);
+        assert!(batches[0].sql.contains("(1, 'a')"), "batch 0: {}", batches[0].sql);
+        assert!(batches[0].sql.contains("(2, 'b')"), "batch 0: {}", batches[0].sql);
+        assert!(batches[1].sql.contains("(3, 'c')"), "batch 1: {}", batches[1].sql);
+        assert!(batches[1].sql.contains("(4, 'd')"), "batch 1: {}", batches[1].sql);
     }
 }
