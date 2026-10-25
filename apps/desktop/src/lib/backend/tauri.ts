@@ -6153,6 +6153,7 @@ export interface TableImportColumnMapping {
   sourceColumn: string;
   targetColumn: string;
   targetDataType?: string | null;
+  generator?: string | null;
 }
 
 export interface TableImportParseOptions {

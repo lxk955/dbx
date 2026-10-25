@@ -1,6 +1,7 @@
 use crate::models::connection::DatabaseType;
 use crate::table_import::{
     mapping_indexes_for_columns, sql_import_is_current_timestamp_value, ImportSqlBatch, TableImportColumnMapping,
+    TableImportGenerator,
 };
 use crate::transfer::generate_insert_typed;
 
@@ -39,13 +40,23 @@ pub(crate) fn build_import_insert_batches(
     }) {
         return Err("import data contains a reserved expression token".to_string());
     }
+    let mut sequence: u64 = 1;
     let rows = rows
         .iter()
         .map(|row| {
-            mapped
+            let row_seq = sequence;
+            sequence += 1;
+            mappings
                 .iter()
-                .map(|(source_index, _)| {
-                    let value = row.get(*source_index).cloned().unwrap_or(serde_json::Value::Null);
+                .zip(mapped.iter())
+                .map(|(mapping, (source_index, _))| {
+                    if let Some(generator) = mapping.generator.as_deref().and_then(TableImportGenerator::parse) {
+                        return generator.generate_value(row_seq);
+                    }
+                    let value = match source_index {
+                        Some(idx) => row.get(*idx).cloned().unwrap_or(serde_json::Value::Null),
+                        None => serde_json::Value::Null,
+                    };
                     if sql_import_is_current_timestamp_value(&value) {
                         serde_json::Value::String(D1_CURRENT_TIMESTAMP_TOKEN.to_string())
                     } else {
@@ -101,6 +112,7 @@ mod tests {
             source_column: "value".to_string(),
             target_column: "value".to_string(),
             target_data_type: None,
+            generator: None,
         }];
 
         let batch = crate::table_import::build_import_insert_batch_from_rows(
@@ -130,11 +142,13 @@ mod tests {
                 source_column: "id".to_string(),
                 target_column: "id".to_string(),
                 target_data_type: None,
+                generator: None,
             },
             TableImportColumnMapping {
                 source_column: "created_at".to_string(),
                 target_column: "created_at".to_string(),
                 target_data_type: None,
+                generator: None,
             },
         ];
 
@@ -163,6 +177,7 @@ mod tests {
             source_column: "payload".to_string(),
             target_column: "payload".to_string(),
             target_data_type: None,
+            generator: None,
         }];
 
         let result = crate::table_import::build_import_insert_batch_from_rows(

@@ -106,11 +106,72 @@ pub struct ImportSqlBatch {
     pub row_count: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TableImportGenerator {
+    Uuid,
+    #[serde(rename = "uuid_simple", alias = "uuidNoHyphens", alias = "uuid_no_hyphens", alias = "uuid32")]
+    UuidSimple,
+    #[serde(rename = "current_timestamp", alias = "currentTimestamp", alias = "now")]
+    CurrentTimestamp,
+    #[serde(rename = "current_date", alias = "currentDate")]
+    CurrentDate,
+    #[serde(rename = "sequence", alias = "autoIncrement", alias = "auto_increment")]
+    Sequence,
+}
+
+impl TableImportGenerator {
+    pub fn parse(raw: &str) -> Option<Self> {
+        let trimmed = raw.trim().to_ascii_lowercase().replace('-', "_");
+        match trimmed.as_str() {
+            "uuid" | "uuid_v4" => Some(Self::Uuid),
+            "uuid_simple" | "uuidnohyphens" | "uuid_no_hyphens" | "uuid32" | "uuid_32" => Some(Self::UuidSimple),
+            "current_timestamp" | "currenttimestamp" | "now" | "datetime" => Some(Self::CurrentTimestamp),
+            "current_date" | "currentdate" | "today" | "date" => Some(Self::CurrentDate),
+            "sequence" | "autoincrement" | "auto_increment" => Some(Self::Sequence),
+            _ => None,
+        }
+    }
+
+    pub fn generate_value(&self, sequence: u64) -> serde_json::Value {
+        match self {
+            Self::Uuid => serde_json::Value::String(uuid::Uuid::new_v4().to_string()),
+            Self::UuidSimple => serde_json::Value::String(uuid::Uuid::new_v4().simple().to_string()),
+            Self::CurrentTimestamp => {
+                serde_json::Value::String(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string())
+            }
+            Self::CurrentDate => serde_json::Value::String(chrono::Local::now().format("%Y-%m-%d").to_string()),
+            Self::Sequence => serde_json::json!(sequence),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImportColumnSource {
+    SourceIndex(usize),
+    Generator(TableImportGenerator),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CompiledImportPlan {
-    mapped_source_indexes: Vec<usize>,
+    column_sources: Vec<ImportColumnSource>,
     target_columns: Vec<String>,
     column_types: Vec<Option<String>>,
+}
+
+impl CompiledImportPlan {
+    #[cfg(test)]
+    pub fn from_source_indexes(
+        mapped_source_indexes: Vec<usize>,
+        target_columns: Vec<String>,
+        column_types: Vec<Option<String>>,
+    ) -> Self {
+        Self {
+            column_sources: mapped_source_indexes.into_iter().map(ImportColumnSource::SourceIndex).collect(),
+            target_columns,
+            column_types,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -132,6 +193,8 @@ pub struct TableImportColumnMapping {
     pub target_column: String,
     #[serde(default)]
     pub target_data_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generator: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -4752,14 +4815,14 @@ pub async fn parse_import_file(path: &str, preview_limit: usize) -> Result<Parse
 pub fn mapping_indexes(
     data: &ParsedImportFile,
     mappings: &[TableImportColumnMapping],
-) -> Result<Vec<(usize, String)>, String> {
+) -> Result<Vec<(Option<usize>, String)>, String> {
     mapping_indexes_for_columns(&data.columns, mappings)
 }
 
 pub fn mapping_indexes_for_columns(
     columns: &[String],
     mappings: &[TableImportColumnMapping],
-) -> Result<Vec<(usize, String)>, String> {
+) -> Result<Vec<(Option<usize>, String)>, String> {
     mapping_indexes_with_mappings(columns, mappings).map(|mapped| {
         mapped.into_iter().map(|(source_index, mapping)| (source_index, mapping.target_column.clone())).collect()
     })
@@ -4768,17 +4831,18 @@ pub fn mapping_indexes_for_columns(
 fn mapping_indexes_with_mappings<'a>(
     columns: &[String],
     mappings: &'a [TableImportColumnMapping],
-) -> Result<Vec<(usize, &'a TableImportColumnMapping)>, String> {
+) -> Result<Vec<(Option<usize>, &'a TableImportColumnMapping)>, String> {
     if mappings.is_empty() {
         return Err("No columns mapped for import".to_string());
     }
     let mut mapped = Vec::new();
     let mut target_seen = HashSet::new();
     for mapping in mappings {
-        let source_index = columns
-            .iter()
-            .position(|column| column == &mapping.source_column)
-            .ok_or_else(|| format!("Source column not found: {}", mapping.source_column))?;
+        let generator = mapping.generator.as_deref().and_then(TableImportGenerator::parse);
+        let source_index = columns.iter().position(|column| column == &mapping.source_column);
+        if generator.is_none() && source_index.is_none() {
+            return Err(format!("Source column not found: {}", mapping.source_column));
+        }
         if mapping.target_column.trim().is_empty() {
             return Err("Target column cannot be empty".to_string());
         }
@@ -4795,9 +4859,20 @@ fn compile_import_plan(
     mappings: &[TableImportColumnMapping],
     target_column_types: &[(String, String)],
 ) -> Result<CompiledImportPlan, String> {
-    let mapped = mapping_indexes_for_columns(columns, mappings)?;
-    let mapped_source_indexes = mapped.iter().map(|(source_index, _)| *source_index).collect::<Vec<_>>();
-    let target_columns = mapped.into_iter().map(|(_, target)| target).collect::<Vec<_>>();
+    let mapped = mapping_indexes_with_mappings(columns, mappings)?;
+    let mut column_sources = Vec::with_capacity(mapped.len());
+    let mut target_columns = Vec::with_capacity(mapped.len());
+    for (source_index, mapping) in mapped {
+        let source = if let Some(gen) = mapping.generator.as_deref().and_then(TableImportGenerator::parse) {
+            ImportColumnSource::Generator(gen)
+        } else if let Some(idx) = source_index {
+            ImportColumnSource::SourceIndex(idx)
+        } else {
+            return Err(format!("Source column not found: {}", mapping.source_column));
+        };
+        column_sources.push(source);
+        target_columns.push(mapping.target_column.clone());
+    }
     let column_types = target_columns
         .iter()
         .map(|column| {
@@ -4807,7 +4882,7 @@ fn compile_import_plan(
                 .map(|(_, data_type)| data_type.clone())
         })
         .collect::<Vec<_>>();
-    Ok(CompiledImportPlan { mapped_source_indexes, target_columns, column_types })
+    Ok(CompiledImportPlan { column_sources, target_columns, column_types })
 }
 
 pub fn build_import_insert_batch_from_rows(
@@ -4931,22 +5006,57 @@ fn import_value_rows_sql(
     date_time_format: Option<&str>,
 ) -> Vec<String> {
     let mut value_rows = Vec::with_capacity(rows.len());
+    let mut sequence_counter: u64 = 1;
     for row in rows {
-        let mut values = String::with_capacity(plan.mapped_source_indexes.len().saturating_mul(16).saturating_add(2));
+        let mut values = String::with_capacity(plan.column_sources.len().saturating_mul(16).saturating_add(2));
         values.push('(');
-        for (target_index, source_index) in plan.mapped_source_indexes.iter().enumerate() {
+        for (target_index, source) in plan.column_sources.iter().enumerate() {
             if target_index > 0 {
                 values.push_str(", ");
             }
-            let source_value = row.get(*source_index).unwrap_or(&serde_json::Value::Null);
             let data_type = plan.column_types.get(target_index).and_then(|data_type| data_type.as_deref());
-            if sql_import_is_current_timestamp_value(source_value) {
-                values.push_str(sql_import_current_timestamp_sql(db_type));
-                continue;
+            match source {
+                ImportColumnSource::SourceIndex(source_index) => {
+                    let source_value = row.get(*source_index).unwrap_or(&serde_json::Value::Null);
+                    if sql_import_is_current_timestamp_value(source_value) {
+                        values.push_str(sql_import_current_timestamp_sql(db_type));
+                        continue;
+                    }
+                    let normalized = normalize_import_value_cow(
+                        source_value,
+                        data_type,
+                        db_type,
+                        kingbase_oracle_mode,
+                        date_time_format,
+                    );
+                    values.push_str(&escape_value_typed(normalized.as_ref(), db_type, data_type));
+                }
+                ImportColumnSource::Generator(generator) => match generator {
+                    TableImportGenerator::Uuid => {
+                        let uuid_str = uuid::Uuid::new_v4().to_string();
+                        let owned = serde_json::Value::String(uuid_str);
+                        values.push_str(&escape_value_typed(&owned, db_type, data_type));
+                    }
+                    TableImportGenerator::UuidSimple => {
+                        let uuid_str = uuid::Uuid::new_v4().simple().to_string();
+                        let owned = serde_json::Value::String(uuid_str);
+                        values.push_str(&escape_value_typed(&owned, db_type, data_type));
+                    }
+                    TableImportGenerator::CurrentTimestamp => {
+                        values.push_str(sql_import_current_timestamp_sql(db_type));
+                    }
+                    TableImportGenerator::CurrentDate => {
+                        let date_str = chrono::Local::now().format("%Y-%m-%d").to_string();
+                        let owned = serde_json::Value::String(date_str);
+                        values.push_str(&escape_value_typed(&owned, db_type, data_type));
+                    }
+                    TableImportGenerator::Sequence => {
+                        let seq = sequence_counter;
+                        sequence_counter += 1;
+                        values.push_str(&seq.to_string());
+                    }
+                },
             }
-            let normalized =
-                normalize_import_value_cow(source_value, data_type, db_type, kingbase_oracle_mode, date_time_format);
-            values.push_str(&escape_value_typed(normalized.as_ref(), db_type, data_type));
         }
         values.push(')');
         value_rows.push(values);
@@ -4961,18 +5071,34 @@ fn map_import_row_with_plan(
     kingbase_oracle_mode: bool,
     date_time_format: Option<&str>,
 ) -> Vec<serde_json::Value> {
-    plan.mapped_source_indexes
+    let mut sequence_counter = 1u64;
+    map_import_row_with_plan_sequence(row, plan, db_type, kingbase_oracle_mode, date_time_format, &mut sequence_counter)
+}
+
+fn map_import_row_with_plan_sequence(
+    row: &[serde_json::Value],
+    plan: &CompiledImportPlan,
+    db_type: &DatabaseType,
+    kingbase_oracle_mode: bool,
+    date_time_format: Option<&str>,
+    sequence_counter: &mut u64,
+) -> Vec<serde_json::Value> {
+    plan.column_sources
         .iter()
         .enumerate()
-        .map(|(target_index, source_index)| {
-            let value = row.get(*source_index).cloned().unwrap_or(serde_json::Value::Null);
-            normalize_import_value(
-                &value,
-                plan.column_types.get(target_index).and_then(|data_type| data_type.as_deref()),
-                db_type,
-                kingbase_oracle_mode,
-                date_time_format,
-            )
+        .map(|(target_index, source)| {
+            let data_type = plan.column_types.get(target_index).and_then(|data_type| data_type.as_deref());
+            let value = match source {
+                ImportColumnSource::SourceIndex(source_index) => {
+                    row.get(*source_index).cloned().unwrap_or(serde_json::Value::Null)
+                }
+                ImportColumnSource::Generator(generator) => {
+                    let seq = *sequence_counter;
+                    *sequence_counter += 1;
+                    generator.generate_value(seq)
+                }
+            };
+            normalize_import_value(&value, data_type, db_type, kingbase_oracle_mode, date_time_format)
         })
         .collect()
 }
@@ -5113,6 +5239,7 @@ fn textual_source_columns_for_import(
 ) -> HashSet<String> {
     mappings
         .iter()
+        .filter(|mapping| mapping.generator.is_none())
         .filter(|mapping| {
             target_column_types
                 .iter()
@@ -5546,7 +5673,16 @@ pub fn build_import_create_table_plan(
         let data_type = match normalize_import_target_data_type(mapping, db_type)? {
             Some(data_type) => data_type,
             None => {
-                let inferred_type = infer_column_type(&data.rows, source_index);
+                let inferred_type = match source_index {
+                    Some(idx) => infer_column_type(&data.rows, idx),
+                    None => match mapping.generator.as_deref().and_then(TableImportGenerator::parse) {
+                        Some(TableImportGenerator::Uuid | TableImportGenerator::UuidSimple) => ImportInferredType::Text,
+                        Some(TableImportGenerator::CurrentTimestamp) => ImportInferredType::Timestamp,
+                        Some(TableImportGenerator::CurrentDate) => ImportInferredType::Date,
+                        Some(TableImportGenerator::Sequence) => ImportInferredType::Integer,
+                        None => ImportInferredType::Text,
+                    },
+                };
                 import_data_type(inferred_type, db_type)
             }
         };
@@ -6913,10 +7049,12 @@ fn sqlserver_bulk_plans_for_rows<'a>(
         .enumerate()
         .filter(|(_, data_type)| sqlserver_bulk_type_kind(data_type) == Some(SqlServerBulkTypeKind::Binary));
     for (target_index, _) in binary_columns {
-        let source_index = *import_plan.mapped_source_indexes.get(target_index)?;
+        let Some(ImportColumnSource::SourceIndex(source_index)) = import_plan.column_sources.get(target_index) else {
+            continue;
+        };
         if rows
             .iter()
-            .map(|row| row.get(source_index).unwrap_or(&serde_json::Value::Null))
+            .map(|row| row.get(*source_index).unwrap_or(&serde_json::Value::Null))
             .any(|value| !sqlserver_bulk_binary_value_compatible(value))
         {
             return None;
@@ -6996,13 +7134,22 @@ fn sqlserver_bulk_text_row(
     memory_limit: usize,
 ) -> Result<Vec<Option<String>>, String> {
     let memory_limit = memory_limit.max(1);
-    let mut memory_bytes = plan.mapped_source_indexes.len().saturating_mul(std::mem::size_of::<Option<String>>());
+    let mut memory_bytes = plan.column_sources.len().saturating_mul(std::mem::size_of::<Option<String>>());
     if memory_bytes > memory_limit {
         return Err(sqlserver_bulk_row_memory_error(row_index, memory_bytes, memory_limit));
     }
-    let mut values = Vec::with_capacity(plan.mapped_source_indexes.len());
-    for (target_index, source_index) in plan.mapped_source_indexes.iter().enumerate() {
-        let source_value = row.get(*source_index).unwrap_or(&serde_json::Value::Null);
+    let mut values = Vec::with_capacity(plan.column_sources.len());
+    for (target_index, source) in plan.column_sources.iter().enumerate() {
+        let (source_value, owned_value);
+        match source {
+            ImportColumnSource::SourceIndex(source_index) => {
+                source_value = row.get(*source_index).unwrap_or(&serde_json::Value::Null);
+            }
+            ImportColumnSource::Generator(generator) => {
+                owned_value = generator.generate_value(row_index as u64 + 1);
+                source_value = &owned_value;
+            }
+        }
         if let serde_json::Value::String(value) = source_value {
             // Check before cloning so a single oversized source cell cannot create an
             // unbounded duplicate allocation merely to discover that it is too large.
@@ -8659,11 +8806,13 @@ mod tests {
                 source_column: "tenant".to_string(),
                 target_column: "tenant_id".to_string(),
                 target_data_type: None,
+                generator: None,
             },
             TableImportColumnMapping {
                 source_column: "name".to_string(),
                 target_column: "name".to_string(),
                 target_data_type: None,
+                generator: None,
             },
         ];
         let target_columns = vec![
@@ -8706,6 +8855,7 @@ mod tests {
             source_column: "uid".to_string(),
             target_column: "id".to_string(),
             target_data_type: None,
+            generator: None,
         });
         let doris_keys = update_existing_primary_key_columns(
             TableImportConflictPolicy::UpdateExisting,
@@ -8739,11 +8889,13 @@ mod tests {
                 source_column: "id".to_string(),
                 target_column: "user_id".to_string(),
                 target_data_type: None,
+                generator: None,
             },
             TableImportColumnMapping {
                 source_column: "name".to_string(),
                 target_column: "display_name".to_string(),
                 target_data_type: None,
+                generator: None,
             },
         ];
 
@@ -9950,11 +10102,13 @@ mod tests {
                 source_column: "name".to_string(),
                 target_column: "first_name".to_string(),
                 target_data_type: None,
+                generator: None,
             },
             TableImportColumnMapping {
                 source_column: "name_1".to_string(),
                 target_column: "last_name".to_string(),
                 target_data_type: None,
+                generator: None,
             },
         ];
 
@@ -10651,6 +10805,7 @@ mod tests {
                 source_column: column.clone(),
                 target_column: column.clone(),
                 target_data_type: None,
+                generator: None,
             })
             .collect::<Vec<_>>();
         let target_types =
@@ -11078,10 +11233,11 @@ mod tests {
                     source_column: "name".to_string(),
                     target_column: "display_name".to_string(),
                     target_data_type: None,
+                    generator: None,
                 }],
             )
             .unwrap(),
-            vec![(0, "display_name".to_string())]
+            vec![(Some(0), "display_name".to_string())]
         );
         let _ = std::fs::remove_file(path);
     }
@@ -11421,11 +11577,13 @@ mod tests {
                     source_column: "id".to_string(),
                     target_column: "id".to_string(),
                     target_data_type: None,
+                    generator: None,
                 },
                 TableImportColumnMapping {
                     source_column: "name".to_string(),
                     target_column: "name".to_string(),
                     target_data_type: None,
+                    generator: None,
                 },
             ],
             mode: TableImportMode::Truncate,
@@ -11512,11 +11670,13 @@ mod tests {
                     source_column: "id".to_string(),
                     target_column: "id".to_string(),
                     target_data_type: None,
+                    generator: None,
                 },
                 TableImportColumnMapping {
                     source_column: "name".to_string(),
                     target_column: "name".to_string(),
                     target_data_type: None,
+                    generator: None,
                 },
             ],
             mode: TableImportMode::Truncate,
@@ -11594,11 +11754,13 @@ mod tests {
                     source_column: "id".to_string(),
                     target_column: "id".to_string(),
                     target_data_type: None,
+                    generator: None,
                 },
                 TableImportColumnMapping {
                     source_column: "name".to_string(),
                     target_column: "name".to_string(),
                     target_data_type: None,
+                    generator: None,
                 },
             ],
             mode: TableImportMode::Truncate,
@@ -11976,6 +12138,7 @@ mod tests {
                 source_column: column.to_string(),
                 target_column: column.to_string(),
                 target_data_type: None,
+                generator: None,
             })
             .collect::<Vec<_>>();
         let target_column_types = target_types
@@ -12105,11 +12268,11 @@ mod tests {
 
     #[test]
     fn postgres_copy_import_uses_canonical_numeric_text() {
-        let plan = CompiledImportPlan {
-            mapped_source_indexes: vec![0],
-            target_columns: vec!["amount".to_string()],
-            column_types: vec![Some("numeric(18,2)".to_string())],
-        };
+        let plan = CompiledImportPlan::from_source_indexes(
+            vec![0],
+            vec!["amount".to_string()],
+            vec![Some("numeric(18,2)".to_string())],
+        );
         let (_, data) =
             build_postgres_copy_text_batch(&[vec![serde_json::json!("1,234.56")]], &plan, "issue_6491", "", None)
                 .unwrap();
@@ -12137,6 +12300,7 @@ mod tests {
             source_column: "amount".to_string(),
             target_column: "amount".to_string(),
             target_data_type: None,
+            generator: None,
         }];
         let batches = build_import_insert_batches(
             &data,
@@ -12176,6 +12340,7 @@ mod tests {
             source_column: "amount".to_string(),
             target_column: "amount".to_string(),
             target_data_type: None,
+            generator: None,
         }];
         let batches = build_import_insert_batches(
             &data,
@@ -12199,6 +12364,7 @@ mod tests {
             source_column: "amount".to_string(),
             target_column: "amount".to_string(),
             target_data_type: None,
+            generator: None,
         }];
         let batches = build_import_insert_batches(
             &parsed,
@@ -12239,11 +12405,13 @@ mod tests {
                 source_column: "insert_time".to_string(),
                 target_column: "insert_time".to_string(),
                 target_data_type: None,
+                generator: None,
             },
             TableImportColumnMapping {
                 source_column: "id".to_string(),
                 target_column: "id".to_string(),
                 target_data_type: None,
+                generator: None,
             },
         ];
         let batches = build_import_insert_batches(
@@ -12413,6 +12581,7 @@ mod tests {
                 source_column: column.clone(),
                 target_column: column.clone(),
                 target_data_type: None,
+                generator: None,
             })
             .collect::<Vec<_>>();
         let plan = build_import_create_table_plan(&parsed, &mappings, "numbers", "app", &DatabaseType::Mysql).unwrap();
@@ -12560,6 +12729,7 @@ mod tests {
                 source_column: column.clone(),
                 target_column: column.clone(),
                 target_data_type: None,
+                generator: None,
             })
             .collect::<Vec<_>>();
 
@@ -12595,6 +12765,7 @@ mod tests {
             source_column: "id".to_string(),
             target_column: "id".to_string(),
             target_data_type: None,
+            generator: None,
         }];
 
         let error = build_import_create_table_plan(&data, &mappings, " ", "", &DatabaseType::Mysql).unwrap_err();
@@ -12614,6 +12785,7 @@ mod tests {
             source_column: "notes".to_string(),
             target_column: "notes".to_string(),
             target_data_type: None,
+            generator: None,
         }];
 
         let plan = build_import_create_table_plan(&data, &mappings, "events", "dbo", &DatabaseType::SqlServer).unwrap();
@@ -12636,6 +12808,7 @@ mod tests {
                 source_column: column.clone(),
                 target_column: column.clone(),
                 target_data_type: None,
+                generator: None,
             })
             .collect::<Vec<_>>();
 
@@ -12671,6 +12844,7 @@ mod tests {
                 source_column: column.clone(),
                 target_column: column.clone(),
                 target_data_type: None,
+                generator: None,
             })
             .collect::<Vec<_>>();
 
@@ -12700,11 +12874,13 @@ mod tests {
                 source_column: "code".to_string(),
                 target_column: "code".to_string(),
                 target_data_type: Some("VARCHAR(32)".to_string()),
+                generator: None,
             },
             TableImportColumnMapping {
                 source_column: "amount".to_string(),
                 target_column: "amount".to_string(),
                 target_data_type: Some("DECIMAL(10,2)".to_string()),
+                generator: None,
             },
         ];
 
@@ -12732,6 +12908,7 @@ mod tests {
             source_column: "name".to_string(),
             target_column: "name".to_string(),
             target_data_type: Some("VARCHAR".to_string()),
+            generator: None,
         }];
 
         for db_type in [
@@ -12764,6 +12941,7 @@ mod tests {
             source_column: "name".to_string(),
             target_column: "name".to_string(),
             target_data_type: Some("TEXT, injected INT".to_string()),
+            generator: None,
         }];
 
         let error = build_import_create_table_plan(&data, &mappings, "users", "", &DatabaseType::Mysql).unwrap_err();
@@ -12778,11 +12956,13 @@ mod tests {
                 source_column: "id".to_string(),
                 target_column: "user_id".to_string(),
                 target_data_type: None,
+                generator: None,
             },
             TableImportColumnMapping {
                 source_column: "name".to_string(),
                 target_column: "display_name".to_string(),
                 target_data_type: None,
+                generator: None,
             },
         ];
         let data = ParsedImportFile {
@@ -12818,11 +12998,13 @@ mod tests {
                 source_column: "id".to_string(),
                 target_column: "ID".to_string(),
                 target_data_type: None,
+                generator: None,
             },
             TableImportColumnMapping {
                 source_column: "name".to_string(),
                 target_column: "NAME".to_string(),
                 target_data_type: None,
+                generator: None,
             },
         ];
         let data = ParsedImportFile {
@@ -12863,6 +13045,7 @@ mod tests {
                 source_column: name.to_string(),
                 target_column: name.to_string(),
                 target_data_type: None,
+                generator: None,
             })
             .collect::<Vec<_>>();
         let data = ParsedImportFile {
@@ -12893,11 +13076,11 @@ mod tests {
 
     #[test]
     fn starrocks_csv_json_array_import_uses_typed_json_expression() {
-        let plan = CompiledImportPlan {
-            mapped_source_indexes: vec![0],
-            target_columns: vec!["organization_path".to_string()],
-            column_types: vec![Some("array<json>".to_string())],
-        };
+        let plan = CompiledImportPlan::from_source_indexes(
+            vec![0],
+            vec!["organization_path".to_string()],
+            vec![Some("array<json>".to_string())],
+        );
         let rows = vec![vec![serde_json::json!(r#"[{"lvl1_org_code":"50001963","nested":{"enabled":true}}]"#)]];
 
         assert_eq!(
@@ -12908,11 +13091,11 @@ mod tests {
 
     #[test]
     fn import_conflict_policy_keeps_default_and_skip_sql_unchanged() {
-        let plan = CompiledImportPlan {
-            mapped_source_indexes: vec![0, 1],
-            target_columns: vec!["id".to_string(), "name".to_string()],
-            column_types: vec![Some("integer".to_string()), Some("text".to_string())],
-        };
+        let plan = CompiledImportPlan::from_source_indexes(
+            vec![0, 1],
+            vec!["id".to_string(), "name".to_string()],
+            vec![Some("integer".to_string()), Some("text".to_string())],
+        );
         let rows = vec![vec![serde_json::json!(1), serde_json::json!("Ada")]];
 
         let default_batches = build_import_insert_batches_with_plan(
@@ -12951,11 +13134,11 @@ mod tests {
 
     #[test]
     fn update_existing_sql_uses_composite_primary_key_and_only_updates_non_keys() {
-        let plan = CompiledImportPlan {
-            mapped_source_indexes: vec![0, 1, 2, 3],
-            target_columns: vec!["tenant_id".to_string(), "id".to_string(), "name".to_string(), "status".to_string()],
-            column_types: vec![None, None, None, None],
-        };
+        let plan = CompiledImportPlan::from_source_indexes(
+            vec![0, 1, 2, 3],
+            vec!["tenant_id".to_string(), "id".to_string(), "name".to_string(), "status".to_string()],
+            vec![None, None, None, None],
+        );
         let rows = vec![vec![
             serde_json::json!(7),
             serde_json::json!(42),
@@ -13005,6 +13188,7 @@ mod tests {
             source_column: "id".to_string(),
             target_column: "id".to_string(),
             target_data_type: None,
+            generator: None,
         }];
         let data = ParsedImportFile {
             columns: vec!["id".to_string()],
@@ -13029,6 +13213,7 @@ mod tests {
             source_column: "id".to_string(),
             target_column: "id".to_string(),
             target_data_type: None,
+            generator: None,
         }];
         let data = ParsedImportFile {
             columns: vec!["id".to_string()],
@@ -13055,6 +13240,7 @@ mod tests {
             source_column: "id".to_string(),
             target_column: "id".to_string(),
             target_data_type: None,
+            generator: None,
         }];
         let data = ParsedImportFile {
             columns: vec!["id".to_string()],
@@ -13094,11 +13280,13 @@ mod tests {
                 source_column: "id".to_string(),
                 target_column: "target".to_string(),
                 target_data_type: None,
+                generator: None,
             },
             TableImportColumnMapping {
                 source_column: "name".to_string(),
                 target_column: "target".to_string(),
                 target_data_type: None,
+                generator: None,
             },
         ];
 
@@ -13115,11 +13303,13 @@ mod tests {
                 source_column: "id".to_string(),
                 target_column: "id".to_string(),
                 target_data_type: None,
+                generator: None,
             },
             TableImportColumnMapping {
                 source_column: "name".to_string(),
                 target_column: "name".to_string(),
                 target_data_type: None,
+                generator: None,
             },
         ];
         let rows = vec![vec![serde_json::json!(1), serde_json::json!("Ada")]];
@@ -13142,11 +13332,11 @@ mod tests {
 
     #[test]
     fn postgres_copy_text_batch_preserves_nulls_and_control_characters() {
-        let plan = CompiledImportPlan {
-            mapped_source_indexes: vec![0, 1],
-            target_columns: vec!["id".to_string(), "payload".to_string()],
-            column_types: vec![Some("integer".to_string()), Some("text".to_string())],
-        };
+        let plan = CompiledImportPlan::from_source_indexes(
+            vec![0, 1],
+            vec!["id".to_string(), "payload".to_string()],
+            vec![Some("integer".to_string()), Some("text".to_string())],
+        );
         let (sql, data) = build_postgres_copy_text_batch(
             &[
                 vec![serde_json::json!(1), serde_json::json!("a\\b\tline\nnext\u{000B}")],
@@ -13247,14 +13437,11 @@ mod tests {
 
     #[test]
     fn sqlserver_bulk_plan_uses_staging_conversions_and_identity_scope() {
-        let import_plan = CompiledImportPlan {
-            mapped_source_indexes: vec![0, 1, 2, 3, 4],
-            target_columns: vec!["id", "occurred_at", "amount", "name", "payload"]
-                .into_iter()
-                .map(str::to_string)
-                .collect(),
-            column_types: vec![None; 5],
-        };
+        let import_plan = CompiledImportPlan::from_source_indexes(
+            vec![0, 1, 2, 3, 4],
+            vec!["id", "occurred_at", "amount", "name", "payload"].into_iter().map(str::to_string).collect(),
+            vec![None; 5],
+        );
         let metadata = vec![
             sqlserver_test_column("id", "int", true, false, false),
             sqlserver_test_column("occurred_at", "datetime2(7)", false, false, false),
@@ -13280,11 +13467,11 @@ mod tests {
 
     #[test]
     fn sqlserver_bulk_binary_route_accepts_only_unambiguous_hex_values() {
-        let import_plan = CompiledImportPlan {
-            mapped_source_indexes: vec![0],
-            target_columns: vec!["payload".to_string()],
-            column_types: vec![Some("varbinary(max)".to_string())],
-        };
+        let import_plan = CompiledImportPlan::from_source_indexes(
+            vec![0],
+            vec!["payload".to_string()],
+            vec![Some("varbinary(max)".to_string())],
+        );
         let bulk_plan = SqlServerBulkImportPlan {
             target_table: "[dbo].[events]".to_string(),
             target_columns: vec!["payload".to_string()],
@@ -13377,11 +13564,7 @@ mod tests {
 
     #[test]
     fn sqlserver_bulk_plan_omits_unmapped_identity_and_default_columns() {
-        let import_plan = CompiledImportPlan {
-            mapped_source_indexes: vec![0],
-            target_columns: vec!["name".to_string()],
-            column_types: vec![None],
-        };
+        let import_plan = CompiledImportPlan::from_source_indexes(vec![0], vec!["name".to_string()], vec![None]);
         let metadata = vec![
             sqlserver_test_column("id", "int", true, false, false),
             sqlserver_test_column("name", "nvarchar(100)", false, false, false),
@@ -13399,11 +13582,7 @@ mod tests {
 
     #[test]
     fn sqlserver_bulk_plan_rejects_non_insertable_and_unsupported_columns() {
-        let import_plan = CompiledImportPlan {
-            mapped_source_indexes: vec![0],
-            target_columns: vec!["version".to_string()],
-            column_types: vec![None],
-        };
+        let import_plan = CompiledImportPlan::from_source_indexes(vec![0], vec!["version".to_string()], vec![None]);
 
         let rowversion = vec![sqlserver_test_column("version", "rowversion", false, false, false)];
         let error = compile_sqlserver_bulk_import_plan(&import_plan, &rowversion, "events", "dbo").unwrap_err();
@@ -13420,11 +13599,11 @@ mod tests {
 
     #[test]
     fn sqlserver_bulk_rows_are_textual_and_reject_structured_values_before_write() {
-        let import_plan = CompiledImportPlan {
-            mapped_source_indexes: vec![0, 1, 2],
-            target_columns: vec!["enabled", "amount", "name"].into_iter().map(str::to_string).collect(),
-            column_types: vec![Some("bit".to_string()), Some("decimal(38,10)".to_string()), None],
-        };
+        let import_plan = CompiledImportPlan::from_source_indexes(
+            vec![0, 1, 2],
+            vec!["enabled", "amount", "name"].into_iter().map(str::to_string).collect(),
+            vec![Some("bit".to_string()), Some("decimal(38,10)".to_string()), None],
+        );
         let row = vec![serde_json::json!(true), serde_json::json!("12.3400"), serde_json::Value::Null];
 
         assert_eq!(
@@ -13440,11 +13619,11 @@ mod tests {
 
     #[test]
     fn sqlserver_bulk_normalizes_zero_fraction_values_for_integer_targets() {
-        let plan = CompiledImportPlan {
-            mapped_source_indexes: vec![0, 1, 2],
-            target_columns: vec!["id".to_string(), "enabled".to_string(), "amount".to_string()],
-            column_types: vec![Some("bigint".to_string()), Some("bit".to_string()), Some("decimal(10,2)".to_string())],
-        };
+        let plan = CompiledImportPlan::from_source_indexes(
+            vec![0, 1, 2],
+            vec!["id".to_string(), "enabled".to_string(), "amount".to_string()],
+            vec![Some("bigint".to_string()), Some("bit".to_string()), Some("decimal(10,2)".to_string())],
+        );
 
         assert_eq!(
             sqlserver_bulk_text_row(
@@ -13461,11 +13640,11 @@ mod tests {
 
     #[test]
     fn sqlserver_bulk_converts_wide_large_batches_one_row_at_a_time() {
-        let plan = CompiledImportPlan {
-            mapped_source_indexes: vec![0],
-            target_columns: vec!["payload".to_string()],
-            column_types: vec![Some("nvarchar(max)".to_string())],
-        };
+        let plan = CompiledImportPlan::from_source_indexes(
+            vec![0],
+            vec!["payload".to_string()],
+            vec![Some("nvarchar(max)".to_string())],
+        );
         let wide_value = "x".repeat(1024 * 1024);
         let rows = (0..32).map(|_| vec![serde_json::json!(&wide_value)]).collect::<Vec<_>>();
 
@@ -13479,11 +13658,11 @@ mod tests {
 
     #[test]
     fn sqlserver_bulk_rejects_a_single_row_over_the_converted_memory_limit_before_cloning() {
-        let plan = CompiledImportPlan {
-            mapped_source_indexes: vec![0],
-            target_columns: vec!["payload".to_string()],
-            column_types: vec![Some("nvarchar(max)".to_string())],
-        };
+        let plan = CompiledImportPlan::from_source_indexes(
+            vec![0],
+            vec!["payload".to_string()],
+            vec![Some("nvarchar(max)".to_string())],
+        );
         let value = "x".repeat(SQLSERVER_BULK_ROW_MEMORY_BYTES / 3 + 1);
 
         let error =
@@ -13497,11 +13676,11 @@ mod tests {
 
     #[test]
     fn sqlserver_bulk_route_requires_native_plan_and_scalar_rows() {
-        let import_plan = CompiledImportPlan {
-            mapped_source_indexes: vec![0],
-            target_columns: vec!["name".to_string()],
-            column_types: vec![Some("nvarchar(100)".to_string())],
-        };
+        let import_plan = CompiledImportPlan::from_source_indexes(
+            vec![0],
+            vec!["name".to_string()],
+            vec![Some("nvarchar(100)".to_string())],
+        );
         let bulk_plan = SqlServerBulkImportPlan {
             target_table: "[dbo].[events]".to_string(),
             target_columns: vec!["name".to_string()],
@@ -13614,11 +13793,11 @@ mod tests {
 
         let rows =
             vec![vec![serde_json::json!("a".repeat(300 * 1024))], vec![serde_json::json!("b".repeat(300 * 1024))]];
-        let plan = CompiledImportPlan {
-            mapped_source_indexes: vec![0],
-            target_columns: vec!["payload".to_string()],
-            column_types: vec![Some("text".to_string())],
-        };
+        let plan = CompiledImportPlan::from_source_indexes(
+            vec![0],
+            vec!["payload".to_string()],
+            vec![Some("text".to_string())],
+        );
         let cancellation_checks = Arc::new(AtomicUsize::new(0));
         let checks_for_import = cancellation_checks.clone();
         let mut postgres_copy_accumulator = None;
@@ -13701,11 +13880,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let storage = crate::persistence::test_storage::open(&dir.path().join("storage.db")).await.unwrap();
         let state = AppState::new(storage);
-        let plan = CompiledImportPlan {
-            mapped_source_indexes: vec![0],
-            target_columns: vec!["id".to_string()],
-            column_types: vec![Some("integer".to_string())],
-        };
+        let plan =
+            CompiledImportPlan::from_source_indexes(vec![0], vec!["id".to_string()], vec![Some("integer".to_string())]);
         let rows = vec![vec![serde_json::json!(1)]];
         let mut accumulator = PostgresCopyAccumulator::with_limits("COPY items".to_string(), 1, 100);
         let mut db_write_ms = 0;
@@ -13734,11 +13910,11 @@ mod tests {
 
     #[test]
     fn postgres_copy_normalizes_zero_fraction_integer_values_for_integer_targets() {
-        let plan = CompiledImportPlan {
-            mapped_source_indexes: vec![0, 1, 2],
-            target_columns: vec!["small_value".to_string(), "big_value".to_string(), "label".to_string()],
-            column_types: vec![Some("smallint".to_string()), Some("bigint".to_string()), Some("text".to_string())],
-        };
+        let plan = CompiledImportPlan::from_source_indexes(
+            vec![0, 1, 2],
+            vec!["small_value".to_string(), "big_value".to_string(), "label".to_string()],
+            vec![Some("smallint".to_string()), Some("bigint".to_string()), Some("text".to_string())],
+        );
         let (sql, data) = build_postgres_copy_text_batch(
             &[vec![serde_json::json!("1.0"), serde_json::json!(2.0), serde_json::json!("3.0")]],
             &plan,
@@ -13801,11 +13977,7 @@ mod tests {
     }
 
     fn sqlite_append_test_plan() -> CompiledImportPlan {
-        CompiledImportPlan {
-            mapped_source_indexes: vec![0],
-            target_columns: vec!["id".to_string()],
-            column_types: vec![Some("integer".to_string())],
-        }
+        CompiledImportPlan::from_source_indexes(vec![0], vec!["id".to_string()], vec![Some("integer".to_string())])
     }
 
     struct SqliteAppendTestContext {
@@ -13985,11 +14157,13 @@ mod tests {
                     source_column: "id".to_string(),
                     target_column: "id".to_string(),
                     target_data_type: None,
+                    generator: None,
                 },
                 TableImportColumnMapping {
                     source_column: "name".to_string(),
                     target_column: "name".to_string(),
                     target_data_type: None,
+                    generator: None,
                 },
             ],
             mode: TableImportMode::Append,
@@ -14078,11 +14252,13 @@ mod tests {
                     source_column: "id".to_string(),
                     target_column: "id".to_string(),
                     target_data_type: None,
+                    generator: None,
                 },
                 TableImportColumnMapping {
                     source_column: "name".to_string(),
                     target_column: "name".to_string(),
                     target_data_type: None,
+                    generator: None,
                 },
             ],
             mode: TableImportMode::Truncate,
@@ -14173,6 +14349,7 @@ mod tests {
                     source_column: column.to_string(),
                     target_column: column.to_string(),
                     target_data_type: None,
+                    generator: None,
                 })
                 .collect(),
             mode: TableImportMode::Append,
@@ -14236,11 +14413,13 @@ mod tests {
                 source_column: "id".to_string(),
                 target_column: "id".to_string(),
                 target_data_type: None,
+                generator: None,
             },
             TableImportColumnMapping {
                 source_column: "name".to_string(),
                 target_column: "name".to_string(),
                 target_data_type: None,
+                generator: None,
             },
         ];
         let data = ParsedImportFile {
@@ -14272,11 +14451,11 @@ mod tests {
             effective_encoding: None,
         };
 
-        let plan = CompiledImportPlan {
-            mapped_source_indexes: vec![0],
-            target_columns: vec!["payload".to_string()],
-            column_types: vec![Some("text".to_string())],
-        };
+        let plan = CompiledImportPlan::from_source_indexes(
+            vec![0],
+            vec!["payload".to_string()],
+            vec![Some("text".to_string())],
+        );
         // The default target now allows one large multi-row INSERT; pin the
         // legacy 512 KiB cap so row-count-based splitting keeps being exercised.
         let batches = build_import_insert_batches_with_plan(
@@ -14305,11 +14484,13 @@ mod tests {
                 source_column: "start".to_string(),
                 target_column: "insurance_start_time".to_string(),
                 target_data_type: None,
+                generator: None,
             },
             TableImportColumnMapping {
                 source_column: "raw".to_string(),
                 target_column: "raw_text".to_string(),
                 target_data_type: None,
+                generator: None,
             },
         ];
         let data = ParsedImportFile {
@@ -14348,6 +14529,7 @@ mod tests {
             source_column: "created_at".to_string(),
             target_column: "created_at".to_string(),
             target_data_type: None,
+            generator: None,
         }];
         let data = ParsedImportFile {
             columns: vec!["created_at".to_string()],
@@ -14401,11 +14583,13 @@ mod tests {
                 source_column: "id".to_string(),
                 target_column: "id".to_string(),
                 target_data_type: None,
+                generator: None,
             },
             TableImportColumnMapping {
                 source_column: "name".to_string(),
                 target_column: "name".to_string(),
                 target_data_type: None,
+                generator: None,
             },
         ];
         let data = ParsedImportFile {
@@ -14441,6 +14625,7 @@ mod tests {
             source_column: "created_at".to_string(),
             target_column: "created_at".to_string(),
             target_data_type: None,
+            generator: None,
         }];
         let excel_date_time =
             Data::DateTime(ExcelDateTime::new(45959.686111111, calamine::ExcelDateTimeType::DateTime, false));
@@ -14493,16 +14678,19 @@ mod tests {
                 source_column: "event_id".to_string(),
                 target_column: "EVENT_ID".to_string(),
                 target_data_type: None,
+                generator: None,
             },
             TableImportColumnMapping {
                 source_column: "created_at".to_string(),
                 target_column: "CREATED_AT".to_string(),
                 target_data_type: None,
+                generator: None,
             },
             TableImportColumnMapping {
                 source_column: "updated_at".to_string(),
                 target_column: "UPDATED_AT".to_string(),
                 target_data_type: None,
+                generator: None,
             },
         ];
         let rows = vec![vec![
@@ -14540,6 +14728,7 @@ mod tests {
             source_column: "name".to_string(),
             target_column: "name".to_string(),
             target_data_type: None,
+            generator: None,
         }];
         let data = ParsedImportFile {
             columns: vec!["name".to_string()],
@@ -14565,6 +14754,126 @@ mod tests {
                 sql: "INSERT INTO [dbo].[customers] ([name]) VALUES\n(N'Tiếng Việt')".to_string(),
                 row_count: 1,
             }]
+        );
+    }
+
+    #[test]
+    fn table_import_generator_parses_supported_keys() {
+        assert_eq!(TableImportGenerator::parse("uuid"), Some(TableImportGenerator::Uuid));
+        assert_eq!(TableImportGenerator::parse("uuid_v4"), Some(TableImportGenerator::Uuid));
+        assert_eq!(TableImportGenerator::parse("uuid_simple"), Some(TableImportGenerator::UuidSimple));
+        assert_eq!(TableImportGenerator::parse("uuidNoHyphens"), Some(TableImportGenerator::UuidSimple));
+        assert_eq!(TableImportGenerator::parse("current_timestamp"), Some(TableImportGenerator::CurrentTimestamp));
+        assert_eq!(TableImportGenerator::parse("now"), Some(TableImportGenerator::CurrentTimestamp));
+        assert_eq!(TableImportGenerator::parse("current_date"), Some(TableImportGenerator::CurrentDate));
+        assert_eq!(TableImportGenerator::parse("sequence"), Some(TableImportGenerator::Sequence));
+        assert_eq!(TableImportGenerator::parse("auto_increment"), Some(TableImportGenerator::Sequence));
+        assert_eq!(TableImportGenerator::parse("unknown_gen"), None);
+    }
+
+    #[test]
+    fn import_plan_compiles_with_generator_without_source_column() {
+        let columns = vec!["name".to_string()];
+        let mappings = vec![
+            TableImportColumnMapping {
+                source_column: "".to_string(),
+                target_column: "id".to_string(),
+                target_data_type: None,
+                generator: Some("uuid".to_string()),
+            },
+            TableImportColumnMapping {
+                source_column: "name".to_string(),
+                target_column: "name".to_string(),
+                target_data_type: None,
+                generator: None,
+            },
+            TableImportColumnMapping {
+                source_column: "".to_string(),
+                target_column: "created_at".to_string(),
+                target_data_type: None,
+                generator: Some("current_timestamp".to_string()),
+            },
+            TableImportColumnMapping {
+                source_column: "".to_string(),
+                target_column: "seq".to_string(),
+                target_data_type: None,
+                generator: Some("sequence".to_string()),
+            },
+        ];
+
+        let plan = compile_import_plan(&columns, &mappings, &[]).unwrap();
+        assert_eq!(plan.target_columns, vec!["id", "name", "created_at", "seq"]);
+        assert_eq!(
+            plan.column_sources,
+            vec![
+                ImportColumnSource::Generator(TableImportGenerator::Uuid),
+                ImportColumnSource::SourceIndex(0),
+                ImportColumnSource::Generator(TableImportGenerator::CurrentTimestamp),
+                ImportColumnSource::Generator(TableImportGenerator::Sequence),
+            ]
+        );
+
+        let rows = vec![vec![serde_json::json!("Alice")], vec![serde_json::json!("Bob")]];
+        let batches = build_import_insert_batches_with_plan(
+            &rows,
+            &plan,
+            "users",
+            "public",
+            &DatabaseType::Postgres,
+            false,
+            TableImportConflictPolicy::Error,
+            &[],
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].row_count, 2);
+        let sql = &batches[0].sql;
+        assert!(sql.contains("INSERT INTO \"public\".\"users\" (\"id\", \"name\", \"created_at\", \"seq\") VALUES"));
+        assert!(sql.contains("'Alice'"));
+        assert!(sql.contains("'Bob'"));
+        assert!(sql.contains("CURRENT_TIMESTAMP"));
+    }
+
+    #[test]
+    fn import_create_table_plan_infers_types_for_generators() {
+        let data = ParsedImportFile {
+            columns: vec!["username".to_string()],
+            rows: vec![vec![serde_json::json!("alice")]],
+            total_rows: 1,
+            effective_encoding: None,
+        };
+        let mappings = vec![
+            TableImportColumnMapping {
+                source_column: "".to_string(),
+                target_column: "id".to_string(),
+                target_data_type: None,
+                generator: Some("uuid".to_string()),
+            },
+            TableImportColumnMapping {
+                source_column: "username".to_string(),
+                target_column: "username".to_string(),
+                target_data_type: None,
+                generator: None,
+            },
+            TableImportColumnMapping {
+                source_column: "".to_string(),
+                target_column: "created_at".to_string(),
+                target_data_type: None,
+                generator: Some("current_timestamp".to_string()),
+            },
+        ];
+
+        let plan = build_import_create_table_plan(&data, &mappings, "accounts", "", &DatabaseType::Mysql).unwrap();
+        assert_eq!(
+            plan.columns,
+            vec![
+                ImportCreateTableColumn { name: "id".to_string(), data_type: "TEXT".to_string() },
+                ImportCreateTableColumn { name: "username".to_string(), data_type: "TEXT".to_string() },
+                ImportCreateTableColumn { name: "created_at".to_string(), data_type: "DATETIME".to_string() },
+            ]
         );
     }
 }
