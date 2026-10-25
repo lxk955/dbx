@@ -280,7 +280,6 @@ import { resolveDataGridWheelScroll } from "@/lib/dataGrid/dataGridWheel";
 import {
   CANVAS_DATA_GRID_ROW_HEIGHT,
   MAX_CANVAS_DATA_GRID_PIXEL_RATIO,
-  MAX_CANVAS_DATA_GRID_SCROLL_HEIGHT,
   canvasDataGridActionOverlayWidth,
   canvasDataGridActionReservedWidth,
   canvasDataGridContentHeight,
