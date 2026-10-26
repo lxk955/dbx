@@ -144,7 +144,9 @@ import { createQueryEditorCompletionShortcutBindings } from "@/lib/editor/queryE
 import { handleQueryEditorCompletionNavigation } from "@/lib/editor/queryEditorCompletionNavigation";
 import { createQueryEditorSelectionCaseShortcutBindings } from "@/lib/editor/queryEditorSelectionCaseShortcut";
 import { createQueryEditorExecutionShortcutBindings, createQueryEditorExecutionShortcutHandler, createQueryEditorPostCompositionKeyGuard } from "@/lib/editor/queryEditorExecutionShortcut";
-import { supportsQueryEditorBlockComments, supportsSqlInListPaste } from "@/lib/database/databaseFeatureSupport";
+import { supportsPlDebugRoutine, supportsQueryEditorBlockComments, supportsSqlInListPaste } from "@/lib/database/databaseFeatureSupport";
+import { effectiveDatabaseTypeForConnection } from "@/lib/database/jdbcDialect";
+import { launchPlDebugAnonymous } from "@/components/debug/plDebugLaunch";
 import { queryContextObjectRoute, queryTableCandidateAtSqlPosition, resolveQueryContextCandidateDatabase, resolveQueryContextObjectTarget, type QueryContextObjectAction } from "@/lib/sql/queryCursorTableTarget";
 import * as api from "@/lib/backend/api";
 import { isTauriRuntime } from "@/lib/backend/tauriRuntime";
@@ -1304,6 +1306,19 @@ function navigateStatementFromView(currentView: EditorViewType, direction: State
 }
 
 const contextMenuActions: QueryEditorContextMenuActions = {
+  debugPlSqlFromContextMenu: () => {
+    const currentView = view.value;
+    if (!currentView || !props.connectionId || !props.database) return;
+    const selection = currentView.state.selection.main;
+    void launchPlDebugAnonymous({
+      connectionId: props.connectionId,
+      database: props.database,
+      databaseType: effectiveDatabaseTypeForConnection(connectionStore.getConfig(props.connectionId)) ?? props.databaseType,
+      schema: props.schema,
+      selectedText: currentView.state.doc.sliceString(selection.from, selection.to),
+      documentText: currentView.state.doc.toString(),
+    });
+  },
   executeFromContextMenu,
   executeAllFromContextMenu,
   executeInNewResultTabFromContextMenu,
@@ -1351,6 +1366,7 @@ function getContextMenuState(): QueryEditorContextMenuState {
     readOnly: props.readOnly,
     hideExecutionControls: props.hideExecutionControls,
     databaseType: props.databaseType,
+    canDebugPlSql: !!props.connectionId && !!props.database && supportsPlDebugRoutine(effectiveDatabaseTypeForConnection(connectionStore.getConfig(props.connectionId || "")) ?? props.databaseType),
     selectedSql: selectedSql.value,
     executableSql: executableSql.value,
     previewContextSql: previewContextSql.value,
@@ -3034,7 +3050,15 @@ function openReplace(): boolean {
   return searchPanelRef.value?.openReplace() ?? false;
 }
 
-function scrollCursorIntoView() {
+let executionDocument: import("@codemirror/state").Text | undefined;
+
+function scrollCursorIntoView(errorOffset?: number) {
+  if (errorOffset !== undefined) {
+    const canLocate = executionViewportOwnership.consumeErrorCompletion();
+    if (canLocate && editorIsActive && view.value?.state.doc === executionDocument) focusErrorPosition(errorOffset);
+    executionDocument = undefined;
+    return;
+  }
   const preserveViewport = executionViewportOwnership.consumeCompletionPreservation();
   const currentView = view.value;
   if (!currentView || !codeMirrorRuntime.editorViewModule || !editorIsActive || preserveViewport) return;
@@ -3057,6 +3081,7 @@ function beginExecutionViewportTracking() {
   // visible before execution must not be scrolled away by the shrink (#10480).
   const currentView = view.value;
   const cursorVisible = currentView ? isQueryEditorPositionVisible(currentView.state.selection.main.head, currentView.visibleRanges, currentView.viewport) : false;
+  executionDocument = currentView?.state.doc;
   executionViewportOwnership.beginExecution(cursorVisible);
 }
 
@@ -3140,6 +3165,8 @@ defineExpose({
     :data-large-document-mode="largeDocumentMode || undefined"
     @wheel="recordExecutionViewportInteraction"
     @pointerdown="recordExecutionViewportInteraction"
+    @keydown.capture="recordExecutionViewportInteraction"
+    @focusout="recordExecutionViewportInteraction"
     @gesturestart="onEditorGestureStart"
     @gesturechange="onEditorGestureChange"
     @gestureend="onEditorGestureEnd"
