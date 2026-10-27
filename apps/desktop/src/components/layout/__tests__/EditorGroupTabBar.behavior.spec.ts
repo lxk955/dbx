@@ -841,17 +841,7 @@ describe("EditorGroupTabBar behavior", () => {
     const mainGroup = store.groups[0];
 
     const onLocateSqlLibraryFile = vi.fn();
-    const { app, host } = mountBar(
-      mainGroup.id,
-      [queryTabId, savedSqlTabId],
-      queryTabId,
-      pinia,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      { "onLocate-sql-library-file": onLocateSqlLibraryFile },
-    );
+    const { app, host } = mountBar(mainGroup.id, [queryTabId, savedSqlTabId], queryTabId, pinia, undefined, undefined, undefined, undefined, { "onLocate-sql-library-file": onLocateSqlLibraryFile });
     await settle();
 
     const rawMenuFor = (tabId: string) => {

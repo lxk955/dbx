@@ -185,10 +185,7 @@ describe("SQL library locate and search preferences", () => {
       { id: "root", name: "Root", connectionId: "", createdAt: timestamp, updatedAt: timestamp },
       { id: "child", parentFolderId: "root", name: "Child", connectionId: "", createdAt: timestamp, updatedAt: timestamp },
     ];
-    store.files = [
-      file("unrelated", "unrelated.sql", "SELECT 1"),
-      { ...file("nested-file", "nested.sql", "SELECT 42"), folderId: "child" },
-    ];
+    store.files = [file("unrelated", "unrelated.sql", "SELECT 1"), { ...file("nested-file", "nested.sql", "SELECT 42"), folderId: "child" }];
     vi.spyOn(store, "ensureAllFilesLoaded").mockResolvedValue(undefined);
 
     const scroll = vi.spyOn(HTMLElement.prototype, "scrollIntoView").mockImplementation(() => {});
