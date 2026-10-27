@@ -1539,32 +1539,9 @@ fn escape_tsvector_lexeme(value: &str) -> String {
     value.replace('\\', "\\\\").replace('\'', "''")
 }
 
-fn pg_error_find_db_error<'a>(
-    err: &'a (dyn std::error::Error + 'static),
-) -> Option<&'a tokio_postgres::error::DbError> {
-    let mut current = Some(err);
-    while let Some(source) = current {
-        if let Some(pg_error) = source.downcast_ref::<PgError>() {
-            if let Some(db_error) = pg_error.as_db_error() {
-                return Some(db_error);
-            }
-        }
-        if let Some(pg_error) = source.downcast_ref::<tokio_postgres::Error>() {
-            if let Some(db_error) = pg_error.as_db_error() {
-                return Some(db_error);
-            }
-        }
-        if let Some(db_error) = source.downcast_ref::<tokio_postgres::error::DbError>() {
-            return Some(db_error);
-        }
-        current = source.source();
-    }
-    None
-}
-
 fn pg_error_to_string(err: impl Into<PgError>) -> String {
     let err = err.into();
-    if let Some(db_error) = pg_error_find_db_error(&err) {
+    if let Some(db_error) = err.as_db_error() {
         let mut message = db_error.to_string();
         // Carry the server-reported cursor position across the `db` layer's
         // `Result<_, String>` boundary; `query.rs` resolves it against the executed
@@ -1584,7 +1561,7 @@ fn pg_error_to_string(err: impl Into<PgError>) -> String {
 /// be resolved against the user's SQL and point at the wrong place.
 fn pg_error_to_string_plain(err: impl Into<PgError>) -> String {
     let err = err.into();
-    if let Some(db_error) = pg_error_find_db_error(&err) {
+    if let Some(db_error) = err.as_db_error() {
         return db_error.to_string();
     }
     error_with_sources_to_string(&err)
@@ -1793,7 +1770,19 @@ fn pg_db_error_to_string(err: &tokio_postgres::error::DbError) -> String {
 }
 
 fn pg_error_from_sources(err: &(dyn std::error::Error + 'static)) -> Option<String> {
-    pg_error_find_db_error(err).map(pg_db_error_to_string)
+    let mut current = Some(err);
+    while let Some(source) = current {
+        if let Some(pg_error) = source.downcast_ref::<tokio_postgres::Error>() {
+            if let Some(db_error) = pg_error.as_db_error() {
+                return Some(pg_db_error_to_string(db_error));
+            }
+        }
+        if let Some(db_error) = source.downcast_ref::<tokio_postgres::error::DbError>() {
+            return Some(pg_db_error_to_string(db_error));
+        }
+        current = source.source();
+    }
+    None
 }
 
 fn error_with_sources_to_string(err: &(dyn std::error::Error + 'static)) -> String {
@@ -1814,7 +1803,8 @@ fn pg_pool_error_to_string(err: PoolError) -> String {
 }
 
 fn should_retry_postgres_text_query(err: &PgError) -> bool {
-    let message = pg_error_find_db_error(err)
+    let message = err
+        .as_db_error()
         .map(ToString::to_string)
         .unwrap_or_else(|| error_with_sources_to_string(err))
         .to_ascii_lowercase();
@@ -1828,7 +1818,7 @@ fn should_retry_postgres_text_query_message(message: &str) -> bool {
 }
 
 fn should_retry_postgres_stale_cache(err: &PgError) -> bool {
-    if let Some(db_error) = pg_error_find_db_error(err) {
+    if let Some(db_error) = err.as_db_error() {
         return should_retry_postgres_stale_cache_fields(
             Some(db_error.code().code()),
             db_error.routine(),
@@ -1846,7 +1836,7 @@ fn should_retry_postgres_stale_cache_fields(sqlstate: Option<&str>, routine: Opt
 }
 
 fn should_fallback_postgres_missing_prepared_statement(err: &PgError) -> bool {
-    if let Some(db_error) = pg_error_find_db_error(err) {
+    if let Some(db_error) = err.as_db_error() {
         return should_fallback_postgres_missing_prepared_statement_fields(
             Some(db_error.code().code()),
             db_error.message(),
@@ -17537,7 +17527,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pg_error_to_string_preserves_underlying_parse_error_from_invalid_server_response() {
+    async fn pg_error_to_string_surfaces_server_error_even_with_non_standard_v_severity() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
 
@@ -17582,10 +17572,9 @@ mod tests {
         };
 
         let formatted = pg_error_to_string(client_err);
-        assert!(
-            formatted.contains("error parsing response from server")
-                && formatted.contains("`V` field contained an invalid value"),
-            "formatted error should preserve the parse cause: {formatted}"
+        assert_eq!(
+            formatted, "ERROR: relation does not exist",
+            "formatted error should surface the actual server message: {formatted}"
         );
 
         server.await.unwrap();
