@@ -1476,4 +1476,46 @@ describe("ScheduledDatabaseBackupSettings schedule dialog", () => {
     expect(chips[0].textContent).toContain("analytics");
     expect(chips[1].textContent).toContain("billing");
   });
+
+  it("keeps the seeded selection intact while the database list is still loading when editing a schedule", async () => {
+    mocks.connections.push({ id: "mysql-1", name: "Local MySQL", db_type: "mysql" });
+    const databasesLoad = deferred<Array<{ name: string }>>();
+    mocks.listDatabases.mockReturnValueOnce(databasesLoad.promise);
+    mocks.schedules.push(schedule({ id: "schedule-loading", databases: ["analytics", "billing"] }));
+    await mountSettings();
+
+    buttonWithTitle(String(i18n.global.t("databaseBackup.edit"))).click();
+    await flush();
+
+    // While options are loading (options cleared) the chips area must not offer destructive removal.
+    expect(currentDialog().querySelector("[data-backup-selected-databases-preview]")).toBeNull();
+    expect(currentDialog().querySelectorAll("[data-backup-remove-selected-database]")).toHaveLength(0);
+    const badgeWhileLoading = currentDialog().querySelector<HTMLElement>("[data-backup-selected-databases-badge]");
+    expect(badgeWhileLoading?.textContent ?? "").not.toContain("/0");
+
+    databasesLoad.resolve([{ name: "analytics" }, { name: "application" }, { name: "billing" }]);
+    await flush();
+
+    const chips = Array.from(currentDialog().querySelectorAll<HTMLElement>("[data-backup-selected-database-chip]"));
+    expect(chips).toHaveLength(2);
+    expect(chips[0].textContent).toContain("analytics");
+    expect(chips[1].textContent).toContain("billing");
+    expect(currentDialog().querySelector<HTMLElement>("[data-backup-selected-databases-badge]")!.textContent).toContain("2/3");
+  });
+
+  it("does not offer chip removal or a stale count badge after loading the database list fails", async () => {
+    mocks.connections.push({ id: "mysql-1", name: "Local MySQL", db_type: "mysql" });
+    mocks.listDatabases.mockRejectedValueOnce(new Error("database list unavailable"));
+    mocks.schedules.push(schedule({ id: "schedule-failed", databases: ["analytics", "billing"] }));
+    await mountSettings();
+
+    buttonWithTitle(String(i18n.global.t("databaseBackup.edit"))).click();
+    await flush();
+
+    expect(currentDialog().querySelector("[data-backup-database-load-error]")).not.toBeNull();
+    expect(currentDialog().querySelector("[data-backup-selected-databases-preview]")).toBeNull();
+    expect(currentDialog().querySelectorAll("[data-backup-selected-database-chip]")).toHaveLength(0);
+    expect(currentDialog().querySelectorAll("[data-backup-remove-selected-database]")).toHaveLength(0);
+    expect(currentDialog().querySelector("[data-backup-selected-databases-badge]")).toBeNull();
+  });
 });

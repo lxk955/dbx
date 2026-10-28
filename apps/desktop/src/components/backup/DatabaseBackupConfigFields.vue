@@ -75,6 +75,10 @@ const filteredConnections = computed(() => {
 });
 const showOnlySelected = ref(false);
 const selectedDatabaseSet = computed(() => new Set(props.selectedDatabases));
+// Chips removal and the count badge are only valid against a successfully loaded option list:
+// during a load the options are cleared, and after a failed load they stay empty, so removing
+// one chip would silently drop the entire seeded selection.
+const databaseOptionsReady = computed(() => !props.loadingDatabases && !props.databaseLoadError);
 
 const filteredDatabaseOptions = computed(() => {
   let list = props.databaseOptions;
@@ -308,7 +312,7 @@ watch(
       <div class="flex items-center justify-between gap-4">
         <div class="flex items-center gap-2">
           <Label>{{ t("databaseBackup.databases") }}</Label>
-          <Badge v-if="!allDatabases" variant="secondary" data-backup-selected-databases-badge class="h-5 px-1.5 text-[11px] font-normal">
+          <Badge v-if="!allDatabases && databaseOptionsReady" variant="secondary" data-backup-selected-databases-badge class="h-5 px-1.5 text-[11px] font-normal">
             {{ t("databaseBackup.selectedDatabasesCount", { selected: selectedDatabases.length, total: databaseOptions.length }) }}
           </Badge>
         </div>
@@ -319,7 +323,7 @@ watch(
       </div>
       <div v-if="!allDatabases" class="space-y-2.5">
         <!-- Visual Selected Databases Preview Area (Chips / Tags) -->
-        <div v-if="selectedDatabases.length > 0" data-backup-selected-databases-preview class="space-y-1.5 rounded-md border border-border/70 bg-muted/20 p-2.5">
+        <div v-if="databaseOptionsReady && selectedDatabases.length > 0" data-backup-selected-databases-preview class="space-y-1.5 rounded-md border border-border/70 bg-muted/20 p-2.5">
           <div class="flex items-center justify-between gap-2 text-xs">
             <div class="flex items-center gap-1.5 font-medium text-muted-foreground">
               <span>{{ t("databaseBackup.selectedDatabasesList") }}</span>
