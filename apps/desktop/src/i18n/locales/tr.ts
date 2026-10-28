@@ -6278,6 +6278,7 @@ export default withEnglishFallback({
       cancelled: "Aktarım iptal edildi ({index}/{total} tabloda durduruldu)",
     },
     title: "Veri Aktarımı",
+    reexecute: "Yeniden çalıştır",
     content: "Aktarım içeriği",
     contentStructureAndData: "Yapı ve veri",
     contentStructureOnly: "Yalnızca yapı",

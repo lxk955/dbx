@@ -7547,6 +7547,7 @@ export default withEnglishFallback({
       cancelled: "Transferencia cancelada (detenida en la tabla {index}/{total})",
     },
     title: "Transferencia de datos",
+    reexecute: "Reejecutar",
     content: "Contenido de la transferencia",
     contentStructureAndData: "Estructura y datos",
     contentStructureOnly: "Solo estructura",

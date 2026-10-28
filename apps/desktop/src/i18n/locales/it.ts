@@ -7360,6 +7360,7 @@ export default withEnglishFallback({
       cancelled: "Trasferimento annullato (fermato alla tabella {index}/{total})",
     },
     title: "Trasferimento Dati",
+    reexecute: "Esegui di nuovo",
     content: "Contenuto del trasferimento",
     contentStructureAndData: "Struttura e dati",
     contentStructureOnly: "Solo struttura",
