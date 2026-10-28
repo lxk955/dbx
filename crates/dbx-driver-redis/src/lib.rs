@@ -5197,8 +5197,7 @@ async fn take_hash_overflow_page(
         RedisCollectionOverflowItems::Hash(items) => !items.is_empty(),
         RedisCollectionOverflowItems::Set(_) => false,
     };
-    let retain_cursor =
-        has_buffered_items || (session.followup_cursor != 0 && scope != &RedisOperationScope::default());
+    let retain_cursor = has_buffered_items || session.followup_cursor != 0;
     let next_cursor = if retain_cursor { cursor } else { session.followup_cursor };
     if retain_cursor {
         sessions.reinsert(cursor, session);
@@ -5234,8 +5233,7 @@ async fn take_set_overflow_page(
         RedisCollectionOverflowItems::Set(items) => !items.is_empty(),
         RedisCollectionOverflowItems::Hash(_) => false,
     };
-    let retain_cursor =
-        has_buffered_items || (session.followup_cursor != 0 && scope != &RedisOperationScope::default());
+    let retain_cursor = has_buffered_items || session.followup_cursor != 0;
     let next_cursor = if retain_cursor { cursor } else { session.followup_cursor };
     if retain_cursor {
         sessions.reinsert(cursor, session);
@@ -6466,6 +6464,82 @@ mod tests {
                 _ => panic!("expected collection"),
             }
             assert!(!super::collection_overflow_sessions().lock().await.entries.contains_key(&cursor));
+        }
+    }
+
+    #[tokio::test]
+    async fn partial_overflow_fill_restores_buffer_after_scan_failure() {
+        for key_type in ["hash", "set"] {
+            for connection_id in ["", "retry-partial-overflow"] {
+                let scope = super::RedisOperationScope { connection_id: connection_id.into(), db: 0 };
+                let response = if key_type == "hash" {
+                    hscan_response("128", vec![("one", "value"), ("two", "value")])
+                } else {
+                    scan_response("128", vec!["one", "two"])
+                };
+                let mut first = FakeRedisConnection::new(vec![response, httl_response(1, -1)]);
+                let page =
+                    super::load_more_collection_scoped(&mut first, b"retry-key", key_type, 0, 1, None, None, &scope)
+                        .await
+                        .unwrap();
+                let cursor = match page {
+                    RedisCollectionPage::Hash { scan_cursor, .. } | RedisCollectionPage::Set { scan_cursor, .. } => {
+                        scan_cursor.unwrap()
+                    }
+                    _ => panic!("expected collection"),
+                };
+                let mut failed = FakeRedisConnection::with_results(vec![Err(redis::RedisError::from((
+                    redis::ErrorKind::Io,
+                    "temporary scan failure",
+                )))]);
+                assert!(super::load_more_collection_scoped(
+                    &mut failed,
+                    b"retry-key",
+                    key_type,
+                    cursor,
+                    2,
+                    None,
+                    None,
+                    &scope
+                )
+                .await
+                .is_err());
+                assert!(
+                    super::collection_overflow_sessions().lock().await.entries.contains_key(&cursor),
+                    "lost {key_type} buffer in scope {connection_id:?}"
+                );
+                let response = if key_type == "hash" {
+                    hscan_response("0", vec![("three", "value")])
+                } else {
+                    scan_response("0", vec!["three"])
+                };
+                let mut retry = FakeRedisConnection::new(vec![response, httl_response(2, -1)]);
+                let page = super::load_more_collection_scoped(
+                    &mut retry,
+                    b"retry-key",
+                    key_type,
+                    cursor,
+                    2,
+                    None,
+                    None,
+                    &scope,
+                )
+                .await
+                .unwrap();
+                let (names, next) = match page {
+                    RedisCollectionPage::Hash { items, scan_cursor } => {
+                        (items.iter().map(|item| redis_blob_display_text(&item.field)).collect::<Vec<_>>(), scan_cursor)
+                    }
+                    RedisCollectionPage::Set { items, scan_cursor } => (
+                        items.iter().map(|item| redis_blob_display_text(&item.member)).collect::<Vec<_>>(),
+                        scan_cursor,
+                    ),
+                    _ => panic!("expected collection"),
+                };
+                assert_eq!(names, vec!["two", "three"]);
+                assert_eq!(next, None);
+                assert!(retry.commands[0].contains("\r\n128\r\n"));
+            }
         }
     }
 
