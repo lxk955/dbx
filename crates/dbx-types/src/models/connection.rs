@@ -730,10 +730,7 @@ pub fn jdbc_dialect_hint(config: &ConnectionConfig) -> Option<JdbcDialectHint> {
     {
         return Some(JdbcDialectHint::OceanbaseOracle);
     }
-    if url
-        .get(.."jdbc:oracle:".len())
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("jdbc:oracle:"))
-    {
+    if url.get(.."jdbc:oracle:".len()).is_some_and(|prefix| prefix.eq_ignore_ascii_case("jdbc:oracle:")) {
         return Some(JdbcDialectHint::Oracle);
     }
     None
