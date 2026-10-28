@@ -47,9 +47,10 @@ function sortConnectionSiblingsForDisplay(nodes: readonly TreeNode[], mode: Excl
 }
 
 /**
- * Produces a display-only ordering of saved connections. Group positions and
- * the persisted manual layout remain untouched, so switching back to manual
- * order restores drag-and-drop placement without a data migration.
+ * Produces a display-only ordering of saved connections. In asc/desc modes
+ * both connections and groups are ordered by name; the persisted manual
+ * layout remains untouched, so switching back to manual order restores
+ * drag-and-drop placement without a data migration.
  */
 export function sortConnectionListForDisplay(nodes: readonly TreeNode[], mode: ConnectionListSortMode): TreeNode[] {
   if (mode === "manual") return nodes as TreeNode[];
