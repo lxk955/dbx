@@ -15,15 +15,32 @@ function sortConnectionSiblingsForDisplay(nodes: readonly TreeNode[], mode: Excl
     })
     .map(({ node }) => node);
 
+  const sortedGroups = nodes
+    .map((node, index) => ({ node, index }))
+    .filter(({ node }) => node.type === "connection-group")
+    .sort((left, right) => {
+      const compared = connectionNameCollator.compare(left.node.label, right.node.label);
+      const directional = mode === "asc" ? compared : -compared;
+      return directional || left.index - right.index;
+    })
+    .map(({ node }) => {
+      if (!node.children) return node;
+      const children = sortConnectionSiblingsForDisplay(node.children, mode);
+      return children === node.children ? node : { ...node, children };
+    });
+
   let nextConnectionIndex = 0;
+  let nextGroupIndex = 0;
   const displayNodes = nodes.map((node) => {
     if (node.type === "connection") {
       return sortedConnections[nextConnectionIndex++]!;
     }
 
-    if (node.type !== "connection-group" || !node.children) return node;
-    const children = sortConnectionSiblingsForDisplay(node.children, mode);
-    return children === node.children ? node : { ...node, children };
+    if (node.type === "connection-group") {
+      return sortedGroups[nextGroupIndex++]!;
+    }
+
+    return node;
   });
 
   return displayNodes.every((node, index) => node === nodes[index]) ? (nodes as TreeNode[]) : displayNodes;
