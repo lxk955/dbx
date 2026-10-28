@@ -442,8 +442,7 @@ pub fn editable_oracle_source(source: &str) -> String {
     if trimmed.is_empty() {
         return String::new();
     }
-    if trimmed.len() >= 6
-        && trimmed[..6].eq_ignore_ascii_case("CREATE")
+    if trimmed.get(..6).is_some_and(|head| head.eq_ignore_ascii_case("CREATE"))
         && (trimmed.len() == 6 || trimmed.as_bytes()[6].is_ascii_whitespace())
     {
         trimmed.to_string()
@@ -652,6 +651,8 @@ mod tests {
             editable_oracle_source("   create or replace package pkg is end;  "),
             "create or replace package pkg is end;"
         );
+        let commented = "--注释\nPACKAGE BODY pkg IS BEGIN NULL; END;";
+        assert_eq!(editable_oracle_source(commented), format!("CREATE OR REPLACE {commented}"));
         assert_eq!(editable_oracle_source(""), "");
     }
 }
